@@ -12,6 +12,7 @@ import { Ambient } from './ambient';
 import { Sprites, TreeSprites, type SpriteFit } from './sprites';
 import type { UIState } from './uistate';
 import { ghostTile, wallLineTiles } from './uistate';
+import { constructionFxPlan } from './constructionFx';
 
 export const RESOURCE_COLORS: Record<ResourceType, string> = {
   food: '#d3625c',
@@ -2177,6 +2178,7 @@ export class Renderer {
       ctx.closePath();
       ctx.stroke();
       ctx.lineCap = 'butt';
+      this.drawConstructionCrew(ctx, T, R, B, L, hh, b, now);
     }
 
     // barra de progresso / vida (acima do ponto mais alto); prédio selecionado
@@ -2189,6 +2191,122 @@ export class Renderer {
     } else if (selected || b.hp < def.hp) {
       const frac = clamp01(b.hp / def.hp);
       this.bar(ctx, topx - bw / 2, barY, bw, 5, frac, hpColor(frac));
+    }
+  }
+
+  /** Civilian human/robot collaboration derived from existing build progress.
+   * These marks are intentionally lightweight Canvas primitives: no unit,
+   * collision, command, or build-speed state is introduced. */
+  private drawConstructionCrew(
+    ctx: CanvasRenderingContext2D,
+    T: Pt,
+    R: Pt,
+    B: Pt,
+    L: Pt,
+    hh: number,
+    b: BuildingSnap,
+    now: number,
+  ): void {
+    const plan = constructionFxPlan(b.id, b.progress);
+    if (!plan.active) return;
+    const pulse = now * 0.004 + plan.phase * Math.PI * 2;
+    const humanX = L.x * 0.35 + B.x * 0.65;
+    const humanY = L.y * 0.35 + B.y * 0.65;
+    const robotX = R.x * 0.38 + B.x * 0.62;
+    const robotY = R.y * 0.38 + B.y * 0.62;
+
+    if (plan.crane) {
+      const baseX = T.x * 0.72 + R.x * 0.28;
+      const baseY = T.y * 0.72 + R.y * 0.28;
+      const mastH = hh * 3.1;
+      ctx.strokeStyle = '#d29b43';
+      ctx.lineWidth = Math.max(1.3, hh * 0.12);
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      ctx.lineTo(baseX, baseY - mastH);
+      ctx.lineTo(baseX + hh * 2.2, baseY - mastH + hh * 0.25);
+      ctx.stroke();
+      const hookX = baseX + hh * (1.25 + Math.sin(pulse * 0.35) * 0.35);
+      ctx.strokeStyle = '#59645f';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(hookX, baseY - mastH + hh * 0.13);
+      ctx.lineTo(hookX, baseY - hh * 1.15);
+      ctx.stroke();
+      ctx.fillStyle = '#d7b05f';
+      ctx.fillRect(hookX - hh * 0.18, baseY - hh * 1.2, hh * 0.36, hh * 0.2);
+    }
+
+    if (plan.human) {
+      const bob = Math.abs(Math.sin(pulse)) * hh * 0.08;
+      ctx.strokeStyle = '#3a3028';
+      ctx.lineWidth = Math.max(1, hh * 0.12);
+      ctx.beginPath();
+      ctx.moveTo(humanX, humanY - hh * 0.28 - bob);
+      ctx.lineTo(humanX - hh * 0.2, humanY);
+      ctx.moveTo(humanX, humanY - hh * 0.28 - bob);
+      ctx.lineTo(humanX + hh * 0.2, humanY);
+      ctx.stroke();
+      ctx.fillStyle = '#c66b42';
+      ctx.fillRect(humanX - hh * 0.23, humanY - hh * 0.95 - bob, hh * 0.46, hh * 0.68);
+      this.blob(ctx, humanX, humanY - hh * 1.12 - bob, hh * 0.2, hh * 0.2, '#d7ad86');
+      ctx.fillStyle = '#e5b84f';
+      ctx.beginPath();
+      ctx.arc(humanX, humanY - hh * 1.19 - bob, hh * 0.22, Math.PI, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (plan.robot) {
+      const work = Math.sin(pulse * 1.15) * hh * 0.1;
+      ctx.strokeStyle = '#8b9695';
+      ctx.lineWidth = Math.max(1, hh * 0.11);
+      ctx.beginPath();
+      ctx.moveTo(robotX - hh * 0.12, robotY - hh * 0.35);
+      ctx.lineTo(robotX - hh * 0.2, robotY);
+      ctx.moveTo(robotX + hh * 0.12, robotY - hh * 0.35);
+      ctx.lineTo(robotX + hh * 0.2, robotY);
+      ctx.moveTo(robotX + hh * 0.2, robotY - hh * 0.78);
+      ctx.lineTo(robotX + hh * 0.48 + work, robotY - hh * 0.5);
+      ctx.stroke();
+      ctx.fillStyle = '#f1f4f2';
+      ctx.fillRect(robotX - hh * 0.24, robotY - hh * 0.92, hh * 0.48, hh * 0.58);
+      ctx.fillRect(robotX - hh * 0.2, robotY - hh * 1.25, hh * 0.4, hh * 0.27);
+      ctx.fillStyle = '#6cb9dc';
+      ctx.fillRect(robotX + hh * 0.03, robotY - hh * 1.17, hh * 0.08, hh * 0.06);
+    }
+
+    if (plan.drone) {
+      const droneX = (T.x + R.x) / 2 + Math.sin(pulse * 0.55) * hh * 0.7;
+      const droneY = (T.y + R.y) / 2 - hh * (2.15 + Math.cos(pulse * 0.7) * 0.16);
+      ctx.strokeStyle = '#899493';
+      ctx.lineWidth = Math.max(1, hh * 0.07);
+      ctx.beginPath();
+      ctx.moveTo(droneX - hh * 0.5, droneY);
+      ctx.lineTo(droneX + hh * 0.5, droneY);
+      ctx.stroke();
+      ctx.fillStyle = '#f4f6f4';
+      ctx.fillRect(droneX - hh * 0.24, droneY - hh * 0.12, hh * 0.48, hh * 0.24);
+      ctx.fillStyle = '#67b8df';
+      ctx.fillRect(droneX - hh * 0.06, droneY + hh * 0.06, hh * 0.12, hh * 0.06);
+      ctx.strokeStyle = 'rgba(100,190,225,0.25)';
+      ctx.beginPath();
+      ctx.moveTo(droneX, droneY + hh * 0.14);
+      ctx.lineTo((T.x + B.x) / 2, (T.y + B.y) / 2);
+      ctx.stroke();
+    }
+
+    if (plan.welding && Math.sin(pulse * 2.7) > 0.55) {
+      const sparkX = robotX + hh * 0.48;
+      const sparkY = robotY - hh * 0.48;
+      ctx.strokeStyle = '#9edfff';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const a = pulse + i * 1.57;
+        ctx.beginPath();
+        ctx.moveTo(sparkX, sparkY);
+        ctx.lineTo(sparkX + Math.cos(a) * hh * 0.38, sparkY + Math.sin(a) * hh * 0.38);
+        ctx.stroke();
+      }
     }
   }
 

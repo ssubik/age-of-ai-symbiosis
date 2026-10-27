@@ -53,7 +53,19 @@ Phase 1 changes are presentation-only. Selected visual assets came from the loca
 
 ## Mocked, cosmetic, optional, and future
 
-- The reserved white worker image is not yet connected; mixed human/robot crews, drones, and cranes are Phase 2 cosmetic work.
+- The reserved white worker image remains an art reference; Phase 2 uses lightweight procedural workers so animation stays footprint-safe at every zoom.
 - Symbiosis room mode, modern age labels, council recommendations, and ELON are future Phase 3 work.
 - Proofs, contracts, archive CAR output, and IPFS providers are future Phase 4 work and will remain optional.
 - Current building substitutions are presentation-only and use the existing construction state and balance.
+
+## Phase 2 — construction collaboration
+
+Completed on 2026-10-28:
+
+- Active construction sites derive a deterministic cosmetic plan from the existing building id and progress.
+- Sites progressively show a human engineer, matte-white civilian robot, survey drone, autonomous crane, blue survey beam, and welding sparks.
+- Completion removes every effect immediately; cancellation is inherently cleaned up when the authoritative building snapshot disappears.
+- No simulated unit, command, collision, resource cost, build-speed modifier, or protocol field was added.
+- `scripts/construction_fx_test.ts` covers deterministic output, stage activation, completion cleanup, and malformed-progress fail-closed behavior.
+- Typecheck and build pass; the clean-port multiplayer smoke run passes all 18 assertions.
+- Smoke process cleanup now creates a POSIX process group, preventing orphan test servers from retaining port 8080.

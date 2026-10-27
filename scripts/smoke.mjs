@@ -189,7 +189,10 @@ async function main() {
 
   serverProc = spawn('npx', ['tsx', 'server/src/index.ts'], {
     cwd: ROOT,
-    shell: true,
+    // On POSIX, a detached process group lets cleanup terminate npx and its
+    // tsx child together. Shelling out left orphan servers holding port 8080.
+    shell: process.platform === 'win32',
+    detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
