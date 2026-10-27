@@ -1,7 +1,7 @@
 // Lobby: conexões, salas, chat e transição sala -> partida.
 
 import { MAX_PLAYERS_PER_ROOM, MIN_PLAYERS_TO_START, PLAYER_COLORS } from '@age/shared';
-import type { BotDifficulty, ClientMessage, GameMode, RoomPlayer, RoomSummary, ServerMessage, TerrainKind } from '@age/shared';
+import type { BotDifficulty, ClientMessage, ExperienceMode, GameMode, RoomPlayer, RoomSummary, ServerMessage, TerrainKind } from '@age/shared';
 import { Game, type RoomMember } from './game/room';
 
 export interface Connection {
@@ -37,6 +37,7 @@ interface Room {
   inGame: boolean;
   game: Game | null;
   mode: GameMode; // 'normal' | 'batalha' (escolhido pelo host)
+  experience: ExperienceMode; // presentation only; classic is compatibility default
   fog: boolean; // névoa de guerra (mapa fechado); default false = mapa aberto
   terrain: TerrainKind; // 'classic' (lagos) | 'river' (rio + vaus + peixes)
   /** Transmitir a partida: deixa gente de fora ASSISTIR. Nasce LIGADO — o host
@@ -202,6 +203,9 @@ export class Lobby {
       case 'setMode':
         this.setMode(conn, msg.mode);
         break;
+      case 'setExperience':
+        this.setExperience(conn, msg.experience);
+        break;
       case 'setFog':
         this.setFog(conn, msg.fog);
         break;
@@ -334,7 +338,7 @@ export class Lobby {
     conn.send({ type: 'welcome', playerId: oldId });
     conn.send({ type: 'nameOk' });
     if (room.game) {
-      conn.send({ type: 'gameStart', map: room.game.map, players: room.game.toPlayerInfos(), you: oldId, fog: room.fog });
+      conn.send({ type: 'gameStart', map: room.game.map, players: room.game.toPlayerInfos(), you: oldId, fog: room.fog, experience: room.experience });
       // reconectou no meio de uma pausa: já mostra o overlay (senão veria o jogo congelado sem explicação)
       if (room.game.isPaused) conn.send({ type: 'gamePaused', paused: true, by: '' });
     }
@@ -350,6 +354,16 @@ export class Lobby {
     if (room.hostId !== conn.id) return; // só o host muda
     if (mode !== 'normal' && mode !== 'batalha') return;
     room.mode = mode;
+    this.touch(room);
+    this.broadcastRoomState(room.id);
+  }
+
+  private setExperience(conn: Connection, experience: ExperienceMode): void {
+    if (!conn.roomId) return;
+    const room = this.rooms.get(conn.roomId);
+    if (!room || room.inGame || room.hostId !== conn.id) return;
+    if (experience !== 'classic' && experience !== 'symbiosis') return;
+    room.experience = experience;
     this.touch(room);
     this.broadcastRoomState(room.id);
   }
@@ -375,6 +389,7 @@ export class Lobby {
       inGame: false,
       game: null,
       mode: 'normal',
+      experience: 'classic',
       fog: false, // mapa começa ABERTO (o host fecha se quiser névoa)
       terrain: 'classic', // padrão: continente clássico; host troca pra Rio
       broadcast: true, // nasce transmitindo; o host desmarca pra jogar fechado
@@ -614,6 +629,7 @@ export class Lobby {
       you: conn.id,
       fog: false, // espectador vê o mapa todo (é o ponto de assistir)
       spectating: true,
+      experience: room.experience,
     });
     this.broadcastRoomListToLobbyClients();
   }
@@ -790,7 +806,7 @@ export class Lobby {
     for (const m of gameMembers) {
       const c = this.conns.get(m.id);
       if (!c) continue;
-      const msg: ServerMessage = { type: 'gameStart', map: game.map, players: playerInfos, you: m.id, fog: room.fog };
+      const msg: ServerMessage = { type: 'gameStart', map: game.map, players: playerInfos, you: m.id, fog: room.fog, experience: room.experience };
       c.send(msg);
     }
     game.start();
@@ -910,7 +926,7 @@ export class Lobby {
         team: m.team,
       };
     });
-    const msg: ServerMessage = { type: 'roomState', roomId, players, mode: room.mode, fog: room.fog, terrain: room.terrain, broadcast: room.broadcast };
+    const msg: ServerMessage = { type: 'roomState', roomId, players, mode: room.mode, fog: room.fog, terrain: room.terrain, broadcast: room.broadcast, experience: room.experience };
     for (const m of room.members.values()) this.conns.get(m.id)?.send(msg);
   }
 }

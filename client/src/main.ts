@@ -139,6 +139,7 @@ const roomScreen = new RoomScreen({
   onRemoveBot: () => net.send({ type: 'removeBot' }),
   onSetTeam: (playerId, team) => net.send({ type: 'setTeam', playerId, team }),
   onSetMode: (mode) => net.send({ type: 'setMode', mode }),
+  onSetExperience: (experience) => net.send({ type: 'setExperience', experience }),
   onSetFog: (fog) => net.send({ type: 'setFog', fog }),
   onSetBroadcast: (on) => net.send({ type: 'setBroadcast', on }),
   onSetTerrain: (terrain) => net.send({ type: 'setTerrain', terrain }),
@@ -244,7 +245,7 @@ function dispatch(msg: ServerMessage): void {
     }
     case 'roomState': {
       lastRoomPlayers = Array.isArray(msg.players) ? msg.players : [];
-      roomScreen.setState(msg.roomId, lastRoomPlayers, myPlayerId, msg.mode, msg.fog, msg.terrain, msg.broadcast);
+      roomScreen.setState(msg.roomId, lastRoomPlayers, myPlayerId, msg.mode, msg.fog, msg.terrain, msg.broadcast, msg.experience ?? 'classic');
       // Ignora troca de tela enquanto o overlay de fim de jogo está visível: o
       // servidor manda 'roomState' logo após 'gameOver' (reset do lobby), mas o
       // jogador ainda não confirmou "Voltar ao lobby" — trocar de tela agora
@@ -301,7 +302,7 @@ function dispatch(msg: ServerMessage): void {
           showScreen('lobby');
           net.send({ type: 'listRooms' });
         },
-      }, msg.fog, msg.spectating);
+      }, msg.fog, msg.spectating, msg.experience ?? 'classic');
       showScreen('game');
       break;
     }

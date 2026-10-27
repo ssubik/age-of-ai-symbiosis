@@ -69,3 +69,17 @@ Completed on 2026-10-28:
 - `scripts/construction_fx_test.ts` covers deterministic output, stage activation, completion cleanup, and malformed-progress fail-closed behavior.
 - Typecheck and build pass; the clean-port multiplayer smoke run passes all 18 assertions.
 - Smoke process cleanup now creates a POSIX process group, preventing orphan test servers from retaining port 8080.
+
+## Phase 3a — optional mode and deterministic council
+
+Completed on 2026-10-28:
+
+- Rooms now expose a host-selectable Classic/Symbiosis presentation setting independent of Normal/Battle balance mode.
+- `experience` is optional in room and game-start messages; absence always means Classic, preserving older-message compatibility.
+- The selection is carried through reconnects, spectators, and both multiplayer clients at match start.
+- Symbiosis matches show a compact, collapsible AI Council panel. Its local deterministic rules inspect only the player's already-visible economy and never issue commands.
+- Every recommendation includes an action and a plain-language reason in English, Portuguese, and Spanish.
+- `scripts/symbiosis_mode_test.ts` covers legacy optional-field compatibility and recommendation determinism/priority.
+- The extended real WebSocket smoke run passes all 19 assertions and confirms the server releases port 8080 afterward.
+
+Still pending in Phase 3: modern age/building presentation mappings, server-authoritative integer ELON events, contribution invariants, and post-match contribution summaries.

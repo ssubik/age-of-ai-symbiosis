@@ -187,11 +187,12 @@ async function killServerTree() {
 async function main() {
   console.log('--- Browser Empires smoke test ---');
 
-  serverProc = spawn('npx', ['tsx', 'server/src/index.ts'], {
+  const tsxBin = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
+  serverProc = spawn(tsxBin, ['server/src/index.ts'], {
     cwd: ROOT,
     // On POSIX, a detached process group lets cleanup terminate npx and its
     // tsx child together. Shelling out left orphan servers holding port 8080.
-    shell: process.platform === 'win32',
+    shell: false,
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -280,6 +281,15 @@ async function main() {
     );
     record(roomStateAfterJoin.players.length === 2, 'B joined room; roomState shows 2 players');
 
+    // ---- optional presentation mode: host selects Symbiosis ----
+    a.send({ type: 'setExperience', experience: 'symbiosis' });
+    const symbiosisState = await a.waitFor(
+      (m) => m.type === 'roomState' && m.experience === 'symbiosis',
+      5000,
+      'roomState with Symbiosis presentation',
+    );
+    record(symbiosisState.experience === 'symbiosis', 'Host selected optional Symbiosis presentation mode');
+
     // ---- both setReady true ----
     a.send({ type: 'setReady', ready: true });
     b.send({ type: 'setReady', ready: true });
@@ -303,8 +313,9 @@ async function main() {
     const mapOk = gameStartA.map && gameStartA.map.size === MAP_SIZE && Array.isArray(gameStartA.map.tiles) && gameStartA.map.tiles.length === MAP_SIZE * MAP_SIZE;
     const playersOk = Array.isArray(gameStartA.players) && gameStartA.players.length === 2;
     record(
-      mapOk && playersOk && gameStartB.map.size === gameStartA.map.size,
-      `Both clients received gameStart with MAP_SIZE=${gameStartA.map && gameStartA.map.size} and ${gameStartA.players && gameStartA.players.length} players`,
+      mapOk && playersOk && gameStartB.map.size === gameStartA.map.size &&
+        gameStartA.experience === 'symbiosis' && gameStartB.experience === 'symbiosis',
+      `Both clients received Symbiosis gameStart with MAP_SIZE=${gameStartA.map && gameStartA.map.size} and ${gameStartA.players && gameStartA.players.length} players`,
     );
 
     // ---- snapshots: town centers, villagers, resources, popCap ----

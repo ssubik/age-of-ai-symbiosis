@@ -51,6 +51,10 @@ export type MarketPrices = Record<'food' | 'wood' | 'stone', number>;
  * já numa era avançada — jogo rápido, direto pro combate). */
 export type GameMode = 'normal' | 'batalha';
 
+/** Optional presentation/advisory layer. Classic remains the compatibility
+ * default when this field is absent (including older servers/clients). */
+export type ExperienceMode = 'classic' | 'symbiosis';
+
 /** Terreno do mapa (o "mapa" que o host escolhe):
  *  'classic' = continente com lagos;
  *  'river'   = rio cruzando o mapa COM bancos de areia (travessia a pé) + peixe;
@@ -64,6 +68,7 @@ export type BotDifficulty = 'easy' | 'normal' | 'hard' | 'expert';
 export type ClientMessage =
   | { type: 'setName'; name: string; clientId?: string }
   | { type: 'setMode'; mode: GameMode } // apenas host: escolhe Normal/Batalha na sala
+  | { type: 'setExperience'; experience: ExperienceMode }
   | { type: 'setFog'; fog: boolean } // apenas host: mapa fechado (névoa) ou aberto
   | { type: 'setTerrain'; terrain: TerrainKind } // apenas host: Clássico ou Rio
   // apenas host: permite que gente de fora ASSISTA a partida. Ligado por padrão;
@@ -117,7 +122,7 @@ export type ServerMessage =
   | { type: 'nameOk' }              // nome aceito -> pode ir pro lobby
   | { type: 'nameTaken' }           // nome já em uso -> escolha outro
   | { type: 'roomList'; rooms: RoomSummary[] }
-  | { type: 'roomState'; roomId: string; players: RoomPlayer[]; mode: GameMode; fog: boolean; terrain: TerrainKind; broadcast: boolean }
+  | { type: 'roomState'; roomId: string; players: RoomPlayer[]; mode: GameMode; fog: boolean; terrain: TerrainKind; broadcast: boolean; experience?: ExperienceMode }
   | { type: 'leftRoom' }
   // Erro: o servidor manda um CÓDIGO (traduzido no cliente via i18n) + params
   // opcionais. `age` (número) e `building` (tipo) são convertidos para o nome
@@ -127,7 +132,7 @@ export type ServerMessage =
   // `spectating`: você entrou só pra ASSISTIR — não tem vaga nem unidades, e
   // `you` não corresponde a jogador nenhum (o cliente usa isso pra revelar o
   // mapa e esconder os painéis de comando).
-  | { type: 'gameStart'; map: MapData; players: PlayerInfo[]; you: number; fog: boolean; spectating?: boolean }
+  | { type: 'gameStart'; map: MapData; players: PlayerInfo[]; you: number; fog: boolean; spectating?: boolean; experience?: ExperienceMode }
   | {
       type: 'snapshot';
       tick: number;

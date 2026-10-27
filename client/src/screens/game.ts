@@ -1,6 +1,6 @@
 // Tela 4: Jogo — canvas fullscreen + HUD, câmera, input e renderização.
 
-import type { GameCommand, MapData, PlayerInfo } from '@age/shared';
+import type { ExperienceMode, GameCommand, MapData, PlayerInfo } from '@age/shared';
 import { BUILDING_DEFS } from '@age/shared';
 import { GameState } from '../state';
 import { el } from '../ui';
@@ -15,6 +15,7 @@ import { Minimap } from '../game/minimap';
 import { Renderer } from '../game/renderer';
 import { createUIState } from '../game/uistate';
 import { ConnLostOverlay } from './connlost';
+import { recommend } from '../game/advisor';
 
 export interface GameScreenDeps {
   onCommand: (cmd: GameCommand) => void;
@@ -46,6 +47,8 @@ export class GameScreen {
   private avisouDerrota = false;
   /** Aviso de "acabou o que você assistia" (Continuar olhando / Voltar). */
   private specEndOverlay: HTMLElement | null = null;
+  private councilText: HTMLElement | null = null;
+  private councilLastId = '';
 
   private rafId = 0;
   private resizeObserver: ResizeObserver | null = null;
@@ -71,7 +74,7 @@ export class GameScreen {
    *  nunca esteve jogando.) */
   get isSpectating(): boolean { return this.spectating; }
 
-  constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false) {
+  constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false, private experience: ExperienceMode = 'classic') {
     this.spectating = spectating;
     // Espectador vê o mapa todo (é o ponto de assistir) — a névoa é desligada.
     this.state = new GameState(map, players, you, spectating ? false : fogEnabled);
@@ -104,6 +107,20 @@ export class GameScreen {
     };
     this.createHud();
     root.appendChild(this.hud.el);
+
+    if (experience === 'symbiosis' && !spectating) {
+      this.el.classList.add('symbiosis-mode');
+      const council = el('aside', 'council-panel');
+      const head = el('button', 'council-head');
+      head.appendChild(el('span', 'council-dot'));
+      head.appendChild(el('span', '', t('council.title')));
+      head.appendChild(el('span', 'council-chevron', '▾'));
+      this.councilText = el('div', 'council-text', t('council.waiting'));
+      head.addEventListener('click', () => council.classList.toggle('collapsed'));
+      council.appendChild(head);
+      council.appendChild(this.councilText);
+      root.appendChild(council);
+    }
 
     this.minimap = new Minimap(gs, this.cam, {
       onOrderMove: (wx, wy, queue) => this.input.orderMoveTo(wx, wy, queue),
@@ -422,6 +439,7 @@ export class GameScreen {
       this.input.tick(now);
       this.playEventSounds(now);
       this.hud.update();
+      this.updateCouncil();
       this.updateWatchBadge();
       this.checkDefeat();
       if (this.ctx) {
@@ -432,6 +450,32 @@ export class GameScreen {
       this.rafId = requestAnimationFrame(frame);
     };
     this.rafId = requestAnimationFrame(frame);
+  }
+
+  private updateCouncil(): void {
+    if (!this.councilText || !this.state.hasSnapshot) return;
+    const me = this.state.me();
+    if (!me?.resources) return;
+    let villagers = 0;
+    let idleVillagers = 0;
+    for (const unit of this.state.units.values()) {
+      if (unit.owner !== this.state.you || unit.type !== 'villager') continue;
+      villagers++;
+      if (unit.state === 'idle') idleVillagers++;
+    }
+    const advice = recommend({
+      ...me.resources,
+      population: me.pop,
+      populationCap: me.popCap,
+      villagers,
+      age: me.age,
+      idleVillagers,
+    });
+    if (advice.id === this.councilLastId) return;
+    this.councilLastId = advice.id;
+    this.councilText.innerHTML = '';
+    this.councilText.appendChild(el('strong', '', t(`council.${advice.id}.action`)));
+    this.councilText.appendChild(el('span', '', t(`council.${advice.id}.why`)));
   }
 
   /** Acabou o que eu estava assistindo. Mostra O QUE aconteceu e deixa escolher:
