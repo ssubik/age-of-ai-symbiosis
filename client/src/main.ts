@@ -349,7 +349,7 @@ function dispatch(msg: ServerMessage): void {
       if (current !== 'game') break;
       const youWon = msg.won ?? (msg.winner === myPlayerId);
       gameScreen?.state.fog.revealAll(); // fim de jogo revela o mapa (estilo AoE)
-      gameOverScreen.show(youWon, msg.winnerName);
+      gameOverScreen.show(youWon, msg.winnerName, msg.contributions);
       music.setState('end'); // música de fim de jogo
       break;
     }

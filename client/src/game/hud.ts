@@ -151,7 +151,7 @@ export class Hud {
   /** Botões de comércio do Mercado ("sell:food", "buy:wood", ...). */
   private tradeBtns = new Map<string, HTMLButtonElement>();
 
-  constructor(private gs: GameState, private deps: HudDeps) {
+  constructor(private gs: GameState, private deps: HudDeps, private symbiosis = false) {
     // ---- barra superior de recursos ----
     const top = el('div', 'panel hud-top');
     for (const r of RES_ORDER) {
@@ -173,7 +173,7 @@ export class Hud {
     const ageSpan = el('span', 'res age');
     ageSpan.title = t('hud.age_tip');
     ageSpan.append('🏛 ');
-    this.ageVal = el('b', '', AGE_NAMES[1]);
+    this.ageVal = el('b', '', this.ageName(1));
     ageSpan.appendChild(this.ageVal);
     top.appendChild(ageSpan);
     // botão de aldeão ocioso (AoE2): seleciona/centraliza o próximo parado
@@ -297,7 +297,7 @@ export class Hud {
     const age = me.age ?? 1;
     const ageTxt = me.ageProgress !== undefined
       ? `${AGE_NUMERALS[age]} → ${AGE_NUMERALS[age + 1]} (${Math.round(me.ageProgress * 100)}%)`
-      : `${AGE_NUMERALS[age]} · ${AGE_NAMES[age]}`;
+      : `${AGE_NUMERALS[age]} · ${this.ageName(age)}`;
     if (ageTxt !== this.ageTxtCache) {
       this.ageTxtCache = ageTxt;
       this.ageVal.textContent = ageTxt;
@@ -447,7 +447,7 @@ export class Hud {
     const def = BUILDING_DEFS[b.type];
     const maxHp = def?.hp ?? b.hp;
     this.selPanel.appendChild(
-      this.titleRow(BUILDING_ICONS[b.type] ?? '❔', BUILDING_NAMES[b.type] ?? b.type, this.gs.colorOf(b.owner)),
+      this.titleRow(BUILDING_ICONS[b.type] ?? '❔', this.buildingName(b.type), this.gs.colorOf(b.owner)),
     );
     this.selPanel.appendChild(this.hpBar(b.hp, maxHp));
     if (b.owner !== this.gs.you) {
@@ -471,6 +471,22 @@ export class Hud {
       btn.addEventListener('click', () => this.deps.onUnload(b.id));
       this.selPanel.appendChild(btn);
     }
+  }
+
+  private ageName(age: number): string {
+    return this.symbiosis ? t(`symbiosis.age.${age}`) : AGE_NAMES[age];
+  }
+
+  private buildingName(type: BuildingType): string {
+    if (!this.symbiosis) return BUILDING_NAMES[type] ?? type;
+    const modern: Partial<Record<BuildingType, string>> = {
+      town_center: t('symbiosis.building.town_center'),
+      house: t('symbiosis.building.house'),
+      mill: t('symbiosis.building.mill'),
+      market: t('symbiosis.building.market'),
+      blacksmith: t('symbiosis.building.blacksmith'),
+    };
+    return modern[type] ?? BUILDING_NAMES[type] ?? type;
   }
 
   private renderNodeDetail(n: NodeSnap): void {

@@ -56,12 +56,14 @@ import type {
   BuildingType,
   GameCommand,
   GameMode,
+  ElonEvent,
   MapData,
   MarketPrices,
   NodeSnap,
   PlayerInfo,
   PlayerSnap,
   ResourceType,
+  Resources,
   ServerMessage,
   SheepSnap,
   TerrainKind,
@@ -119,6 +121,10 @@ export class Game {
     wood: MARKET_START_PRICE,
     stone: MARKET_START_PRICE,
   };
+  readonly elonEvents: ElonEvent[] = [];
+  private knownCompletedBuildings = new Set<number>();
+  private knownUnits = new Set<number>();
+  private knownAges = new Map<number, number>();
 
   constructor(
     members: RoomMember[],
@@ -167,6 +173,7 @@ export class Game {
         techs: new Set<string>(),
         difficulty: m.difficulty,
         team: m.team,
+        elon: 0,
       });
       if (m.isBot) this.botIds.add(m.id);
     });
@@ -186,6 +193,9 @@ export class Game {
     }
     for (const n of gen.nodes) this.nodes.set(n.id, n);
     for (const s of gen.sheep) this.sheep.set(s.id, s); // selvagens (owner -1), sem remap
+    for (const b of this.buildings.values()) if (b.progress >= 1) this.knownCompletedBuildings.add(b.id);
+    for (const u of this.units.values()) this.knownUnits.add(u.id);
+    for (const p of this.players.values()) this.knownAges.set(p.id, p.age);
   }
 
   start(): void {
@@ -325,6 +335,8 @@ export class Game {
       }
     }
 
+    this.recordContributionEvents();
+
     this.checkVictory();
 
     if (this.tick % SNAPSHOT_TICKS === 0) this.broadcastSnapshot();
@@ -352,6 +364,8 @@ export class Game {
           ? Math.min(1, p.ageResearch.elapsed / (AGE_RESEARCH_TIME[p.ageResearch.target] || 1))
           : undefined,
         techs: [...p.techs],
+        elon: p.elon,
+        elonEvents: this.elonEvents.filter((e) => e.playerId === p.id).slice(-5),
       });
     }
     const msg: ServerMessage = {
@@ -394,6 +408,48 @@ export class Game {
       })),
     };
     for (const id of this.spectators) this.send(id, magro);
+  }
+
+  private addElon(playerId: number, category: ElonEvent['category'], amount: number, reason: string, sourceId?: number): void {
+    if (!Number.isInteger(amount) || amount === 0) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.elon += amount;
+    this.elonEvents.push({ tick: this.tick, playerId, category, amount, reason, sourceId });
+  }
+
+  /** Detects safe, completed authoritative outcomes exactly once. */
+  private recordContributionEvents(): void {
+    for (const b of this.buildings.values()) {
+      if (b.progress < 1 || this.knownCompletedBuildings.has(b.id)) continue;
+      this.knownCompletedBuildings.add(b.id);
+      const energyTypes: BuildingType[] = ['mill', 'lumber_camp', 'mining_camp', 'dock'];
+      const amount = energyTypes.includes(b.type) ? 4 : b.type === 'house' ? 2 : b.type === 'town_center' ? 8 : 3;
+      this.addElon(b.owner, energyTypes.includes(b.type) ? 'energy' : 'obligation', amount, `completed:${b.type}`, b.id);
+    }
+    for (const u of this.units.values()) {
+      if (this.knownUnits.has(u.id)) continue;
+      this.knownUnits.add(u.id);
+      if (u.type === 'villager') this.addElon(u.owner, 'labor', 1, 'trained:villager', u.id);
+    }
+    for (const p of this.players.values()) {
+      const previous = this.knownAges.get(p.id) ?? p.age;
+      if (p.age > previous) this.addElon(p.id, 'obligation', (p.age - previous) * 5, `reached:age-${p.age}`);
+      this.knownAges.set(p.id, p.age);
+    }
+  }
+
+  contributionSummary(): { tick: number; players: { id: number; name: string; elon: number; age: number; defeated: boolean; buildings: number; units: number; resources: Resources }[]; elonEvents: ElonEvent[] } {
+    return {
+      tick: this.tick,
+      players: [...this.players.values()].map((p) => ({
+        id: p.id, name: p.name, elon: p.elon, age: p.age, defeated: p.defeated,
+        buildings: [...this.buildings.values()].filter((b) => b.owner === p.id).length,
+        units: [...this.units.values()].filter((u) => u.owner === p.id).length,
+        resources: { ...p.resources },
+      })),
+      elonEvents: this.elonEvents.map((event) => ({ ...event })),
+    };
   }
 
   /** Entra como espectador. Devolve false se o id já está jogando (um jogador
@@ -481,9 +537,10 @@ export class Game {
         // `won` individual: aliados do lado vencedor também veem "Vitória!"
         // (mesmo um aliado já derrotado — o TIME dele venceu).
         const won = winner ? this.allied(p.id, winner.id) : false;
+        const contributions = [...this.players.values()].map((player) => ({ playerId: player.id, name: player.name, elon: player.elon }));
         this.send(p.id, winner
-          ? { type: 'gameOver', winner: winner.id, winnerName, won }
-          : { type: 'gameOver', winner: -1, winnerName: '', won: false });
+          ? { type: 'gameOver', winner: winner.id, winnerName, won, contributions }
+          : { type: 'gameOver', winner: -1, winnerName: '', won: false, contributions });
       }
       this.onGameOver(winner ? winner.id : -1, winnerName);
     }

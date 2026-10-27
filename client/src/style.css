@@ -94,6 +94,10 @@ input.txt:focus { border-color: var(--gold); }
   font-size: 22px;
 }
 .status-line { color: var(--muted); font-size: 14px; min-height: 18px; text-align: center; }
+.result-contributions { margin: 4px 0 8px; padding: 10px 12px; border: 1px solid var(--border-dim); border-radius: 5px; background: rgba(6,20,16,.65); }
+.result-contributions > strong { display: block; margin-bottom: 6px; color: var(--gold-bright); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.result-contribution-row { display: flex; justify-content: space-between; gap: 18px; padding: 3px 0; color: var(--muted); font-size: 13px; }
+.result-contribution-row b { color: #a7d1c1; font-variant-numeric: tabular-nums; }
 
 /* ===== Tela de entrada (Age of AI) — moldura de quadro dourada ===== */
 .entry-frame {
@@ -417,6 +421,14 @@ input.txt:focus { border-color: var(--gold); }
 .council-text span { color: #aebfb7; }
 .council-panel.collapsed .council-text { display: none; }
 .council-panel.collapsed .council-chevron { transform: rotate(-90deg); }
+.elon-panel {
+  position: absolute; top: 48px; left: 12px; z-index: 18; display: flex; align-items: baseline; gap: 8px;
+  padding: 7px 11px; border-radius: 6px; color: #f0dfb8; background: rgba(7, 25, 21, .92);
+  border: 1px solid rgba(201,155,82,.62); box-shadow: 0 5px 18px rgba(0,0,0,.35);
+  font-variant-numeric: tabular-nums;
+}
+.elon-label { color: #8fb7aa; font-size: 10px; font-weight: 800; letter-spacing: .15em; }
+.elon-panel strong { font-size: 15px; }
 /* ícones desenhados (SVG) — não dependem da fonte de emoji do sistema */
 .res-ico { display: inline-flex; }
 .res-ico svg { width: 16px; height: 16px; display: block; }

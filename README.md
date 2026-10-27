@@ -49,6 +49,18 @@ npm run build       # production build of the client (client/dist)
 npm run smoke       # E2E test: starts the server and simulates a match with 2 WebSocket clients
 ```
 
+## Age of Symbiosis
+
+Rooms can optionally enable **Symbiosis** presentation while retaining the same authoritative simulation, resources, balance, controls, and victory condition. This adds Nepal-tech presentation, cosmetic human/robot construction crews, a deterministic local advisory council, and server-authoritative **ELON** contribution standing (Energy, Labor, Obligation, and Need). ELON is non-transferable match metadata, not currency.
+
+Completed matches produce deterministic local JSON and text chronicles in `archives/` (ignored by Git). Optional proof infrastructure is disabled by default:
+
+```bash
+BLOCKCHAIN_ENABLED=false npm run dev:server
+```
+
+When enabled for local development, the current adapter labels commitments `local`; it never claims confirmation. `contracts/MatchCommitmentRegistry.sol` and the Anvil endpoint in `contracts/foundry.toml` provide the narrow future on-chain boundary. No wallet, node, model API, or IPFS provider is required to play.
+
 ## Architecture
 
 ```

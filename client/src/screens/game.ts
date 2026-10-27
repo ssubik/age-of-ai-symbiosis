@@ -49,6 +49,7 @@ export class GameScreen {
   private specEndOverlay: HTMLElement | null = null;
   private councilText: HTMLElement | null = null;
   private councilLastId = '';
+  private elonValue: HTMLElement | null = null;
 
   private rafId = 0;
   private resizeObserver: ResizeObserver | null = null;
@@ -120,6 +121,12 @@ export class GameScreen {
       council.appendChild(head);
       council.appendChild(this.councilText);
       root.appendChild(council);
+      const contribution = el('div', 'elon-panel');
+      contribution.appendChild(el('span', 'elon-label', 'ELON'));
+      this.elonValue = el('strong', '', '0');
+      contribution.appendChild(this.elonValue);
+      contribution.title = t('elon.explain');
+      root.appendChild(contribution);
     }
 
     this.minimap = new Minimap(gs, this.cam, {
@@ -231,7 +238,7 @@ export class GameScreen {
 
   /** (Re)cria o HUD com os deps atuais + o som de clique dos botões. */
   private createHud(): void {
-    this.hud = new Hud(this.state, this.hudDeps);
+    this.hud = new Hud(this.state, this.hudDeps, this.experience === 'symbiosis');
     // clique nos botões do HUD => som de UI (delegado)
     this.hud.el.addEventListener('mousedown', (e) => {
       if ((e.target as HTMLElement)?.closest('button')) this.sfx.uiClick();
@@ -456,6 +463,7 @@ export class GameScreen {
     if (!this.councilText || !this.state.hasSnapshot) return;
     const me = this.state.me();
     if (!me?.resources) return;
+    if (this.elonValue) this.elonValue.textContent = String(me.elon ?? 0);
     let villagers = 0;
     let idleVillagers = 0;
     for (const unit of this.state.units.values()) {

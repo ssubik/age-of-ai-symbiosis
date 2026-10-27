@@ -187,11 +187,9 @@ async function killServerTree() {
 async function main() {
   console.log('--- Browser Empires smoke test ---');
 
-  const tsxBin = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
-  serverProc = spawn(tsxBin, ['server/src/index.ts'], {
+  serverProc = spawn(process.execPath, ['--import', 'tsx', 'server/src/index.ts'], {
     cwd: ROOT,
-    // On POSIX, a detached process group lets cleanup terminate npx and its
-    // tsx child together. Shelling out left orphan servers holding port 8080.
+    // Spawn Node itself (no npx/.bin wrapper), so cleanup owns the real server.
     shell: false,
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],

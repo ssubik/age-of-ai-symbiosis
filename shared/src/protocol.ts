@@ -157,7 +157,7 @@ export type ServerMessage =
   //   'closed'      — o host fechou a transmissão (a partida pode seguir)
   | { type: 'spectateEnded'; reason: 'closed' | 'gameOver' | 'surrendered'; winnerName?: string; who?: string }
   // `won` (opcional) diz se VOCÊ venceu — necessário em times (vitória em dupla).
-  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean }
+  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean; contributions?: { playerId: number; name: string; elon: number }[] }
   // Partida pausada/retomada (para TODOS da sala). `by` = quem mexeu (mostra na tela).
   | { type: 'gamePaused'; paused: boolean; by: string }
   // Sinalização no minimapa (só chega aos ALIADOS do autor). `color` = cor do autor.

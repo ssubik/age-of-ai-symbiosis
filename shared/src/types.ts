@@ -120,6 +120,19 @@ export interface PlayerSnap {
   ageProgress?: number;
   /** Ids das tecnologias já pesquisadas. Ausente pro espectador. */
   techs?: string[];
+  /** Optional non-transferable contribution standing (Symbiosis presentation). */
+  elon?: number;
+  /** Recent explainable server-authoritative contribution events. */
+  elonEvents?: ElonEvent[];
+}
+
+export interface ElonEvent {
+  tick: number;
+  playerId: number;
+  category: 'energy' | 'labor' | 'obligation' | 'need';
+  amount: number;
+  reason: string;
+  sourceId?: number;
 }
 
 export interface PlayerInfo {

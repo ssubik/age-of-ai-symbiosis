@@ -114,6 +114,8 @@ export interface GamePlayer {
   difficulty?: BotDifficulty;
   /** Time (0/ausente = sozinho; 1/2 = aliados do mesmo número). */
   team?: number;
+  /** Integer contribution standing; never spent or transferred. */
+  elon: number;
 }
 
 export function createSheep(id: number, x: number, y: number): Sheep {

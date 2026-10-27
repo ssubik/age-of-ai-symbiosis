@@ -1,6 +1,9 @@
 # Dependencias e builds
 node_modules/
 dist/
+archives/
+contracts/out/
+contracts/cache/
 *.log
 
 # Cloudflare Tunnel (binario grande + arquivos temporarios/segredos)

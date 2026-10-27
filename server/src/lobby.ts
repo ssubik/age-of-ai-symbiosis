@@ -3,6 +3,8 @@
 import { MAX_PLAYERS_PER_ROOM, MIN_PLAYERS_TO_START, PLAYER_COLORS } from '@age/shared';
 import type { BotDifficulty, ClientMessage, ExperienceMode, GameMode, RoomPlayer, RoomSummary, ServerMessage, TerrainKind } from '@age/shared';
 import { Game, type RoomMember } from './game/room';
+import { writeChronicle } from './archive/chronicle';
+import { proofAdapterFromEnv, safelySubmitProof } from './proofs';
 
 export interface Connection {
   id: number;
@@ -44,6 +46,7 @@ interface Room {
    *  desmarca se quiser jogar fechado. */
   broadcast: boolean;
   lastActivity: number; // última ação na sala (Date.now) — p/ fechar sala ociosa
+  matchNumber: number;
 }
 
 const ROOM_ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -393,6 +396,7 @@ export class Lobby {
       fog: false, // mapa começa ABERTO (o host fecha se quiser névoa)
       terrain: 'classic', // padrão: continente clássico; host troca pra Rio
       broadcast: true, // nasce transmitindo; o host desmarca pra jogar fechado
+      matchNumber: 0,
       lastActivity: Date.now(),
     };
     room.members.set(conn.id, { id: conn.id, ready: false, joinOrder: this.joinCounter++ });
@@ -801,6 +805,7 @@ export class Lobby {
     );
     room.game = game;
     room.inGame = true;
+    room.matchNumber++;
 
     const playerInfos = game.toPlayerInfos();
     for (const m of gameMembers) {
@@ -817,8 +822,33 @@ export class Lobby {
     if (!room) return;
     // Quem estava assistindo é avisado de que a partida acabou (e de quem
     // ganhou) — aí ELE decide se olha o tabuleiro final ou volta pro lobby.
-    if (room.game) this.encerrarEspectadores(room, { reason: 'gameOver', winnerName });
-    if (room.game) room.game.stop();
+    const finishedGame = room.game;
+    if (finishedGame) this.encerrarEspectadores(room, { reason: 'gameOver', winnerName });
+    if (finishedGame) finishedGame.stop();
+    if (finishedGame) {
+      const summary = finishedGame.contributionSummary();
+      const matchId = `${room.id}-${room.matchNumber}`;
+      setImmediate(() => {
+        void writeChronicle({
+          schema: 'age-of-symbiosis/chronicle-v1',
+          matchId,
+          finishedTick: summary.tick,
+          winnerName,
+          players: summary.players,
+          elonEvents: summary.elonEvents,
+          activity: {
+            buildingsConstructed: summary.elonEvents.filter((event) => event.reason.startsWith('completed:')),
+            unitsTrained: summary.elonEvents.filter((event) => event.reason.startsWith('trained:')),
+            agesReached: summary.elonEvents.filter((event) => event.reason.startsWith('reached:')),
+            battles: [],
+            councilRecommendations: [],
+          },
+        }).then(async (archive) => {
+          const proof = await safelySubmitProof(proofAdapterFromEnv(), matchId, archive.hash, archive.jsonPath);
+          console.log(`[archive] ${matchId} ${archive.hash} proof=${proof.status}`);
+        }).catch((error) => console.error('[archive] failed without affecting gameplay', error));
+      });
+    }
     room.game = null;
     room.inGame = false;
     // Humanos voltam "aguardando"; bots continuam prontos (não há como

@@ -82,4 +82,33 @@ Completed on 2026-10-28:
 - `scripts/symbiosis_mode_test.ts` covers legacy optional-field compatibility and recommendation determinism/priority.
 - The extended real WebSocket smoke run passes all 19 assertions and confirms the server releases port 8080 afterward.
 
-Still pending in Phase 3: modern age/building presentation mappings, server-authoritative integer ELON events, contribution invariants, and post-match contribution summaries.
+Phase 3 presentation mappings, authoritative contribution events, invariants, and post-match summaries are implemented below.
+
+## Phase 3b — ELON contribution standing
+
+- The authoritative server posts integer events exactly once for completed facilities, trained workers, and reached ages.
+- The sum of explainable events is invariant with the player's non-transferable standing; food, wood, gold, and stone remain unchanged.
+- Symbiosis matches show the standing in a small HUD panel, and game-over cards show every player's result.
+- Spectator snapshots omit ELON alongside other private economic data.
+
+## Phase 4 — chronicle and proof boundary
+
+- Every completed match queues a deterministic canonical JSON archive and concise text summary after the safe game-over event.
+- Archive hashes use SHA-256 over canonical key ordering. Local output is never described as IPFS-pinned.
+- `server/src/proofs/` provides narrow disabled and local adapters. Disabled is the default; failures are converted to `failed` metadata and cannot affect gameplay.
+- `shared/src/proof-types.ts` distinguishes disabled, local, simulated, submitted, confirmed, and failed states.
+- `contracts/MatchCommitmentRegistry.sol` is a minimal non-token commitment registry with local Anvil configuration.
+- `scripts/elon_archive_proof_test.ts` covers integer/balanced postings, deterministic hashes, blockchain-disabled behavior, and failed-proof isolation.
+
+## Phase 5 — verification and polish
+
+Completed on 2026-10-28:
+
+- Typecheck and production build pass.
+- The real two-client WebSocket smoke flow passes 19 assertions in Symbiosis mode and releases its server port cleanly.
+- Progression (17), combat (8), drop-off (6), population cap (17), fog (18), spectator (30), team (17), naval (43), sheep (22), garrison (7), reconnect, and lobby/name scenarios pass.
+- Construction lifecycle, advisor compatibility/determinism, ELON invariants, deterministic archive hashing, disabled proof behavior, and failed proof isolation pass.
+- The Solidity commitment registry compiles successfully with Foundry/Solc 0.8.24.
+- Classic remains the default when optional presentation fields are absent. No wallet, blockchain node, IPFS provider, or model API is required.
+
+Known narrow boundaries: battle events and council acceptance history are represented as empty arrays in chronicle v1 because the current council never executes actions and combat telemetry is not yet persisted. Local JSON/text archives are not labeled as IPFS-pinned, and the local proof adapter is never labeled confirmed.
