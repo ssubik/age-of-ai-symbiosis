@@ -45,6 +45,11 @@ export class NameScreen {
 
     // Login mínimo sobre a arte — a moldura e o título "Age of AI" já vêm da imagem.
     const login = el('div', 'entry-login');
+    const brand = el('div', 'symbiosis-brand');
+    brand.appendChild(el('span', 'symbiosis-kicker', t('name.welcome_to')));
+    brand.appendChild(el('h1', 'symbiosis-title', 'Age of Symbiosis'));
+    brand.appendChild(el('p', 'symbiosis-subtitle', t('name.subtitle')));
+    login.appendChild(brand);
     this.titleEl = el('h2', 'entry-login-title', t('name.join_heading'));
     login.appendChild(this.titleEl);
 

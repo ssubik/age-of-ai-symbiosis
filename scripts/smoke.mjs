@@ -6,6 +6,8 @@
 
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import net from 'node:net';
 import WebSocket from 'ws';
 
@@ -14,12 +16,12 @@ import WebSocket from 'ws';
 // of numeric constants we need for assertions, and cross-check MAP_SIZE etc.
 // via the actual server-sent data wherever possible instead of hardcoding.
 
-const ROOT = 'D:\\age';
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GAME_PORT = 8080; // from shared/src/constants.ts
 
 // Lê MAP_SIZE direto do arquivo de constantes para o teste nunca ficar defasado.
 function readMapSize() {
-  const src = readFileSync(`${ROOT}\\shared\\src\\constants.ts`, 'utf8');
+  const src = readFileSync(join(ROOT, 'shared', 'src', 'constants.ts'), 'utf8');
   const m = /MAP_SIZE\s*=\s*(\d+)/.exec(src);
   return m ? parseInt(m[1], 10) : 48;
 }

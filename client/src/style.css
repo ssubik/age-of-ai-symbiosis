@@ -1,18 +1,18 @@
-/* ===== Browser Empires — tema medieval escuro ===== */
+/* ===== Age of Symbiosis — Nepal-tech visual foundation ===== */
 :root {
-  --bg2: #100d0a;
-  --panel: rgba(30, 24, 16, 0.94);
-  --border: #6e5637;
-  --border-dim: #4a3b26;
-  --gold: #d9a941;
-  --gold-bright: #f0c869;
-  --text: #ece0c8;
-  --muted: #a8987a;
+  --bg2: #09110f;
+  --panel: rgba(13, 27, 24, 0.95);
+  --border: #756044;
+  --border-dim: #3b4b42;
+  --gold: #c99b52;
+  --gold-bright: #e4c17d;
+  --text: #edf1e9;
+  --muted: #a4b0a7;
   --red: #e05b52;
   --green: #6abf69;
   /* Paleta ornamentada (molduras de ouro + pedra) — usada na Sala e no Lobby. */
   --g1: #f6e7b4; --g2: #dcbb64; --g3: #b8912f; --g4: #7d5f22;
-  --st1: #161009; --st2: #1f1710; --st3: #2a2015;
+  --st1: #0b1513; --st2: #10201c; --st3: #173029;
   --cream: #efe3c6; --parch: #cdbb90; --dim: #9a875f;
   --gild: linear-gradient(135deg, #f6e7b4 0%, #d8b25a 34%, #8a6a20 62%, #e6c876 100%);
 }
@@ -20,9 +20,9 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
 body {
-  background: radial-gradient(ellipse at 50% 30%, #241c12 0%, var(--bg2) 75%);
+  background: radial-gradient(ellipse at 50% 30%, #193329 0%, var(--bg2) 75%);
   color: var(--text);
-  font-family: Georgia, 'Palatino Linotype', 'Times New Roman', serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   overflow: hidden;
   user-select: none;
 }
@@ -37,7 +37,7 @@ input, button { font: inherit; }
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 button.btn {
-  background: linear-gradient(#3a2d1c, #241b10);
+  background: linear-gradient(#213b33, #12251f);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -48,10 +48,10 @@ button.btn {
 button.btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold-bright); }
 button.btn:active:not(:disabled) { transform: translateY(1px); }
 button.btn:disabled { opacity: 0.45; cursor: default; }
-button.btn.primary { border-color: var(--gold); color: var(--gold-bright); background: linear-gradient(#4a3517, #2b1f0c); }
+button.btn.primary { border-color: var(--gold); color: #fff2cf; background: linear-gradient(#5c4027, #352416); }
 button.btn.danger { border-color: #8a4038; }
 input.txt {
-  background: #14100b;
+  background: #091411;
   color: var(--text);
   border: 1px solid var(--border-dim);
   border-radius: 5px;
@@ -131,7 +131,9 @@ input.txt:focus { border-color: var(--gold); }
   position: fixed;
   inset: 0;
   z-index: -1;
-  background: url('/ageofai.jpg') center top / cover no-repeat, #070503;
+  background:
+    linear-gradient(120deg, rgba(6, 18, 15, 0.9), rgba(12, 30, 25, 0.62) 48%, rgba(58, 35, 22, 0.55)),
+    url('/symbiosis-valley-v1.png') center / cover no-repeat, #07100d;
   pointer-events: none;
 }
 
@@ -173,20 +175,24 @@ input.txt:focus { border-color: var(--gold); }
 .entry-screen .entry-login {
   position: relative;
   z-index: 2;
-  width: 340px;
+  width: min(460px, 92vw);
   max-width: 90vw;
-  margin-bottom: 45vh;
+  margin-bottom: 20vh;
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 16px 20px;
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(12, 8, 4, 0.6), rgba(8, 5, 2, 0.72));
+  background: linear-gradient(180deg, rgba(12, 31, 26, 0.9), rgba(7, 18, 15, 0.94));
   backdrop-filter: blur(4px) saturate(1.05);
   -webkit-backdrop-filter: blur(4px) saturate(1.05);
   border: 1px solid rgba(217, 169, 65, 0.4);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), inset 0 0 20px rgba(0, 0, 0, 0.35);
 }
+.symbiosis-brand { text-align: center; padding-bottom: 10px; border-bottom: 1px solid rgba(201, 155, 82, 0.35); }
+.symbiosis-kicker { display: block; color: #92b7aa; font-size: 11px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; }
+.symbiosis-title { margin: 4px 0 5px; color: #f1dfb5; font-family: Georgia, serif; font-size: clamp(30px, 6vw, 44px); font-weight: 500; letter-spacing: .035em; line-height: 1; }
+.symbiosis-subtitle { margin: 0 auto; max-width: 40ch; color: #c5d2cc; font-size: 12px; line-height: 1.45; }
 .entry-screen .entry-login-title {
   margin: 0;
   text-align: center;
@@ -376,7 +382,7 @@ input.txt:focus { border-color: var(--gold); }
   border: 1px solid #120c06;
   border-top: 2px solid #d9a941; /* o dourado por cima do marrom */
   border-radius: 0 0 8px 8px;
-  background: linear-gradient(180deg, rgba(38, 29, 18, 0.97), rgba(24, 18, 11, 0.97));
+  background: linear-gradient(180deg, rgba(20, 48, 40, 0.97), rgba(9, 27, 22, 0.98));
   box-shadow: inset 0 1px 0 rgba(240, 200, 105, 0.35), 0 4px 14px rgba(0, 0, 0, 0.45);
   font-size: 16px;
   white-space: nowrap;
@@ -429,7 +435,7 @@ input.txt:focus { border-color: var(--gold); }
   border-radius: 0;
   background:
     radial-gradient(ellipse at 50% 0%, rgba(217, 169, 65, 0.05), transparent 60%),
-    linear-gradient(180deg, rgba(38, 29, 18, 0.97), rgba(24, 18, 11, 0.97));
+    linear-gradient(180deg, rgba(20, 45, 38, 0.97), rgba(9, 25, 21, 0.98));
   background-clip: padding-box;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
