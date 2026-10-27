@@ -112,3 +112,12 @@ Completed on 2026-10-28:
 - Classic remains the default when optional presentation fields are absent. No wallet, blockchain node, IPFS provider, or model API is required.
 
 Known narrow boundaries: battle events and council acceptance history are represented as empty arrays in chronicle v1 because the current council never executes actions and combat telemetry is not yet persisted. Local JSON/text archives are not labeled as IPFS-pinned, and the local proof adapter is never labeled confirmed.
+
+## WATT Arena design adaptation
+
+Follow-up completed on 2026-10-28 using `/Users/ssubik/Documents/Projects/WATT Arena` read-only:
+
+- Adapted its restrained organic-technology palette, operational hierarchy, civilization-signal language, flat strategy panels, and compact information density.
+- Added a live room strategy strip for identity, economy, visibility, and territory, plus a concise civilization signal explaining the selected presentation layer.
+- Restyled room planning, players, terrain selection, lobby cards, and Symbiosis command panels while preserving the existing DOM actions and Canvas battlefield.
+- Kept every game rule, room transition, input binding, authoritative command, balance value, and victory condition unchanged.

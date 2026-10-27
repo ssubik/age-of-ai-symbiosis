@@ -86,6 +86,11 @@ export class RoomScreen {
   private broadcast = true; // nasce transmitindo (igual ao servidor)
   private bcBtns: { on: boolean; btn: HTMLButtonElement }[] = [];
   private terrainBtns: { tr: TerrainKind; btn: HTMLButtonElement }[] = [];
+  private intelExperience!: HTMLElement;
+  private intelEconomy!: HTMLElement;
+  private intelVisibility!: HTMLElement;
+  private intelTerrain!: HTMLElement;
+  private strategySignal!: HTMLElement;
 
   constructor(private deps: RoomScreenDeps) {
     this.el = el('div', 'screen room-screen');
@@ -122,6 +127,27 @@ export class RoomScreen {
     this.roomTitle = el('h1', 'sala-title', t('room.title'));
     top.appendChild(this.roomTitle);
     sala.appendChild(top);
+
+    const intel = el('div', 'room-intel');
+    const addIntel = (label: string): HTMLElement => {
+      const item = el('div', 'room-intel-item');
+      item.appendChild(el('span', '', label));
+      const value = el('b', '', '—');
+      item.appendChild(value);
+      intel.appendChild(item);
+      return value;
+    };
+    this.intelExperience = addIntel(t('room.intel_identity'));
+    this.intelEconomy = addIntel(t('room.intel_economy'));
+    this.intelVisibility = addIntel(t('room.intel_visibility'));
+    this.intelTerrain = addIntel(t('room.intel_terrain'));
+    sala.appendChild(intel);
+
+    const signal = el('div', 'room-strategy-signal');
+    signal.appendChild(el('span', '', t('room.strategy_signal')));
+    this.strategySignal = el('p', '', t('room.strategy_classic'));
+    signal.appendChild(this.strategySignal);
+    sala.appendChild(signal);
 
     // ---- Tabuleiro (2 colunas) ----
     const board = el('div', 'sala-board');
@@ -297,6 +323,12 @@ export class RoomScreen {
     this.fog = fog;
     this.terrain = terrain;
     this.broadcast = broadcast;
+    this.intelExperience.textContent = t(`room.experience_${experience}`);
+    this.intelEconomy.textContent = mode === 'batalha' ? t('room.mode_battle') : t('room.mode_normal');
+    this.intelVisibility.textContent = fog ? t('room.map_closed') : t('room.map_open');
+    this.intelTerrain.textContent = t(`room.terrain_${terrain}`);
+    this.strategySignal.textContent = t(experience === 'symbiosis' ? 'room.strategy_symbiosis' : 'room.strategy_classic');
+    this.el.classList.toggle('is-symbiosis', experience === 'symbiosis');
     const host = this.players.find((p) => p.isHost);
     this.roomTitle.textContent = host ? t('lobby.room_of', { host: host.name }) : t('room.room_n', { id: roomId });
     this.renderRows();

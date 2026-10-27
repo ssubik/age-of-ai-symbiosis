@@ -1112,3 +1112,92 @@ button.btn.trade-btn {
 
 /* Derrota com a partida continuando: dois caminhos (assistir ou sair). */
 .defeat-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+
+/* ===================================================================
+   WATT-inspired strategy shell — adapted to the existing RTS DOM.
+   Operational hierarchy, not a dashboard rewrite.
+   =================================================================== */
+.room-screen {
+  --wa-plane: #07100e;
+  --wa-panel: rgba(9, 23, 19, .96);
+  --wa-raised: #10211c;
+  --wa-line: #294139;
+  --wa-accent: #d8b86a;
+  --wa-good: #67d6a3;
+  --wa-muted: #8da398;
+}
+.screen.room-screen::before,
+.screen.lobby-screen::before {
+  background:
+    linear-gradient(135deg, rgba(5, 18, 14, .94), rgba(7, 25, 20, .82) 55%, rgba(30, 31, 18, .72)),
+    url('/symbiosis-valley-v1.png') center / cover no-repeat;
+}
+.room-screen::after,
+.lobby-screen::after {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .14;
+  background-image: linear-gradient(rgba(184,213,195,.14) 1px, transparent 1px), linear-gradient(90deg, rgba(184,213,195,.14) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, #000, transparent 88%);
+}
+.room-screen .sala { width: min(1180px, 96vw); gap: 10px; }
+.room-screen .gframe { border: 1px solid var(--wa-line); border-image: none; background: var(--wa-panel); box-shadow: 0 18px 55px rgba(0,0,0,.42); }
+.room-screen .gcnr { display: none; }
+.room-screen .sala-top { min-height: 72px; padding: 12px 22px; justify-content: flex-start; gap: 15px; }
+.room-screen .sala-crest-wrap { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--wa-accent); border-radius: 50%; background: radial-gradient(circle at 35% 35%, #d8b86a 0 2px, transparent 3px), radial-gradient(circle at 68% 68%, #67d6b0 0 2px, transparent 3px), #0c1c18; }
+.room-screen .sala-crest { display: none; }
+.room-screen .sala-title { font-family: Georgia, serif; font-size: 29px; font-weight: 500; letter-spacing: .02em; color: #f0ead9; text-shadow: none; }
+.room-intel { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--wa-line); background: rgba(7,18,15,.94); }
+.room-intel-item { min-height: 54px; padding: 10px 15px; border-right: 1px solid var(--wa-line); }
+.room-intel-item:last-child { border-right: 0; }
+.room-intel-item span { display: block; color: #698177; font-size: 8px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+.room-intel-item b { display: block; margin-top: 5px; color: #e7e9df; font-size: 12px; font-weight: 650; }
+.room-strategy-signal { display: flex; align-items: center; gap: 18px; padding: 10px 15px; border: 1px solid #375148; background: linear-gradient(90deg, rgba(16,35,29,.98), rgba(9,22,18,.95)); }
+.room-strategy-signal span { flex: none; color: var(--wa-accent); font-size: 8px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.room-strategy-signal p { margin: 0; color: #aebeb5; font-size: 11px; line-height: 1.4; }
+.room-screen.is-symbiosis .room-strategy-signal { border-color: #6a5c34; box-shadow: inset 3px 0 0 var(--wa-accent); }
+.room-screen .sala-board { gap: 10px; }
+.room-screen .sala-panel { padding: 15px 17px; }
+.room-screen .sala-head { color: #b8c9c0; border-bottom-color: var(--wa-line); }
+.room-screen .sala-hic { color: var(--wa-accent); }
+.room-screen .sala-ctl { border-bottom-color: rgba(41,65,57,.75); }
+.room-screen .ctl-label { color: #82998d; font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+.room-screen .seg { background: #07130f; border: 1px solid var(--wa-line); padding: 3px; gap: 3px; }
+.room-screen .seg-btn { border: 0; background: transparent; color: #81968b; border-radius: 2px; }
+.room-screen .seg-btn.primary { color: #16170f; background: var(--wa-accent); box-shadow: 0 4px 16px rgba(216,184,106,.18); }
+.room-screen .pcard { border-color: var(--wa-line); background: #0d1c18; }
+.room-screen .pcard:hover { border-color: #506b60; }
+.room-screen .pcard-port { border-color: #375248; background: #091511; }
+.room-screen .terrain-card { background: #0d1c18; border-color: var(--wa-line); }
+.room-screen .terrain-card.primary { border-color: var(--wa-accent); background: linear-gradient(180deg, #17261e, #0b1814); box-shadow: 0 0 0 1px rgba(216,184,106,.22); }
+.room-screen .terrain-name { color: #dce4df; font-size: 12px; }
+.room-screen .terrain-desc { color: #789084; }
+.room-screen .sala-actions { background: rgba(7,18,15,.72); border: 1px solid var(--wa-line); padding: 9px; }
+.room-screen .sala-act { border-radius: 2px; }
+.room-screen .sala-act.primary:not(:disabled) { background: var(--wa-accent); color: #11170f; border-color: #e1c476; text-shadow: none; box-shadow: 0 8px 24px rgba(216,184,106,.18); }
+.room-screen .sala-chat { padding: 12px 15px; }
+.room-screen .chat-log { background: #07130f; border-color: var(--wa-line); }
+.room-screen .chat-in { background: #07130f; border-color: var(--wa-line); }
+
+.lobby-screen .gframe { border: 1px solid #294139; border-image: none; background: rgba(9,23,19,.96); box-shadow: 0 22px 70px rgba(0,0,0,.48); }
+.lobby-screen .gcnr { display: none; }
+.lobby-screen .sala-head { color: #e9eadf; border-bottom-color: #294139; }
+.lobby-screen .sala-hic { color: #d8b86a; }
+.lobby-screen .room-item { background: #0d1e19; border-color: #294139; border-radius: 2px; }
+.lobby-screen .room-item:hover { border-color: #587166; background: #10251e; }
+.lobby-screen .lobby-create.primary { background: #d8b86a; color: #11170f; border-color: #e5ca83; }
+
+.symbiosis-mode .hud-top { border-top-color: #d8b86a; }
+.symbiosis-mode .command-bar > .cb-left,
+.symbiosis-mode .command-bar > .cb-center,
+.symbiosis-mode .minimap-wrap { border: 1px solid #294139; border-image: none; border-radius: 3px; box-shadow: 0 10px 32px rgba(0,0,0,.48); }
+.symbiosis-mode .cb-left,
+.symbiosis-mode .cb-center { padding: 12px 14px; }
+.symbiosis-mode button.btn.cmd-tile { border-color: #294139; background: radial-gradient(circle at 35% 25%, #19342b, #0b1b16 78%); }
+.symbiosis-mode button.btn.cmd-tile:hover:not(.off) { border-color: #d8b86a; box-shadow: 0 0 10px rgba(216,184,106,.26); }
+
+@media (max-width: 760px) {
+  .room-intel { grid-template-columns: repeat(2, 1fr); }
+  .room-intel-item:nth-child(2) { border-right: 0; }
+  .room-intel-item:nth-child(-n+2) { border-bottom: 1px solid var(--wa-line); }
+  .room-strategy-signal { align-items: flex-start; flex-direction: column; gap: 5px; }
+}
