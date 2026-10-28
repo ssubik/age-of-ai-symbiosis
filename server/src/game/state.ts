@@ -5,6 +5,7 @@ import { SHEEP_FOOD, SHEEP_WILD_OWNER, UNIT_DEFS } from '@age/shared';
 import type {
   BotDifficulty,
   BuildingType,
+  CityPath,
   NodeType,
   ResourceType,
   Resources,
@@ -107,7 +108,8 @@ export interface GamePlayer {
   /** Era atual (1..MAX_AGE). */
   age: number;
   /** Pesquisa de era em andamento (destino + segundos decorridos). */
-  ageResearch?: { target: number; elapsed: number };
+  ageResearch?: { target: number; elapsed: number; path?: CityPath };
+  cityPath?: CityPath;
   /** Tecnologias/upgrades já pesquisados. */
   techs: Set<string>;
   /** Só bots: nível de dificuldade (dirige a IA). Humanos = undefined. */

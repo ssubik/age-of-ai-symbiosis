@@ -1755,15 +1755,22 @@ export class Renderer {
     return peak.y - th * 0.95;
   }
 
-  /** Muralha: segmento de muro de pedra com ameias baixas — bloqueia passagem. */
+  /** Modular protection wall: precast concrete, graphite cap, cyan sensor rail. */
   private drawWall(ctx: CanvasRenderingContext2D, st: BSite): number {
-    const { T, R, B, L, th, m, prog } = st;
-    const H = Math.max(8, th * 1.05) * prog; // muralha mais ALTA (era 0.6, ficava baixinha)
-    const t1 = this.walls(ctx, T, R, B, L, H, m.stone);
-    this.wallLines(ctx, L, B, H, 2, true);
-    this.wallLines(ctx, B, R, H, 2, true);
-    this.poly(ctx, [t1.T2, t1.R2, t1.B2, t1.L2], shadeHex(m.stone, 0.14), shadeHex(m.stone, -0.3));
-    this.crenels(ctx, t1, th * 0.14, m.stone);
+    const { T, R, B, L, th, hh, prog } = st;
+    const H = Math.max(8, th * 1.05) * prog;
+    const concrete = '#9ba5a8';
+    const t1 = this.walls(ctx, T, R, B, L, H, concrete);
+    this.wallLines(ctx, L, B, H, 2, false);
+    this.wallLines(ctx, B, R, H, 2, false);
+    this.poly(ctx, [t1.T2, t1.R2, t1.B2, t1.L2], '#25343c', '#101b21');
+    ctx.strokeStyle = 'rgba(77,224,235,.9)';
+    ctx.lineWidth = Math.max(1, hh * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(L.x, L.y - H * 0.62);
+    ctx.lineTo(B.x, B.y - H * 0.62);
+    ctx.lineTo(R.x, R.y - H * 0.62);
+    ctx.stroke();
     return (t1.T2.y + t1.B2.y) / 2 - th * 0.2;
   }
 
@@ -2589,6 +2596,26 @@ export class Renderer {
       const humanoid = this.constructionSprites.get('humanoid');
       if (humanoid) {
         this.drawConstructionSprite(ctx, humanoid, robotX + work * 0.2, robotY, hh * 1.45);
+        // Larger sites become visibly collaborative as progress advances: a
+        // mason joins from the opposite edge, then a heavier builder and rover.
+        if (b.progress >= 0.28) {
+          const mason = this.constructionSprites.get('mason');
+          const masonX = L.x * 0.62 + T.x * 0.38;
+          const masonY = L.y * 0.62 + T.y * 0.38;
+          if (mason) this.drawConstructionSprite(ctx, mason, masonX, masonY - Math.abs(Math.cos(pulse)) * hh * 0.05, hh * 1.35);
+        }
+        if (b.progress >= 0.46) {
+          const builder = this.constructionSprites.get('builder_robot');
+          const bx = R.x * 0.64 + T.x * 0.36;
+          const by = R.y * 0.64 + T.y * 0.36;
+          if (builder) this.drawConstructionSprite(ctx, builder, bx, by, hh * 1.48);
+        }
+        if (b.progress >= 0.64) {
+          const rover = this.constructionSprites.get('material_rover');
+          const rx = L.x * 0.18 + B.x * 0.82;
+          const ry = L.y * 0.18 + B.y * 0.82;
+          if (rover) this.drawConstructionSprite(ctx, rover, rx + Math.sin(pulse * 0.4) * hh * 0.12, ry, hh * 1.7);
+        }
       } else {
         ctx.strokeStyle = '#8b9695';
         ctx.lineWidth = Math.max(1, hh * 0.11);

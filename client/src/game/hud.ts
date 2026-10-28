@@ -60,6 +60,7 @@ export interface HudDeps {
   onTrain: (buildingId: number, unit: UnitType) => void;
   onCancelTrain: (buildingId: number, index: number) => void;
   onAdvanceAge: () => void;
+  onChooseCityPath: (path: 'command' | 'space') => void;
   onResearch: (buildingId: number, techId: string) => void;
   onTrade: (action: 'buy' | 'sell', resource: 'food' | 'wood' | 'stone') => void;
   onChat: (text: string) => void;
@@ -146,6 +147,7 @@ export class Hud {
   private prodTxt: HTMLElement | null = null;
   private prodFill: HTMLElement | null = null;
   private ageBtn: HTMLButtonElement | null = null;
+  private pathBtns = new Map<'command' | 'space', HTMLButtonElement>();
   private prodAgeRow: HTMLElement | null = null;
   private prodAgeTxt: HTMLElement | null = null;
   private prodAgeFill: HTMLElement | null = null;
@@ -313,9 +315,11 @@ export class Hud {
     if (this.idleVal.textContent !== idleTxt) this.idleVal.textContent = idleTxt;
     this.idleBtn.classList.toggle('hidden', idle === 0);
     const age = me.age ?? 1;
+    const pathLabel = me.cityPath ? t(`path.${me.cityPath}.title`) : this.ageName(age);
+    const researchingLabel = me.pathResearch ? t(`path.${me.pathResearch}.title`) : AGE_NUMERALS[age + 1];
     const ageTxt = me.ageProgress !== undefined
-      ? `${AGE_NUMERALS[age]} → ${AGE_NUMERALS[age + 1]} (${Math.round(me.ageProgress * 100)}%)`
-      : `${AGE_NUMERALS[age]} · ${this.ageName(age)}`;
+      ? `${AGE_NUMERALS[age]} → ${researchingLabel} (${Math.round(me.ageProgress * 100)}%)`
+      : `${AGE_NUMERALS[age]} · ${pathLabel}`;
     if (ageTxt !== this.ageTxtCache) {
       this.ageTxtCache = ageTxt;
       this.ageVal.textContent = ageTxt;
@@ -592,6 +596,7 @@ export class Hud {
     this.prodTxt = null;
     this.prodFill = null;
     this.ageBtn = null;
+    this.pathBtns.clear();
     this.prodAgeRow = null;
     this.prodAgeTxt = null;
     this.prodAgeFill = null;
@@ -706,6 +711,16 @@ export class Hud {
         btn.addEventListener('click', () => this.deps.onAdvanceAge());
         this.ageBtn = btn;
         this.actPanel.appendChild(btn);
+        if (this.symbiosis) {
+          for (const path of ['command', 'space'] as const) {
+            const pathBtn = el('button', `btn cmd-btn city-path path-${path}`, t(`path.${path}.title`));
+            pathBtn.dataset.tipTitle = t(`path.${path}.title`);
+            pathBtn.dataset.tipDesc = t(`path.${path}.desc`);
+            pathBtn.addEventListener('click', () => this.deps.onChooseCityPath(path));
+            this.pathBtns.set(path, pathBtn);
+            this.actPanel.appendChild(pathBtn);
+          }
+        }
       }
       // centro da barra: produção/pesquisa
       this.prodPanel.appendChild(el('div', 'act-title', trains.length ? t('hud.production') : t('hud.research_head')));
@@ -804,7 +819,21 @@ export class Hud {
       }
       // botão de avançar de era (só existe no Centro da Cidade)
       if (this.ageBtn && me) {
-        if (myAge >= MAX_AGE) {
+        const choosingPath = this.symbiosis && myAge === 4 && !me.cityPath;
+        this.ageBtn.classList.toggle('hidden', choosingPath || !!me.cityPath);
+        const pathCost = AGE_COSTS[5] ?? {};
+        for (const [path, btn] of this.pathBtns) {
+          const visible = choosingPath;
+          btn.classList.toggle('hidden', !visible);
+          btn.disabled = !visible || me.ageProgress !== undefined || !this.canAfford(pathCost);
+          btn.textContent = me.pathResearch === path
+            ? t('path.establishing', { path: t(`path.${path}.title`) })
+            : `${t(`path.${path}.title`)} · ${costText(pathCost)}`;
+        }
+        if (me.cityPath) {
+          this.ageBtn.textContent = t(`path.${me.cityPath}.title`);
+          this.ageBtn.disabled = true;
+        } else if (myAge >= MAX_AGE) {
           this.ageBtn.textContent = t('hud.age_max', { age: AGE_NAMES[MAX_AGE] });
           this.ageBtn.disabled = true;
         } else if (me.ageProgress !== undefined) {

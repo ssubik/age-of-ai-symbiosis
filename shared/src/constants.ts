@@ -202,9 +202,9 @@ export const TRAIN_QUEUE_MAX = 5;
 
 // ---------- Eras (estilo AoE2) ----------
 // Pesquisadas no Centro da Cidade; liberam unidades e mudam o visual dos prédios.
-export const MAX_AGE = 4;
-export const AGE_NAMES: string[] = ['', 'Idade das Trevas', 'Idade Feudal', 'Idade dos Castelos', 'Idade Imperial'];
-export const AGE_NUMERALS: string[] = ['', 'I', 'II', 'III', 'IV'];
+export const MAX_AGE = 5;
+export const AGE_NAMES: string[] = ['', 'Settlement', 'Smart District', 'Technology City', 'Symbiotic City', 'Specialized City'];
+export const AGE_NUMERALS: string[] = ['', 'I', 'II', 'III', 'IV', 'V'];
 /** Custo para pesquisar a era N (índice = era destino) — valores do Age of
  *  Mythology (Clássica 400c; Heroica 800c+500o; Mítica 1000c+1000o): o último
  *  salto é BEM caro, compensando pedir poucos prédios. */
@@ -213,9 +213,10 @@ export const AGE_COSTS: Partial<Resources>[] = [
   { food: 400 },              // -> Feudal
   { food: 800, gold: 500 },   // -> Castelos
   { food: 1000, gold: 1000 }, // -> Imperial
+  { food: 1400, gold: 1400 }, // -> Command Metropolis / Space Gateway
 ];
 /** Tempo de pesquisa (s) da era N (índice = era destino). */
-export const AGE_RESEARCH_TIME: number[] = [0, 0, 25, 40, 55];
+export const AGE_RESEARCH_TIME: number[] = [0, 0, 25, 40, 55, 70];
 /** REGRA DO AoE2 pra avançar de era: além dos recursos, é preciso ter construído
  *  2 prédios DIFERENTES da era atual — e Casa, Fazenda e Muralha NÃO contam
  *  (nem o Centro da Cidade). Ex.: nas Trevas valem Quartel/Moinho/Madeireira/
@@ -250,9 +251,9 @@ export const UNIT_AGE_REQ: Record<UnitType, number> = {
   transport: 1,  // travessia cedo: o rio não pode trancar o mapa na Idade das Trevas
   robot: 1,
   drone: 2,
-  attack_drone: 2,
-  fighter: 3,
-  rocket_launcher: 3,
+  attack_drone: 5,
+  fighter: 5,
+  rocket_launcher: 5,
 };
 
 // ---------- Tecnologias / upgrades (pesquisados nos prédios) ----------

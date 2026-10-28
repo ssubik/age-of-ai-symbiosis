@@ -53,6 +53,20 @@ npm run smoke       # E2E test: starts the server and simulates a match with 2 W
 
 Hosts can switch a room to **Symbiosis**, which layers the WATT Arena model on top of the RTS. In Classic rooms none of these rules apply.
 
+City progression now follows five levels:
+
+1. Settlement
+2. Smart District
+3. Technology City
+4. Symbiotic City
+5. A permanent specialization chosen at the Civic Hub:
+   - **Command Metropolis** unlocks attack drones, fighters, rocket launchers, and warfare against other Command cities.
+   - **Space Gateway** remains protected from city warfare and gains +10 grid power from orbital infrastructure.
+
+Levels 1–4 cannot initiate warfare and are excluded from hostile automatic targeting. The Level 5 choice costs 1,400 food and 1,400 gold and takes 70 seconds to establish.
+
+The presentation uses a fully modern facility vocabulary while preserving the RTS economy: Modular Residences, a Civic Operations Hub, Army Basecamp, Autonomous Weapons Lab, Mobility Command, Defense Engineering Lab, Trade and Logistics Center, Food Technology Center, Materials Depot, Mineral Processing Center, Sensor Defense Tower, Modular Protection Walls, Hydroponic Farms, and a River Logistics Terminal. Active sites progressively fill with human builders, humanoid installers and masons, a heavy AI builder, material rover, survey drone, and autonomous crane.
+
 - **Robots and drones that build.** The Robotics Workshop trains Builder Robots (build/repair 1.8× a villager, cannot gather) and Construction Drones (fly over water and terrain, build 1.25×). Bots use them too.
 - **Air and rocket attacks.** The same workshop unlocks Attack Drones (fast harassment), Autonomous Fighters (heavy air strike), and Rocket Launchers (slow long-range ground artillery). They draw grid power and remain fully server-authoritative.
 - **A power grid.** Solar Arrays (+4) and Wind Turbines (+6, Feudal) add supply; the Town Center gives a base of 2. Each robot or drone draws 1. When draw exceeds supply, automation slows proportionally (floor 30%) — shown as cyan or coral energy-flow lines on the map and ⚡ draw/supply in the HUD.

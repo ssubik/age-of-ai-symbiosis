@@ -63,6 +63,7 @@ import type {
   BotDifficulty,
   BuildingSnap,
   BuildingType,
+  CityPath,
   GameCommand,
   GameMode,
   ElonEvent,
@@ -359,6 +360,7 @@ export class Game {
       p.ageResearch.elapsed += dt;
       if (p.ageResearch.elapsed >= (AGE_RESEARCH_TIME[p.ageResearch.target] ?? 0)) {
         p.age = p.ageResearch.target;
+        if (p.ageResearch.path) p.cityPath = p.ageResearch.path;
         p.ageResearch = undefined;
       }
     }
@@ -407,6 +409,8 @@ export class Game {
         ageProgress: p.ageResearch
           ? Math.min(1, p.ageResearch.elapsed / (AGE_RESEARCH_TIME[p.ageResearch.target] || 1))
           : undefined,
+        cityPath: p.cityPath,
+        pathResearch: p.ageResearch?.path,
         techs: [...p.techs],
         elon: p.elon,
         elonEvents: this.elonEvents.filter((e) => e.playerId === p.id).slice(-5),
@@ -656,6 +660,11 @@ export class Game {
       const g = next.get(u.owner);
       if (g) g.draw += POWER_DRAW[u.type] ?? 0;
     }
+    // Space Gateway turns orbital solar/telemetry infrastructure into a civic
+    // grid advantage without granting offensive capability.
+    for (const p of this.players.values()) {
+      if (p.cityPath === 'space') next.get(p.id)!.supply += 10;
+    }
     this.power = next;
   }
 
@@ -784,6 +793,9 @@ export class Game {
       case 'advanceAge':
         this.cmdAdvanceAge(playerId);
         break;
+      case 'chooseCityPath':
+        this.cmdChooseCityPath(playerId, cmd.path);
+        break;
       case 'research':
         this.cmdResearch(playerId, cmd.buildingId, cmd.techId);
         break;
@@ -874,7 +886,8 @@ export class Game {
       this.errorTo(playerId, 'err.age_researching');
       return;
     }
-    if (p.age >= MAX_AGE) return;
+    // Level 5 is a deliberate specialization, never an automatic generic age.
+    if (p.age >= MAX_AGE || (this.symbiosis && p.age >= 4)) return;
     let hasTC = false;
     for (const b of this.buildings.values()) {
       if (b.owner === playerId && b.type === 'town_center' && b.progress >= 1) { hasTC = true; break; }
@@ -903,6 +916,19 @@ export class Game {
     }
     this.deduct(p, cost);
     p.ageResearch = { target: p.age + 1, elapsed: 0 };
+  }
+
+  private cmdChooseCityPath(playerId: number, path: CityPath): void {
+    const p = this.players.get(playerId);
+    if (!p || p.defeated || p.age !== 4 || p.cityPath || p.ageResearch) return;
+    const hasTC = [...this.buildings.values()].some(
+      (b) => b.owner === playerId && b.type === 'town_center' && b.progress >= 1,
+    );
+    if (!hasTC) { this.errorTo(playerId, 'err.requires_tc'); return; }
+    const cost = AGE_COSTS[5] ?? {};
+    if (!this.canAfford(p, cost)) { this.errorTo(playerId, 'err.no_resources'); return; }
+    this.deduct(p, cost);
+    p.ageResearch = { target: 5, elapsed: 0, path };
   }
 
   private ownedUnits(playerId: number, unitIds: number[]): Unit[] {
@@ -1568,6 +1594,7 @@ export class Game {
     const def = BUILDING_DEFS[b.type];
     if (!def.trains.includes(unit)) return;
     if ((SYMBIOSIS_UNITS.has(unit) || SYMBIOSIS_COMBAT_UNITS.has(unit)) && !this.symbiosis) return;
+    if (SYMBIOSIS_COMBAT_UNITS.has(unit) && this.players.get(playerId)?.cityPath !== 'command') return;
     if (b.queue.length >= TRAIN_QUEUE_MAX) {
       this.errorTo(playerId, 'err.queue_full');
       return;
@@ -1675,10 +1702,14 @@ export class Game {
   // ---------------- Combate ----------------
 
   private cmdAttack(playerId: number, unitIds: number[], targetId: number): void {
+    const attacker = this.players.get(playerId);
+    if (this.symbiosis && attacker?.cityPath !== 'command') return;
     const units = this.ownedUnits(playerId, unitIds);
     if (units.length === 0) return;
     const targetUnit = this.units.get(targetId);
     const targetBuilding = this.buildings.get(targetId);
+    const targetOwner = targetUnit?.owner ?? targetBuilding?.owner;
+    if (this.symbiosis && targetOwner !== undefined && this.players.get(targetOwner)?.cityPath !== 'command') return;
     const isEnemyUnit = targetUnit && !this.allied(targetUnit.owner, playerId);
     const isEnemyBuilding = targetBuilding && !this.allied(targetBuilding.owner, playerId);
     if (!isEnemyUnit && !isEnemyBuilding) return;
@@ -2025,6 +2056,7 @@ export class Game {
       return;
     }
     if (u.type === 'transport' || SYMBIOSIS_UNITS.has(u.type)) return; // transporte/automação não brigam
+    if (this.symbiosis && this.players.get(u.owner)?.cityPath !== 'command') return;
     // Bot FÁCIL: soldados NÃO perseguem — seguram posição (a IA original "não
     // atacava"). Torres e Centro da Vila do bot ainda defendem a base sozinhos.
     if (this.players.get(u.owner)?.difficulty === 'easy') return;
@@ -2037,6 +2069,7 @@ export class Game {
     let bestD = Infinity;
     for (const other of this.units.values()) {
       if (this.allied(other.owner, u.owner)) continue;
+      if (this.symbiosis && this.players.get(other.owner)?.cityPath !== 'command') continue;
       // corpo-a-corpo terrestre não alcança barco (não fica pingando na margem);
       // galé não persegue terra adentro: só engaja alvo TERRESTRE já no alcance.
       const otherNaval = isNavalUnit(other.type);
@@ -2051,6 +2084,7 @@ export class Game {
     if (bestId === null) {
       for (const b of this.buildings.values()) {
         if (this.allied(b.owner, u.owner)) continue;
+        if (this.symbiosis && this.players.get(b.owner)?.cityPath !== 'command') continue;
         const size = BUILDING_DEFS[b.type].size;
         const nx = Math.max(b.tileX, Math.min(u.x, b.tileX + size - 1));
         const ny = Math.max(b.tileY, Math.min(u.y, b.tileY + size - 1));
@@ -2199,6 +2233,7 @@ export class Game {
       if (!def || b.progress < 1) continue;
       b.attackTimer = (b.attackTimer ?? 0) - dt;
       const p = this.players.get(b.owner);
+      if (this.symbiosis && p?.cityPath !== 'command') { b.targetId = undefined; continue; }
       const age = p?.age ?? 1;
       const range = buildingRange(b.type, age, p?.techs);
       const size = BUILDING_DEFS[b.type].size;
@@ -2206,12 +2241,15 @@ export class Game {
       const cy = b.tileY + size / 2;
       // mantém o alvo atual enquanto vivo e no alcance; senão procura outro
       let target = b.targetId !== undefined ? this.units.get(b.targetId) : undefined;
-      if (!target || this.allied(target.owner, b.owner) || Math.hypot(target.x - cx, target.y - cy) > range) {
+      if (!target || this.allied(target.owner, b.owner)
+        || (this.symbiosis && this.players.get(target.owner)?.cityPath !== 'command')
+        || Math.hypot(target.x - cx, target.y - cy) > range) {
         target = undefined;
         b.targetId = undefined;
         let bestD = range;
         for (const u of this.units.values()) {
           if (this.allied(u.owner, b.owner)) continue;
+          if (this.symbiosis && this.players.get(u.owner)?.cityPath !== 'command') continue;
           const d = Math.hypot(u.x - cx, u.y - cy);
           if (d <= bestD) {
             bestD = d;

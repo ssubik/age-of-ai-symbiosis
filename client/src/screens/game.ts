@@ -104,6 +104,7 @@ export class GameScreen {
       onTrain: (buildingId, unit) => this.deps.onCommand({ kind: 'train', buildingId, unit }),
       onCancelTrain: (buildingId, index) => this.deps.onCommand({ kind: 'cancelTrain', buildingId, index }),
       onAdvanceAge: () => this.deps.onCommand({ kind: 'advanceAge' }),
+      onChooseCityPath: (path) => this.deps.onCommand({ kind: 'chooseCityPath', path }),
       onResearch: (buildingId, techId) => this.deps.onCommand({ kind: 'research', buildingId, techId }),
       onTrade: (action, resource) => this.deps.onCommand({ kind: 'trade', action, resource }),
       onChat: (text) => this.deps.onChat(text),

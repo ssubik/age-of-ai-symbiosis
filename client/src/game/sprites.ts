@@ -38,30 +38,30 @@ export const BUILDING_SPRITES: Partial<Record<BuildingType, SpriteFit>> = {
   // ficava com a borda de baixo reta, parecendo torta/enfiada no chão, enquanto
   // o vizinho tinha base com profundidade. Encolher preserva a base que o
   // desenhista já fez na perspectiva certa. Não voltar pro corte.
-  watch_tower: { file: 'watch_tower.png', scale: 0.9375, dropY: 0.4 },
-  market: { file: 'market.png', scale: 1.15, dropY: 0.3 },
+  watch_tower: { file: 'symbiosis_sensor_tower_v1.png', scale: 1.0, dropY: 0.22 },
+  market: { file: 'symbiosis_trade_logistics_v1.png', scale: 1.08, dropY: 0.18 },
   // Age of Symbiosis v1 presentation set. Original era sprites remain in
   // /sprites as a non-destructive fallback while this visual direction is
   // validated against the existing footprints and selection geometry.
   house: { file: 'symbiosis_courtyard_home_v1.png', scale: 1.12, dropY: 0.18 },
-  stable: { file: 'stable.png', scale: 1.1, dropY: 0.3 },
+  stable: { file: 'symbiosis_mobility_command_v1.png', scale: 1.03, dropY: 0.16 },
   // CC calibrado por MEDIÇÃO dos PNGs (conteúdo ocupa ~97,4% da largura, ~1,5%
   // de folga embaixo, consistente nas 4 eras): scale 1.0 => base casa com os
   // cantos do losango; dropY 0.15 => base no canto frontal (antes afundava).
   town_center: { file: 'symbiosis_civic_hub_v1.png', scale: 0.96, dropY: 0.12 },
-  barracks: { file: 'barracks.png', scale: 1.1, dropY: 0.3 },
-  blacksmith: { file: 'blacksmith.png', scale: 1.35, dropY: 0.22 },
+  barracks: { file: 'symbiosis_army_basecamp_v1.png', scale: 1.03, dropY: 0.16 },
+  blacksmith: { file: 'symbiosis_defense_lab_v1.png', scale: 1.08, dropY: 0.16 },
   robotics_workshop: { file: 'symbiosis_robotics_workshop_v1.png', scale: 1.05, dropY: 0.16 },
-  archery_range: { file: 'archery_range.png', scale: 1.15, dropY: 0.3 },
-  mill: { file: 'mill.png', scale: 1.3, dropY: 0.28 },
-  lumber_camp: { file: 'lumber_camp.png', scale: 1.3, dropY: 0.28 },
-  mining_camp: { file: 'mining_camp.png', scale: 1.3, dropY: 0.28 },
+  archery_range: { file: 'symbiosis_drone_weapons_lab_v1.png', scale: 1.02, dropY: 0.16 },
+  mill: { file: 'symbiosis_food_technology_v1.png', scale: 1.08, dropY: 0.16 },
+  lumber_camp: { file: 'symbiosis_materials_depot_v1.png', scale: 1.08, dropY: 0.16 },
+  mining_camp: { file: 'symbiosis_mineral_processing_v1.png', scale: 1.08, dropY: 0.16 },
   // PORTO: fica na água (2×2 encostado na costa); a arte é larga (o cais estende
   // pro lado), então escala um pouco maior. Calibrado por print no jogo.
-  dock: { file: 'dock.png', scale: 1.35, dropY: 0.3 },
-  // FAZENDA e MURO ficam PROCEDURAIS (a pedido): a fazenda desenhada por código já
-  // estava boa; o muro é tile 1×1 que se repete/conecta em qualquer direção — sprite
-  // reto só bateria numa diagonal (precisaria de set direcional + lógica de vizinho).
+  dock: { file: 'symbiosis_river_terminal_v1.png', scale: 1.12, dropY: 0.2 },
+  farm: { file: 'symbiosis_hydroponic_farm_v1.png', scale: 1.04, dropY: 0.12 },
+  // The protection wall stays procedural because repeated 1×1 segments must
+  // connect in every direction; a single bitmap cannot preserve those joins.
 };
 
 export class Sprites {
@@ -130,7 +130,7 @@ export class TreeSprites {
   }
 }
 
-export type ConstructionSprite = 'human' | 'humanoid' | 'drone' | 'crane';
+export type ConstructionSprite = 'human' | 'humanoid' | 'mason' | 'builder_robot' | 'material_rover' | 'drone' | 'crane';
 
 /** Civilian construction art imported from the independently owned WATT Arena
  * project. These are presentation-only overlays; the simulation still derives
@@ -142,6 +142,9 @@ export class ConstructionSprites {
     const files: Record<ConstructionSprite, string> = {
       human: 'symbiosis_human_builders_v1.png',
       humanoid: 'symbiosis_humanoid_installer_v1.png',
+      mason: 'symbiosis_humanoid_mason_v1.png',
+      builder_robot: 'symbiosis_ai_builder_robot_v1.png',
+      material_rover: 'symbiosis_material_rover_v1.png',
       drone: 'symbiosis_construction_drone_v1.png',
       crane: 'symbiosis_autonomous_crane_v1.png',
     };

@@ -781,6 +781,9 @@ button.btn.trade-btn {
 .cmd-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 10px; text-align: left; }
 .cmd-btn.active { border-color: var(--gold-bright); box-shadow: 0 0 8px rgba(217, 169, 65, 0.5); }
 .age-btn { display: block; width: 100%; margin-top: 8px; text-align: center; color: var(--gold-bright); }
+.city-path { display: block; width: 100%; margin-top: 7px; padding: 9px 10px; text-align: left; border-left-width: 2px; }
+.city-path.path-command { border-left-color: #ff765c; color: #ffb09f; }
+.city-path.path-space { border-left-color: var(--w-cyan, #55dbea); color: var(--w-cyan, #8af7ff); }
 .prod-fill.age { background: var(--green); }
 .hint { color: var(--muted); font-style: italic; font-size: 13.5px; }
 

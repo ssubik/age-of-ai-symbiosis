@@ -180,7 +180,12 @@ export function runBotAI(game: Game, botId: number): void {
   // luxo. Isso tambem evita que treino e pesquisa consumam a comida da era.
   let advancingNow = false;
   if (!startedBuilding && wantsAge && ageReady && afford(ageCost)) {
-    game.enqueueCommand(botId, { kind: 'advanceAge' });
+    if (game.symbiosis && player.age === 4) {
+      const path = profile.name === 'economic' ? 'space' : 'command';
+      game.enqueueCommand(botId, { kind: 'chooseCityPath', path });
+    } else {
+      game.enqueueCommand(botId, { kind: 'advanceAge' });
+    }
     advancingNow = true;
   }
 

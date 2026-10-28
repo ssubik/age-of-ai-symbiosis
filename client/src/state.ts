@@ -75,7 +75,13 @@ export function unitRadius(type: UnitType): number {
  *  altura real era 1.15) enfiava o aldeão dentro de casa em vez de mandar cortar
  *  lenha. `scripts/sprite_height_test.ts` trava esse lado: mede o PNG e reprova
  *  qualquer valor MAIOR que o sprite. Na dúvida, BAIXE o número. */
-export const B_H: Partial<Record<BuildingType, number>> = { farm: 0.2, house: 1.7, town_center: 1.2, wall: 0.9, watch_tower: 3.4, market: 2.0, mill: 1.6, lumber_camp: 1.4, mining_camp: 1.4, solar_array: 0.6, wind_turbine: 4.2, robotics_workshop: 2.2 };
+export const B_H: Partial<Record<BuildingType, number>> = {
+  farm: 0.2, house: 1.7, town_center: 1.2, wall: 0.9,
+  watch_tower: 0.8, market: 1.9, barracks: 1.9, archery_range: 2.0,
+  stable: 1.1, blacksmith: 0.8, mill: 0.8, lumber_camp: 0.8,
+  mining_camp: 0.8, dock: 0.9, solar_array: 0.6, wind_turbine: 4.2,
+  robotics_workshop: 2.2,
+};
 
 /** Margem MORTA na borda do prédio, em tiles (a caixa de clique encolhe por
  *  todos os lados). Só o CENTRO usa: ele é grande (3x3), fica no meio da base

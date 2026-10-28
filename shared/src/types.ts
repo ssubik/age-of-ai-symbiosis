@@ -6,6 +6,7 @@
 //    (um id nunca se repete entre categorias — comandos usam targetId genérico).
 
 export type ResourceType = 'food' | 'wood' | 'gold' | 'stone';
+export type CityPath = 'command' | 'space';
 export type UnitType =
   | 'villager' | 'swordsman' | 'archer' | 'knight'
   // Navais (andam SÓ na água; treinadas no Porto):
@@ -129,6 +130,10 @@ export interface PlayerSnap {
   /** Progresso 0..1 da pesquisa da próxima era (ausente se não pesquisando,
    *  e sempre ausente pro espectador). */
   ageProgress?: number;
+  /** Level-5 specialization; absent through Symbiotic City (level 4). */
+  cityPath?: CityPath;
+  /** Path being established while the level-5 research timer runs. */
+  pathResearch?: CityPath;
   /** Ids das tecnologias já pesquisadas. Ausente pro espectador. */
   techs?: string[];
   /** Optional non-transferable contribution standing (Symbiosis presentation). */

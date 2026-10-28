@@ -131,3 +131,17 @@ Follow-up completed on 2026-10-28 using `/Users/ssubik/Documents/Projects/WATT A
 - Restyled room planning, players, terrain selection, lobby cards, and Symbiosis command panels while preserving the existing DOM actions and Canvas battlefield.
 - Kept every game rule, room transition, input binding, authoritative command, balance value, and victory condition unchanged.
 - Reused the independently owned WATT Arena human builders, white humanoid installer, construction drone, and autonomous crane as build-progress overlays, with the existing procedural art retained as a load-failure fallback.
+
+## Five-level city progression
+
+- Settlement → Smart District → Technology City → Symbiotic City.
+- At Level 5 the player makes an authoritative, permanent match specialization at the Civic Hub.
+- Command Metropolis enables warfare and the strike-unit roster, but may target only other Command cities.
+- Space Gateway remains outside city warfare and receives +10 grid power from orbital infrastructure.
+- Attack commands, automatic aggro, defensive towers, training rules, bot choices, snapshots, and UI all enforce the same server-side path state.
+
+## Modern facility replacement
+
+- Every completed legacy economic and military structure now resolves to an independently owned WATT-style modern facility sprite; gameplay costs, footprints, drop-off behavior, prerequisites, and production remain unchanged.
+- Connected walls use a code-native precast-concrete design with graphite caps and cyan sensor rails so adjacent 1×1 segments still join correctly.
+- Construction presentation scales from a human crew to multiple humanoid robots, an AI builder, material rover, drone, and crane as progress advances. These remain cosmetic snapshot-derived overlays and never alter build speed.

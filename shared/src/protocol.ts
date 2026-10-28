@@ -15,6 +15,7 @@ import type {
   SheepSnap,
   UnitSnap,
   UnitType,
+  CityPath,
 } from './types';
 
 // ---------- Cliente -> Servidor ----------
@@ -42,6 +43,7 @@ export type GameCommand =
   | { kind: 'setRally'; buildingId: number; x: number; y: number }
   // pesquisar a próxima era no Centro da Cidade
   | { kind: 'advanceAge' }
+  | { kind: 'chooseCityPath'; path: CityPath }
   // pesquisar uma tecnologia/upgrade num prédio
   | { kind: 'research'; buildingId: number; techId: string }
   // Mercado: comprar/vender 1 lote (100) de recurso por ouro (requer mercado pronto)

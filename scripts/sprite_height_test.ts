@@ -71,12 +71,8 @@ for (const [type, fit] of Object.entries(BUILDING_SPRITES)) {
 
 check('conferiu pelo menos um PNG (senao o teste nao esta olhando nada)', checked > 0);
 
-// A TORRE foi encolhida (scale 1.25 -> 0.9375) porque, sendo 1x1, ela desenhava
-// o DOBRO da altura do Centro (3x3) e virava um espeto no meio da base. Trava o
-// nerf pra ele nao sumir calado numa refatoracao.
-//
-// Nao encurtar a torre CORTANDO a imagem: o corte deixa a borda de baixo reta e
-// no isometrico a base e um LOSANGO, entao ela fica parecendo torta. Ja tentamos.
+// The 1x1 modern sensor tower must remain subordinate to the 3x3 civic hub;
+// otherwise it becomes a visual spike that obscures neighboring facilities.
 {
   /** Altura DESENHADA, em alturas de tile: drawH/th = 2*size*scale*(imgH/imgW).
    *  (Nao confundir com a altura de CLIQUE acima, que desconta o footprint.) */
@@ -85,9 +81,11 @@ check('conferiu pelo menos um PNG (senao o teste nao esta olhando nada)', checke
     const { w, h } = pngSize(DIR + png);
     return 2 * BUILDING_DEFS[type].size * fit.scale * (h / w);
   };
-  const torre = alturaDesenhada('watch_tower', 'watch_tower_2.png');
-  const centro = alturaDesenhada('town_center', 'town_center_1.png');
-  check(`torre era 2 encolhida: ${torre.toFixed(2)} alturas de tile (era 8.06 na scale 1.25)`, torre < 6.5);
+  const torreFile = BUILDING_SPRITES.watch_tower!.file;
+  const centroFile = BUILDING_SPRITES.town_center!.file;
+  const torre = alturaDesenhada('watch_tower', torreFile);
+  const centro = alturaDesenhada('town_center', centroFile);
+  check(`torre de sensores compacta: ${torre.toFixed(2)} alturas de tile`, torre < 4.5);
   check(
     `torre 1x1 nao volta a ser o dobro do Centro 3x3 (${torre.toFixed(2)} vs ${centro.toFixed(2)})`,
     torre <= centro * 1.6,
