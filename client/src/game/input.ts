@@ -1,9 +1,10 @@
-// Entrada do jogo: câmera (WASD/setas + arrasto botão do meio + rolagem pela
-// borda da tela; zoom é FIXO, sem roda), seleção (clique/arrasto com caixa,
-// Shift/Ctrl), comandos (botão direito) e posicionamento de prédios.
+// Entrada do jogo: câmera (WASD/setas + arrasto do terreno/botão do meio +
+// rolagem pela borda; zoom é FIXO, sem roda), seleção (clique/arrasto com
+// caixa a partir de uma unidade, Shift/Ctrl), comandos (botão direito) e
+// posicionamento de prédios.
 
 import type { BuildingType, GameCommand } from '@age/shared';
-import { BUILDING_DEFS, GARRISON_CAP, TILE_WATER, isNavalUnit } from '@age/shared';
+import { BUILDING_DEFS, GARRISON_CAP, TILE_WATER, isBuilderUnit, isNavalUnit } from '@age/shared';
 import type { GameState } from '../state';
 import { music } from '../music';
 import type { Sfx } from './audio';
@@ -44,6 +45,7 @@ export class GameInput {
   private lastMouse = { x: 0, y: 0 };
   private leftDown = false;
   private leftDownAt = { x: 0, y: 0 };
+  private leftPanning = false;
   private dragSelecting = false;
   private dragAdditive = false;
   private lastFrameT = 0;
@@ -94,6 +96,7 @@ export class GameInput {
     this.keysDown.clear();
     this.mmDragging = false;
     this.leftDown = false;
+    this.leftPanning = false;
     this.dragSelecting = false;
     this.ui.hasMouse = false; // perdeu o foco (alt-tab): para a rolagem de borda
   };
@@ -129,13 +132,8 @@ export class GameInput {
       this.cam.clampToMap();
     }
 
-    // rolagem pela borda da tela (estilo AoE2): a câmera anda no sentido da
-    // borda onde o mouse encosta — as QUATRO bordas ABSOLUTAS da janela, como
-    // no jogo original (a de baixo dispara no fundo da tela, mesmo sobre o
-    // menu; o MIOLO do menu/minimapa não rola porque não é borda). Se o cursor
-    // SAI da janela pela borda, a última posição conhecida segue na zona e a
-    // rolagem CONTINUA (latch); volta um pouco pra dentro => para; blur => para.
-    // Desligada durante seleção (botão esquerdo) e arrasto do meio.
+    // Preserva a navegação clássica de RTS pelas quatro bordas. Ela fica
+    // desligada enquanto qualquer arrasto está ativo para não somar dois pans.
     if (this.ui.hasMouse && !this.leftDown && !this.mmDragging) {
       let ex = 0;
       let ey = 0;
@@ -144,8 +142,6 @@ export class GameInput {
       if (this.ui.mouseY < EDGE_MARGIN) ey = -1;
       else if (this.ui.mouseY > this.cam.viewH - EDGE_MARGIN) ey = 1;
       if (ex !== 0 || ey !== 0) {
-        // panPx move o CONTEÚDO; para a câmera ir no sentido da borda, o
-        // conteúdo desliza pro lado oposto — daí o sinal negativo.
         const step = EDGE_SPEED * dt;
         this.cam.panPx(-ex * step, -ey * step);
       }
@@ -165,6 +161,7 @@ export class GameInput {
     if (e.button === 1) {
       e.preventDefault();
       this.mmDragging = true;
+      this.canvas.style.cursor = 'grabbing';
       return;
     }
 
@@ -183,6 +180,10 @@ export class GameInput {
       this.leftDownAt = pos;
       this.dragSelecting = false;
       this.dragAdditive = e.shiftKey || e.ctrlKey;
+      const w = this.cam.screenToWorld(pos.x, pos.y);
+      // Dragging empty terrain pans naturally. Starting on an entity keeps the
+      // familiar RTS selection-box behavior; Shift/Ctrl always means selection.
+      this.leftPanning = !this.dragAdditive && !this.gs.pickAt(w.x, w.y, performance.now());
       return;
     }
 
@@ -204,10 +205,23 @@ export class GameInput {
     this.ui.mouseY = pos.y;
     this.ui.hasMouse = true;
 
+    // Dota-style camera-grip affordance: empty terrain is visibly grabbable,
+    // while entities retain the normal selection cursor.
+    if (!this.leftDown && !this.mmDragging && !this.ui.placement) {
+      const w = this.cam.screenToWorld(pos.x, pos.y);
+      this.canvas.style.cursor = this.gs.pickAt(w.x, w.y, performance.now()) ? 'default' : 'grab';
+    }
+
     if (this.mmDragging) {
       const dx = pos.x - this.lastMouse.x;
       const dy = pos.y - this.lastMouse.y;
       this.cam.panPx(-dx, -dy);
+    } else if (this.leftDown && this.leftPanning && !this.ui.placement) {
+      const dx = pos.x - this.lastMouse.x;
+      const dy = pos.y - this.lastMouse.y;
+      if (Math.hypot(pos.x - this.leftDownAt.x, pos.y - this.leftDownAt.y) > 3) this.dragSelecting = true;
+      this.cam.panPx(-dx, -dy);
+      this.canvas.style.cursor = 'grabbing';
     } else if (this.leftDown && !this.ui.placement) {
       const dx = pos.x - this.leftDownAt.x;
       const dy = pos.y - this.leftDownAt.y;
@@ -224,6 +238,7 @@ export class GameInput {
   private onMouseUp = (e: MouseEvent): void => {
     if (e.button === 1) {
       this.mmDragging = false;
+      this.canvas.style.cursor = 'grab';
       return;
     }
     if (e.button === 0 && this.ui.wallDrag) {
@@ -233,12 +248,16 @@ export class GameInput {
     }
     if (e.button === 0 && this.leftDown) {
       this.leftDown = false;
+      this.canvas.style.cursor = '';
       const pos = this.canvasPos(e);
-      if (this.dragSelecting && this.ui.boxRect) {
+      if (this.leftPanning && this.dragSelecting) {
+        // Camera drag is not a click and must not alter selection.
+      } else if (this.dragSelecting && this.ui.boxRect) {
         this.finishBoxSelect(this.ui.boxRect, this.dragAdditive);
       } else {
         this.handleLeftClick(pos, e.shiftKey || e.ctrlKey);
       }
+      this.leftPanning = false;
       this.dragSelecting = false;
       this.ui.boxRect = null;
     }
@@ -551,6 +570,7 @@ export class GameInput {
       const pick = this.gs.pickAt(w.x, w.y, performance.now());
       const unitIds = ownUnits.map((u) => u.id);
       const hasVillager = ownUnits.some((u) => u.type === 'villager');
+      const hasBuilder = ownUnits.some((u) => isBuilderUnit(u.type));
 
       if (pick?.kind === 'node') {
         // peixe é coisa de BARCO PESQUEIRO; o resto é coisa de aldeão
@@ -578,7 +598,7 @@ export class GameInput {
       if (pick?.kind === 'building') {
         const b = pick.building;
         if (b.owner === this.gs.you) {
-          if ((b.progress ?? 1) < 1 && hasVillager) {
+          if ((b.progress ?? 1) < 1 && hasBuilder) {
             this.mark('build', w.x, w.y, b.id);
             this.cmd({ kind: 'build', unitIds, building: b.type, tileX: b.tileX, tileY: b.tileY });
             return;
@@ -589,7 +609,7 @@ export class GameInput {
             return;
           }
           // prédio próprio pronto e DANIFICADO + aldeão → reparar (recupera a vida)
-          if (hasVillager && (b.progress ?? 1) >= 1 && b.hp < (BUILDING_DEFS[b.type]?.hp ?? b.hp)) {
+          if (hasBuilder && (b.progress ?? 1) >= 1 && b.hp < (BUILDING_DEFS[b.type]?.hp ?? b.hp)) {
             this.mark('build', w.x, w.y, b.id);
             this.cmd({ kind: 'repair', unitIds, targetId: b.id });
             return;
@@ -692,7 +712,7 @@ export class GameInput {
     this.ui.wallDrag = null;
     if (!start) return;
     const end = ghostTile(this.ui, this.cam, 'wall');
-    const villagers = this.gs.selectedOwnUnits().filter((u) => u.type === 'villager');
+    const villagers = this.gs.selectedOwnUnits().filter((u) => isBuilderUnit(u.type));
     const unitIds = villagers.map((u) => u.id);
     const cost = BUILDING_DEFS.wall.cost.stone ?? 10;
     let budget = Math.floor((this.gs.me()?.resources?.stone ?? 0) / cost);
@@ -714,7 +734,7 @@ export class GameInput {
     if (!type) return;
     const t = ghostTile(this.ui, this.cam, type);
     if (!this.gs.canPlace(type, t.x, t.y)) return;
-    const villagers = this.gs.selectedOwnUnits().filter((u) => u.type === 'villager');
+    const villagers = this.gs.selectedOwnUnits().filter((u) => isBuilderUnit(u.type));
     const unitIds = villagers.map((u) => u.id);
     // Ctrl/Shift (keepPlacing): enfileira a obra no aldeão em vez de substituir
     this.deps.onBuildCommand(type, t.x, t.y, unitIds, keepPlacing);

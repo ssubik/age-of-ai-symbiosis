@@ -15,6 +15,16 @@
     "dev:client": "npm run dev -w client",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
     "build": "npm run build -w client",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test:automation": "tsx scripts/automation_grid_test.ts",
+    "chain:node": "anvil",
+    "chain:build": "cd contracts && forge build",
+    "chain:test": "cd contracts && forge test",
+    "chain:deploy": "node scripts/chain-deploy.mjs"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "esbuild@0.25.12": true,
+    "fsevents@2.3.3": true
   }
 }

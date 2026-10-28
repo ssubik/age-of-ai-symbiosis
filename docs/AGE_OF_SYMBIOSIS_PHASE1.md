@@ -13,6 +13,14 @@ Data flows from client intent → protocol validation → authoritative room/sta
 
 Phase 1 does not change resources, costs, prerequisites, footprints, queues, construction timing, age progression, population, pathfinding, fog, combat, naval units, teams, bots, victory, controls, snapshots, tick rate, or localization support. Classic source sprites remain in place and procedural construction states remain the fallback.
 
+## Gameplay preservation contract
+
+- The isometric battlefield fills the viewport; strategic information stays in compact HUD rails around its edges.
+- The camera supports the original screen-edge, middle-drag, keyboard, and minimap navigation plus direct left-dragging of empty terrain.
+- Clicking a unit selects it. Dragging from a unit creates the familiar selection box; Shift/Ctrl makes selection additive and also permits box selection from empty terrain.
+- Villagers, builder robots, and construction drones use the same build palette and right-click construction/repair commands. Only villagers gather resources.
+- Every order remains a client intent validated and executed by the authoritative server; the visual shell never manufactures simulation state.
+
 ## File-by-file plan
 
 | File or area | Phase | Incremental change |
@@ -99,6 +107,7 @@ Phase 3 presentation mappings, authoritative contribution events, invariants, an
 - `shared/src/proof-types.ts` distinguishes disabled, local, simulated, submitted, confirmed, and failed states.
 - `contracts/MatchCommitmentRegistry.sol` is a minimal non-token commitment registry with local Anvil configuration.
 - `scripts/elon_archive_proof_test.ts` covers integer/balanced postings, deterministic hashes, blockchain-disabled behavior, and failed-proof isolation.
+- The settings overlay now exposes the boundary directly: authoritative live simulation → canonical SHA-256 archive → optional final-hash commitment. Blockchain is provenance only and never participates in commands, economy, victory, or ELON accounting.
 
 ## Phase 5 — verification and polish
 
@@ -121,3 +130,4 @@ Follow-up completed on 2026-10-28 using `/Users/ssubik/Documents/Projects/WATT A
 - Added a live room strategy strip for identity, economy, visibility, and territory, plus a concise civilization signal explaining the selected presentation layer.
 - Restyled room planning, players, terrain selection, lobby cards, and Symbiosis command panels while preserving the existing DOM actions and Canvas battlefield.
 - Kept every game rule, room transition, input binding, authoritative command, balance value, and victory condition unchanged.
+- Reused the independently owned WATT Arena human builders, white humanoid installer, construction drone, and autonomous crane as build-progress overlays, with the existing procedural art retained as a load-failure fallback.

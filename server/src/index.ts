@@ -13,6 +13,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { GAME_PORT } from '@age/shared';
 import type { ClientMessage, ServerMessage } from '@age/shared';
 import { Lobby } from './lobby';
+import { handleApi } from './api';
 import { readMetrics, MONITOR_HTML } from './metrics';
 import { conectarJogo, slugDoPath, estadoDasSalas } from './online-games-ws';
 
@@ -184,7 +185,10 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
   fs.createReadStream(filePath).pipe(res);
 }
 
-const httpServer = http.createServer(serveStatic);
+const httpServer = http.createServer((req, res) => {
+  if (handleApi(req, res)) return;
+  serveStatic(req, res);
+});
 
 // WS com flag de vitalidade p/ o heartbeat (detecção de conexão morta).
 type HeartbeatWS = WebSocket & { isAlive?: boolean };

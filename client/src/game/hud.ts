@@ -27,6 +27,9 @@ import {
   TRANSPORT_CAP,
   UNIT_AGE_REQ,
   UNIT_DEFS,
+  BUILD_RATE,
+  isBuilderUnit,
+  powerEfficiency,
   techBonus,
   tradeBuyCost,
   tradeSellGain,
@@ -66,7 +69,7 @@ export interface HudDeps {
   getPlacement: () => BuildingType | null;
 }
 
-const BUILD_ORDER: BuildingType[] = ['house', 'farm', 'mill', 'lumber_camp', 'mining_camp', 'dock', 'barracks', 'archery_range', 'stable', 'blacksmith', 'market', 'wall', 'watch_tower', 'town_center'];
+const BUILD_ORDER: BuildingType[] = ['house', 'solar_array', 'wind_turbine', 'robotics_workshop', 'farm', 'mill', 'lumber_camp', 'mining_camp', 'dock', 'barracks', 'archery_range', 'stable', 'blacksmith', 'market', 'wall', 'watch_tower', 'town_center'];
 const RES_ORDER: ResourceType[] = ['food', 'wood', 'gold', 'stone'];
 
 /** Ícones da barra de recursos DESENHADOS (SVG inline). Emojis de madeira/ouro/
@@ -114,6 +117,8 @@ export class Hud {
   private popEl: HTMLElement;
   private popVal: HTMLElement;
   private ageVal: HTMLElement;
+  private powerEl: HTMLElement | null = null;
+  private powerVal: HTMLElement | null = null;
   private ageTxtCache = '';
   private idleBtn!: HTMLButtonElement;
   private idleVal!: HTMLElement;
@@ -170,6 +175,14 @@ export class Hud {
     this.popVal = el('b', '', '0/0');
     this.popEl.appendChild(this.popVal);
     top.appendChild(this.popEl);
+    if (this.symbiosis) {
+      this.powerEl = el('span', 'res power');
+      this.powerEl.title = t('hud.power_tip');
+      this.powerEl.append('⚡ ');
+      this.powerVal = el('b', '', '0/0');
+      this.powerEl.appendChild(this.powerVal);
+      top.appendChild(this.powerEl);
+    }
     const ageSpan = el('span', 'res age');
     ageSpan.title = t('hud.age_tip');
     ageSpan.append('🏛 ');
@@ -286,6 +299,11 @@ export class Hud {
     const popTxt = `${me.pop}/${me.popCap}`;
     if (this.popVal.textContent !== popTxt) this.popVal.textContent = popTxt;
     this.popEl.classList.toggle('full', me.pop >= me.popCap);
+    if (this.powerEl && this.powerVal && me.power) {
+      const powerTxt = `${me.power.draw}/${me.power.supply}`;
+      if (this.powerVal.textContent !== powerTxt) this.powerVal.textContent = powerTxt;
+      this.powerEl.classList.toggle('full', me.power.draw > me.power.supply);
+    }
     // contador de aldeões ociosos (botão só aparece quando há algum)
     let idle = 0;
     for (const u of this.gs.units.values()) {
@@ -394,6 +412,12 @@ export class Hud {
     if (u.owner !== this.gs.you) {
       this.selPanel.appendChild(el('div', 'sel-line', t('hud.player', { name: this.gs.nameOf(u.owner) })));
     }
+    const rate = BUILD_RATE[u.type];
+    if (this.symbiosis && rate && u.type !== 'villager') {
+      const grid = this.gs.playerSnaps.get(u.owner)?.power;
+      const eff = grid ? powerEfficiency(grid.supply, grid.draw) : 1;
+      this.selPanel.appendChild(el('div', 'sel-line', t('hud.build_rate', { rate, pct: Math.round(eff * 100) })));
+    }
     if ((u.type === 'villager' || u.type === 'fishing_boat') && (u.carryAmount ?? 0) > 0 && u.carryType) {
       this.selPanel.appendChild(
         el('div', 'sel-line', t('hud.carrying', { amt: Math.floor(u.carryAmount ?? 0), icon: RESOURCE_ICONS[u.carryType] })),
@@ -457,10 +481,17 @@ export class Hud {
       this.selPanel.appendChild(
         el('div', 'sel-line', t('hud.construction_pct', { pct: Math.floor((b.progress ?? 0) * 100) })),
       );
+    } else if (def?.power) {
+      this.selPanel.appendChild(el('div', 'sel-line', t('hud.power_gen', { n: def.power })));
     } else if (b.type === 'farm' && b.foodLeft !== undefined) {
       this.selPanel.appendChild(
         el('div', 'sel-line', t('hud.food_left', { amt: Math.ceil(b.foodLeft), icon: RESOURCE_ICONS.food })),
       );
+    }
+    if (b.proof) {
+      const proof = el('div', 'sel-line proof-line', t('hud.proof', { hash: `${b.proof.slice(0, 8)}…${b.proof.slice(-6)}` }));
+      proof.title = `${t('hud.proof_tip')}\n${b.proof}`;
+      this.selPanel.appendChild(proof);
     }
     // Guarnecido: quantos dentro + botão de EJETAR (a tecla U segue valendo, mas
     // ninguém é obrigado a decorar — mesmo padrão do "Desembarcar" do transporte).
@@ -511,7 +542,7 @@ export class Hud {
   private actionsContext(): { key: string; building?: BuildingSnap } {
     const gs = this.gs;
     const ownUnits = gs.selectedOwnUnits();
-    if (ownUnits.some((u) => u.type === 'villager')) return { key: 'build' };
+    if (ownUnits.some((u) => isBuilderUnit(u.type))) return { key: 'build' };
     if (ownUnits.length > 0) return { key: 'hint:soldiers' };
 
     const b = gs.selectedBuilding();
@@ -576,7 +607,7 @@ export class Hud {
       const grid = el('div', 'cmd-grid');
       for (const type of BUILD_ORDER) {
         const def = BUILDING_DEFS[type];
-        if (!def) continue;
+        if (!def || (def.symbiosis && !this.symbiosis)) continue;
         // tile quadrado só com o ícone (estilo AoE2); nome/custo/descrição vão
         // pra caixa de ajuda acima do menu (data-tip-*)
         const btn = el('button', 'btn cmd-tile');

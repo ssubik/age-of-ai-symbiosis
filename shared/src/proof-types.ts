@@ -6,5 +6,10 @@ export interface MatchCommitment {
   archivePath?: string;
   status: ProofStatus;
   transactionHash?: string;
+  ledgerHead?: string;
+  ledgerHeight?: number;
+  blockNumber?: number;
+  chainId?: number;
+  contract?: string;
   error?: string;
 }

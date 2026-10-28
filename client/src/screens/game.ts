@@ -1,10 +1,10 @@
 // Tela 4: Jogo — canvas fullscreen + HUD, câmera, input e renderização.
 
-import type { ExperienceMode, GameCommand, MapData, PlayerInfo } from '@age/shared';
+import type { BuildingType, ExperienceMode, GameCommand, MapData, PlayerInfo, UnitType } from '@age/shared';
 import { BUILDING_DEFS } from '@age/shared';
 import { GameState } from '../state';
 import { el } from '../ui';
-import { t } from '../i18n';
+import { BUILDING_NAMES, t, UNIT_NAMES } from '../i18n';
 import { Camera } from '../game/camera';
 import { Hud, type HudDeps } from '../game/hud';
 import { GameInput } from '../game/input';
@@ -50,6 +50,11 @@ export class GameScreen {
   private councilText: HTMLElement | null = null;
   private councilLastId = '';
   private elonValue: HTMLElement | null = null;
+  private elonScore: HTMLElement | null = null;
+  private chainHeight: HTMLElement | null = null;
+  private chainHead: HTMLElement | null = null;
+  private chainFeed: HTMLElement | null = null;
+  private chainSig = '';
 
   private rafId = 0;
   private resizeObserver: ResizeObserver | null = null;
@@ -120,13 +125,31 @@ export class GameScreen {
       head.addEventListener('click', () => council.classList.toggle('collapsed'));
       council.appendChild(head);
       council.appendChild(this.councilText);
-      root.appendChild(council);
+      const rail = el('div', 'sym-rail');
+      rail.appendChild(council);
+      root.appendChild(rail);
       const contribution = el('div', 'elon-panel');
       contribution.appendChild(el('span', 'elon-label', 'ELON'));
       this.elonValue = el('strong', '', '0');
       contribution.appendChild(this.elonValue);
+      this.elonScore = el('span', 'elon-score', '');
+      contribution.appendChild(this.elonScore);
       contribution.title = t('elon.explain');
       root.appendChild(contribution);
+
+      const ledger = el('aside', 'chain-panel');
+      ledger.title = t('chain.explain');
+      const lhead = el('button', 'chain-head');
+      lhead.appendChild(el('span', 'chain-eyebrow', t('chain.title')));
+      this.chainHeight = el('strong', 'chain-height', t('chain.block', { n: 0 }));
+      lhead.appendChild(this.chainHeight);
+      lhead.addEventListener('click', () => ledger.classList.toggle('collapsed'));
+      ledger.appendChild(lhead);
+      this.chainHead = el('div', 'chain-hash', '');
+      ledger.appendChild(this.chainHead);
+      this.chainFeed = el('ol', 'chain-feed');
+      ledger.appendChild(this.chainFeed);
+      rail.appendChild(ledger);
     }
 
     this.minimap = new Minimap(gs, this.cam, {
@@ -447,6 +470,7 @@ export class GameScreen {
       this.playEventSounds(now);
       this.hud.update();
       this.updateCouncil();
+      this.updateLedger();
       this.updateWatchBadge();
       this.checkDefeat();
       if (this.ctx) {
@@ -464,12 +488,20 @@ export class GameScreen {
     const me = this.state.me();
     if (!me?.resources) return;
     if (this.elonValue) this.elonValue.textContent = String(me.elon ?? 0);
+    if (this.elonScore && me.score) {
+      const txt = t('elon.score', { score: me.score.score.toFixed(1), rel: (me.score.reliabilityPpm / 10000).toFixed(0) });
+      if (this.elonScore.textContent !== txt) this.elonScore.textContent = txt;
+    }
     let villagers = 0;
     let idleVillagers = 0;
     for (const unit of this.state.units.values()) {
       if (unit.owner !== this.state.you || unit.type !== 'villager') continue;
       villagers++;
       if (unit.state === 'idle') idleVillagers++;
+    }
+    let hasWorkshop = false;
+    for (const b of this.state.buildings.values()) {
+      if (b.owner === this.state.you && b.type === 'robotics_workshop') { hasWorkshop = true; break; }
     }
     const advice = recommend({
       ...me.resources,
@@ -478,12 +510,54 @@ export class GameScreen {
       villagers,
       age: me.age,
       idleVillagers,
+      powerSupply: me.power?.supply,
+      powerDraw: me.power?.draw,
+      hasWorkshop,
     });
     if (advice.id === this.councilLastId) return;
     this.councilLastId = advice.id;
     this.councilText.innerHTML = '';
     this.councilText.appendChild(el('strong', '', t(`council.${advice.id}.action`)));
     this.councilText.appendChild(el('span', '', t(`council.${advice.id}.why`)));
+  }
+
+  private updateLedger(): void {
+    const chain = this.state.chain;
+    if (!this.chainFeed || !chain) return;
+    const sig = `${chain.height}:${chain.pending}:${chain.txs[0]?.hash ?? ''}`;
+    if (sig === this.chainSig) return;
+    this.chainSig = sig;
+    if (this.chainHeight) this.chainHeight.textContent = t('chain.block', { n: chain.height });
+    if (this.chainHead) {
+      this.chainHead.textContent = `${t('chain.head')} ${chain.head.slice(0, 10)}…${chain.head.slice(-4)} · ${t('chain.pending', { n: chain.pending })}`;
+    }
+    this.chainFeed.innerHTML = '';
+    for (const tx of chain.txs.slice(0, 6)) {
+      const row = el('li', `chain-tx ${tx.block === undefined ? 'pending' : ''}`);
+      const dot = el('span', 'chain-dot');
+      dot.style.background = tx.playerId >= 0 ? this.state.colorOf(tx.playerId) : 'var(--accent)';
+      row.appendChild(dot);
+      const body = el('div', 'chain-body');
+      const kind = el('span', `chain-kind k-${tx.kind}`, t(`chain.kind.${tx.kind}`));
+      body.appendChild(kind);
+      body.appendChild(el('span', 'chain-label', this.describeTx(tx.label)));
+      row.appendChild(body);
+      const meta = el('div', 'chain-meta');
+      meta.appendChild(el('span', 'chain-amt', tx.amount ? `+${tx.amount}` : ''));
+      meta.appendChild(el('span', 'chain-txhash', tx.block === undefined ? '···' : `#${tx.block}`));
+      row.appendChild(meta);
+      row.title = tx.hash;
+      this.chainFeed.appendChild(row);
+    }
+  }
+
+  private describeTx(label: string): string {
+    const [verb, what] = label.split(':');
+    if (verb === 'completed' && what) return BUILDING_NAMES[what as BuildingType] ?? what;
+    if (verb === 'trained' && what) return UNIT_NAMES[what as UnitType] ?? what;
+    if (verb === 'reached' && what) return what.replace('age-', 'Age ');
+    if (verb === 'served') return what === 'power' ? t('chain.served_power') : t('chain.served_needs');
+    return verb === 'genesis' ? 'Genesis' : label;
   }
 
   /** Acabou o que eu estava assistindo. Mostra O QUE aconteceu e deixa escolher:

@@ -95,6 +95,26 @@ export class SettingsOverlay {
     const hint = el('p', 'opt-hint', t('opt.res_hint'));
     card.appendChild(hint);
 
+    const proof = el('section', 'proof-boundary');
+    proof.appendChild(el('h3', 'proof-boundary-title', t('opt.proof_title')));
+    const flow = el('div', 'proof-boundary-flow');
+    for (const [step, title, body] of [
+      ['01', t('opt.proof_live'), t('opt.proof_live_desc')],
+      ['02', t('opt.proof_archive'), t('opt.proof_archive_desc')],
+      ['03', t('opt.proof_chain'), t('opt.proof_chain_desc')],
+    ]) {
+      const item = el('div', 'proof-boundary-step');
+      item.appendChild(el('span', 'proof-boundary-index', step));
+      const copy = el('div', 'proof-boundary-copy');
+      copy.appendChild(el('strong', '', title));
+      copy.appendChild(el('span', '', body));
+      item.appendChild(copy);
+      flow.appendChild(item);
+    }
+    proof.appendChild(flow);
+    proof.appendChild(el('p', 'proof-boundary-note', t('opt.proof_note')));
+    card.appendChild(proof);
+
     const close = el('button', 'btn primary', t('opt.close'));
     close.addEventListener('click', () => this.hide());
     card.appendChild(close);

@@ -14,7 +14,11 @@ import { RoomScreen } from './screens/room';
 import { GameScreen } from './screens/game';
 import { GameOverScreen } from './screens/gameover';
 import { SettingsOverlay } from './screens/settings';
+import { Shell } from './shell/shell';
+import type { PageId } from './shell/pages';
+import { L } from './shell/kit';
 import './style.css';
+import './watt.css';
 
 type ScreenName = 'name' | 'lobby' | 'room' | 'game';
 
@@ -35,6 +39,8 @@ let current: ScreenName = 'name';
 let myPlayerId = -1;
 let lastRoomPlayers: RoomPlayer[] = [];
 let pendingName = ''; // nome sendo confirmado (salvo no localStorage quando o servidor aceita)
+let myName = '';
+let signedIn = false;
 
 let gameScreen: GameScreen | null = null;
 let gamePaused = false; // partida pausada (autoritativo do servidor); tecla P alterna
@@ -49,6 +55,14 @@ const gameOverScreen = new GameOverScreen({
     net.send({ type: 'leaveRoom' }); // sai da sala de verdade (senão o servidor te
     showScreen('lobby');             // mantém preso nela e "Criar sala" recusa)
     net.send({ type: 'listRooms' });
+  },
+  onOpenStewardship: () => {
+    gameOverScreen.hide();
+    teardownGame();
+    net.send({ type: 'leaveRoom' });
+    showScreen('lobby');
+    net.send({ type: 'listRooms' });
+    openPage('stewardship');
   },
 });
 document.body.appendChild(gameOverScreen.el);
@@ -70,6 +84,8 @@ const settingsOverlay = new SettingsOverlay({
     gearBtn.title = t('opt.title');
     gearBtn.setAttribute('aria-label', t('opt.title'));
     nameScreen.retranslate();
+    shell.retranslate();
+    guideLink.lastChild!.textContent = ` ${L('Open Codex', 'Abrir Códice', 'Abrir Códice')}`;
     lobbyScreen.retranslate();
     roomScreen.retranslate();
     gameScreen?.retranslate();
@@ -107,6 +123,7 @@ document.body.appendChild(gearBtn);
 
 const nameScreen = new NameScreen({
   initialName: getSavedName(),
+  onOpenPage: (page) => openPage(page),
   onEnter: (name) => {
     // não vai pro lobby na hora: espera o servidor confirmar o nome (nameOk) ou
     // avisar que já está em uso (nameTaken).
@@ -146,6 +163,42 @@ const roomScreen = new RoomScreen({
   onSetBotDifficulty: (botId, difficulty) => net.send({ type: 'setBotDifficulty', botId, difficulty }),
 });
 
+// WATT Arena frame around everything that is not the battlefield.
+const shell = new Shell({
+  playContent: () => (current === 'room' ? roomScreen.el : lobbyScreen.el),
+  playCrumb: () => (current === 'room' ? L('Room', 'Sala', 'Sala') : L('Play Realm', 'Jogar', 'Jugar')),
+  onSettings: () => settingsOverlay.show(),
+  onNavigate: (page) => openPage(page),
+  playerName: () => myName,
+  signedIn: () => signedIn,
+  onEnterWorld: () => { showScreen('name'); nameScreen.focus(); },
+});
+
+const guideLink = document.createElement('a');
+guideLink.className = 'appGuideLink';
+guideLink.href = '#';
+guideLink.innerHTML = '<b>?</b>';
+guideLink.append(` ${L('Open Codex', 'Abrir Códice', 'Abrir Códice')}`);
+guideLink.addEventListener('click', (e) => { e.preventDefault(); openPage('codex'); });
+document.body.appendChild(guideLink);
+
+/** Opens a WATT page. Before signing in, the shell is browsable as a guest. */
+function openPage(page: PageId, matchId?: string): void {
+  if (current === 'game') return;
+  if (page === 'play' && !signedIn) {
+    showScreen('name');
+    return;
+  }
+  if (!shell.el.isConnected) {
+    app!.innerHTML = '';
+    app!.appendChild(shell.el);
+    nameScreen.setVisible(false);
+    shell.setVisible(true);
+    document.body.classList.add('in-shell');
+  }
+  shell.show(page, matchId);
+}
+
 function screenEl(name: ScreenName): HTMLElement {
   switch (name) {
     case 'name': return nameScreen.el;
@@ -156,10 +209,27 @@ function screenEl(name: ScreenName): HTMLElement {
 }
 
 function showScreen(name: ScreenName): void {
+  const previous = current;
   current = name;
-  app!.innerHTML = '';
-  app!.appendChild(screenEl(name));
-  if (name === 'name') nameScreen.focus();
+  const framed = name === 'lobby' || name === 'room';
+  if (framed) {
+    // A repeated lobby/room notice (e.g. the server's late leftRoom) must not
+    // pull the player off a WATT page they just opened; only a real change does.
+    const mounted = shell.el.isConnected;
+    if (!mounted) {
+      app!.innerHTML = '';
+      app!.appendChild(shell.el);
+    }
+    if (!mounted || previous !== name) shell.show('play');
+  } else {
+    app!.innerHTML = '';
+    app!.appendChild(screenEl(name));
+  }
+  shell.setVisible(framed);
+  nameScreen.setVisible(name === 'name');
+  document.body.classList.toggle('in-shell', framed);
+  document.body.classList.toggle('in-game', name === 'game');
+  if (name === 'name') window.scrollTo(0, 0);
   // engrenagem mostra "Sair da sala" só em sala/jogo; em jogo pede confirmação
   settingsOverlay.setLeaveContext(name === 'room' || name === 'game', name === 'game');
   // trilha por tela: abertura nos menus, faixas de fundo dentro da partida
@@ -228,6 +298,8 @@ function dispatch(msg: ServerMessage): void {
       // nome aceito -> lembra o nome e só AGORA vai pro lobby
       nameScreen.setStatus('');
       if (pendingName) saveName(pendingName);
+      myName = pendingName;
+      signedIn = true;
       if (current === 'name') {
         net.send({ type: 'listRooms' });
         showScreen('lobby');
@@ -339,6 +411,7 @@ function dispatch(msg: ServerMessage): void {
           players: msg.players,
           market: msg.market,
           spectators: msg.spectators,
+          chain: msg.chain,
         });
       }
       break;
@@ -349,8 +422,12 @@ function dispatch(msg: ServerMessage): void {
       if (current !== 'game') break;
       const youWon = msg.won ?? (msg.winner === myPlayerId);
       gameScreen?.state.fog.revealAll(); // fim de jogo revela o mapa (estilo AoE)
-      gameOverScreen.show(youWon, msg.winnerName, msg.contributions);
+      gameOverScreen.show(youWon, msg.winnerName, msg.contributions, !!gameScreen?.state.chain, gameScreen?.state.chain ? msg.standings : undefined);
       music.setState('end'); // música de fim de jogo
+      break;
+    }
+    case 'matchProof': {
+      gameOverScreen.showProof(msg.proof);
       break;
     }
     default:

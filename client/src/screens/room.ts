@@ -79,7 +79,7 @@ export class RoomScreen {
   private mode: GameMode = 'normal';
   private experience: ExperienceMode = 'classic';
   private fog = false;
-  private terrain: TerrainKind = 'classic';
+  private terrain: TerrainKind = 'river';
   private modeBtns: { m: GameMode; btn: HTMLButtonElement }[] = [];
   private experienceBtns: { value: ExperienceMode; btn: HTMLButtonElement }[] = [];
   private fogBtns: { closed: boolean; btn: HTMLButtonElement }[] = [];
@@ -314,7 +314,7 @@ export class RoomScreen {
     this.chatInput.value = '';
   }
 
-  setState(roomId: string, players: RoomPlayer[], myId: number, mode: GameMode = 'normal', fog = false, terrain: TerrainKind = 'classic', broadcast = true, experience: ExperienceMode = 'classic'): void {
+  setState(roomId: string, players: RoomPlayer[], myId: number, mode: GameMode = 'normal', fog = false, terrain: TerrainKind = 'river', broadcast = true, experience: ExperienceMode = 'classic'): void {
     this.roomId = roomId;
     this.players = Array.isArray(players) ? players : [];
     this.myId = myId;

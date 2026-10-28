@@ -59,6 +59,12 @@ export const UNIT_DEFS: Record<UnitType, UnitDef> = {
   fishing_boat: { hp: 60,  speed: 2.2, attack: 0,  range: 0,   attackCooldown: 1,   sight: 6, cost: { wood: 60 },            trainTime: 10, pop: 1 },
   war_galley:   { hp: 130, speed: 2.4, attack: 8,  range: 5.5, attackCooldown: 1.6, sight: 7, cost: { wood: 90, gold: 30 },  trainTime: 14, pop: 2 },
   transport:    { hp: 110, speed: 2.6, attack: 0,  range: 0,   attackCooldown: 1,   sight: 6, cost: { wood: 80 },            trainTime: 12, pop: 1 },
+  // ---- Symbiosis automation (Robotics Workshop) ----
+  robot: { hp: 70, speed: 1.6, attack: 2, range: 1, attackCooldown: 1.6, sight: 5, cost: { wood: 60, gold: 40 }, trainTime: 12, pop: 1 },
+  drone: { hp: 28, speed: 3.2, attack: 0, range: 0, attackCooldown: 1,   sight: 8, cost: { wood: 20, gold: 60 }, trainTime: 10, pop: 1 },
+  attack_drone: { hp: 55, speed: 3.4, attack: 9, range: 4.5, attackCooldown: 1.25, sight: 9, cost: { wood: 35, gold: 75 }, trainTime: 14, pop: 1 },
+  fighter: { hp: 95, speed: 4.2, attack: 16, range: 5.5, attackCooldown: 1.8, sight: 10, cost: { wood: 60, gold: 130 }, trainTime: 22, pop: 2 },
+  rocket_launcher: { hp: 105, speed: 1.35, attack: 24, range: 7.5, attackCooldown: 3.2, sight: 9, cost: { wood: 100, gold: 120 }, trainTime: 26, pop: 3 },
 };
 
 // ---------- Prédios ----------
@@ -76,6 +82,10 @@ export interface BuildingDef {
    *  tipo pra construir. Ex.: Fazenda/Mercado ← Moinho; Arquearia/Estábulo/
    *  Ferraria ← Quartel. Sem o pré-requisito o botão nem aparece no menu. */
   requires?: BuildingType;
+  /** Power generation capacity (Symbiosis grid). */
+  power?: number;
+  /** Only buildable in Symbiosis matches. */
+  symbiosis?: boolean;
 }
 
 export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
@@ -94,7 +104,37 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
   mining_camp:   { hp: 250,  size: 2, cost: { wood: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['gold', 'stone'] },
   // Porto: construído NA ÁGUA encostado na costa; deposita o peixe e treina barcos.
   dock:          { hp: 600,  size: 2, cost: { wood: 150 },             buildTime: 20, popProvided: 0, trains: ['fishing_boat', 'war_galley', 'transport'], isDropOff: true, ageReq: 1, accepts: ['food'] },
+  // ---- Symbiosis energy grid + automation ----
+  solar_array:       { hp: 220, size: 2, cost: { wood: 80 },             buildTime: 14, popProvided: 0, trains: [],                isDropOff: false, ageReq: 1, power: 4, symbiosis: true },
+  wind_turbine:      { hp: 260, size: 1, cost: { wood: 60, stone: 40 },  buildTime: 16, popProvided: 0, trains: [],                isDropOff: false, ageReq: 2, power: 6, symbiosis: true },
+  robotics_workshop: { hp: 650, size: 3, cost: { wood: 150, gold: 50 },  buildTime: 30, popProvided: 0, trains: ['robot', 'drone', 'attack_drone', 'fighter', 'rocket_launcher'], isDropOff: false, ageReq: 1, symbiosis: true },
 };
+
+// ---------- Symbiosis: automated builders + power grid ----------
+/** Construction speed per builder (villager = 1). */
+export const BUILD_RATE: Partial<Record<UnitType, number>> = { villager: 1, robot: 1.8, drone: 1.25 };
+/** Grid power each automated unit draws while it exists. */
+export const POWER_DRAW: Partial<Record<UnitType, number>> = { robot: 1, drone: 1, attack_drone: 2, fighter: 3, rocket_launcher: 2 };
+/** Base grid capacity of a completed Town Center in Symbiosis matches. */
+export const TOWN_CENTER_POWER = 2;
+/** Floor for automation efficiency when demand exceeds supply. */
+export const POWER_MIN_EFFICIENCY = 0.3;
+export const SYMBIOSIS_UNITS: ReadonlySet<UnitType> = new Set(['robot', 'drone']);
+export const SYMBIOSIS_COMBAT_UNITS: ReadonlySet<UnitType> = new Set(['attack_drone', 'fighter', 'rocket_launcher']);
+export const FLYING_UNITS: ReadonlySet<UnitType> = new Set(['drone', 'attack_drone', 'fighter']);
+export const isFlyingUnit = (t: UnitType): boolean => FLYING_UNITS.has(t);
+export const isBuilderUnit = (t: UnitType): boolean => (BUILD_RATE[t] ?? 0) > 0;
+export const isSymbiosisBuilding = (t: BuildingType): boolean => !!BUILDING_DEFS[t].symbiosis;
+/** Automation runs at full speed while supply covers draw, then degrades
+ *  proportionally (a congested grid, as in WATT Arena). */
+export function powerEfficiency(supply: number, draw: number): number {
+  if (draw <= 0 || supply >= draw) return 1;
+  return Math.max(POWER_MIN_EFFICIENCY, supply / draw);
+}
+
+// ---------- Symbiosis: match ledger ----------
+/** A ledger block is sealed every N ticks (5 s at 10 ticks/s). */
+export const CHAIN_BLOCK_TICKS = 50;
 
 // ---------- Naval ----------
 /** Unidades que andam SÓ na água (água funda ou raso). */
@@ -180,7 +220,7 @@ export const AGE_RESEARCH_TIME: number[] = [0, 0, 25, 40, 55];
  *  2 prédios DIFERENTES da era atual — e Casa, Fazenda e Muralha NÃO contam
  *  (nem o Centro da Cidade). Ex.: nas Trevas valem Quartel/Moinho/Madeireira/
  *  Campo de Mineração. Duas cópias do mesmo prédio contam como UM. */
-export const AGE_UP_EXCLUDED: ReadonlySet<BuildingType> = new Set<BuildingType>(['town_center', 'house', 'farm', 'wall']);
+export const AGE_UP_EXCLUDED: ReadonlySet<BuildingType> = new Set<BuildingType>(['town_center', 'house', 'farm', 'wall', 'solar_array', 'wind_turbine']);
 
 /** Este tipo conta pro avanço a partir da era `fromAge`? */
 export function countsForAgeUp(type: BuildingType, fromAge: number): boolean {
@@ -208,6 +248,11 @@ export const UNIT_AGE_REQ: Record<UnitType, number> = {
   fishing_boat: 1,
   war_galley: 2, // barco de guerra a partir da Idade Feudal (estilo AoE)
   transport: 1,  // travessia cedo: o rio não pode trancar o mapa na Idade das Trevas
+  robot: 1,
+  drone: 2,
+  attack_drone: 2,
+  fighter: 3,
+  rocket_launcher: 3,
 };
 
 // ---------- Tecnologias / upgrades (pesquisados nos prédios) ----------

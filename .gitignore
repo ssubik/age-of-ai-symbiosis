@@ -4,6 +4,7 @@ dist/
 archives/
 contracts/out/
 contracts/cache/
+contracts/deployment.json
 *.log
 
 # Cloudflare Tunnel (binario grande + arquivos temporarios/segredos)

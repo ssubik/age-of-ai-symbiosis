@@ -4,6 +4,7 @@
 
 import type {
   BuildingSnap,
+  ChainSnap,
   BuildingType,
   MapData,
   MarketPrices,
@@ -45,6 +46,8 @@ export interface SnapshotData {
   market?: MarketPrices;
   /** Quantos estão assistindo (só chega pros JOGADORES). */
   spectators?: number;
+  /** Symbiosis public match ledger. */
+  chain?: ChainSnap;
 }
 
 export type PickResult =
@@ -72,7 +75,7 @@ export function unitRadius(type: UnitType): number {
  *  altura real era 1.15) enfiava o aldeão dentro de casa em vez de mandar cortar
  *  lenha. `scripts/sprite_height_test.ts` trava esse lado: mede o PNG e reprova
  *  qualquer valor MAIOR que o sprite. Na dúvida, BAIXE o número. */
-export const B_H: Partial<Record<BuildingType, number>> = { farm: 0.2, house: 1.7, town_center: 1.2, wall: 0.9, watch_tower: 3.4, market: 2.0, mill: 1.6, lumber_camp: 1.4, mining_camp: 1.4 };
+export const B_H: Partial<Record<BuildingType, number>> = { farm: 0.2, house: 1.7, town_center: 1.2, wall: 0.9, watch_tower: 3.4, market: 2.0, mill: 1.6, lumber_camp: 1.4, mining_camp: 1.4, solar_array: 0.6, wind_turbine: 4.2, robotics_workshop: 2.2 };
 
 /** Margem MORTA na borda do prédio, em tiles (a caixa de clique encolhe por
  *  todos os lados). Só o CENTRO usa: ele é grande (3x3), fica no meio da base
@@ -92,6 +95,7 @@ export class GameState {
   nodes = new Map<number, NodeSnap>();
   sheep = new Map<number, SheepSnap>();
   playerSnaps = new Map<number, PlayerSnap>();
+  chain: ChainSnap | null = null;
   /** Preços do mercado (ouro por lote de 100), atualizados por snapshot. */
   marketPrices: MarketPrices = { food: 100, wood: 100, stone: 100 };
   /** Quantos estão assistindo esta partida (0 se ninguém). Só chega pra quem
@@ -197,6 +201,7 @@ export class GameState {
     this.tick = typeof snap.tick === 'number' ? snap.tick : this.tick;
     if (snap.market) this.marketPrices = snap.market;
     this.spectatorCount = snap.spectators ?? 0;
+    this.chain = snap.chain ?? null;
 
     // --- deltas de combate (dano/morte) comparando com o snapshot anterior ---
     const now = this.snapTime;

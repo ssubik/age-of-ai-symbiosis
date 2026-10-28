@@ -19,6 +19,18 @@ function wsUrl(): string {
   return `ws://${location.hostname}:${GAME_PORT}`;
 }
 
+/** Base URL of the server's read-only JSON API (same routing rule as wsUrl). */
+export function apiUrl(path: string): string {
+  if (location.protocol === 'https:') return path;
+  return `http://${location.hostname}:${GAME_PORT}${path}`;
+}
+
+export async function fetchJson<T>(path: string): Promise<T> {
+  const r = await fetch(apiUrl(path), { cache: 'no-store' });
+  if (!r.ok) throw new Error(`${r.status}`);
+  return (await r.json()) as T;
+}
+
 export class Net {
   onMessage: (msg: ServerMessage) => void = () => {};
   onStatus: (status: NetStatus) => void = () => {};

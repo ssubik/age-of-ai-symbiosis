@@ -116,6 +116,9 @@ export interface GamePlayer {
   team?: number;
   /** Integer contribution standing; never spent or transferred. */
   elon: number;
+  /** Cumulative declared / served need (reliability), sampled each cycle. */
+  needDeclared: number;
+  needServed: number;
 }
 
 export function createSheep(id: number, x: number, y: number): Sheep {

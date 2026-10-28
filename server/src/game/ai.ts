@@ -12,12 +12,14 @@ import {
   countsForAgeUp,
   MAX_AGE,
   POP_CAP_MAX,
+  POWER_DRAW,
   SHEEP_WILD_OWNER,
   TECH_DEFS,
   TILE_GRASS,
   TRAIN_QUEUE_MAX,
   UNIT_AGE_REQ,
   UNIT_DEFS,
+  SYMBIOSIS_UNITS,
 } from '@age/shared';
 import type { BotDifficulty, BuildingType, NodeType, ResourceType, UnitType } from '@age/shared';
 import { idx, type Grid } from './path';
@@ -44,6 +46,7 @@ interface PlanContext {
   tc: Building;
   units: Unit[];
   villagers: Unit[];
+  automation: Unit[];
   buildings: Building[];
   nodes: ResNode[];
   base: Pt;
@@ -114,7 +117,8 @@ export function runBotAI(game: Game, botId: number): void {
   if (!tc) return;
 
   const villagers = units.filter((u) => u.type === 'villager');
-  const military = units.filter((u) => u.type !== 'villager');
+  const automation = units.filter((u) => SYMBIOSIS_UNITS.has(u.type));
+  const military = units.filter((u) => u.type !== 'villager' && !SYMBIOSIS_UNITS.has(u.type));
   const nodes = [...game.nodes.values()];
   const profile = profileFor(botId);
   const diff = DIFFICULTY[player.difficulty ?? 'normal'];
@@ -124,7 +128,7 @@ export function runBotAI(game: Game, botId: number): void {
   const enemyDir = normalized(enemyPoint.x - base.x, enemyPoint.y - base.y);
   const anchor = findBaseAnchor(game.grid, tc);
   const ctx: PlanContext = {
-    game, botId, tc, units, villagers, buildings, nodes, base, enemyDir, anchor,
+    game, botId, tc, units, villagers, automation, buildings, nodes, base, enemyDir, anchor,
     // Preguicoso: so calcula a alcancabilidade "antes" quando (e se) for validar
     // uma obra neste tick. Em ticks sem construcao, nenhum flood roda.
     reachableBefore: null,
@@ -150,6 +154,10 @@ export function runBotAI(game: Game, botId: number): void {
 
   const wip = buildings.filter((b) => b.progress < 1);
   let startedBuilding = false;
+
+  if (game.symbiosis) {
+    startedBuilding = runSymbiosisPlan(ctx, wip, villagers.length, pop < popCap, afford);
+  }
 
   // Casa e a unica obra que pode furar a fila: evita travar toda a economia.
   const houseWip = wip.some((b) => b.type === 'house');
@@ -286,6 +294,68 @@ export function runBotAI(game: Game, botId: number): void {
       break;
     }
   }
+}
+
+/** Symbiosis: keep the grid ahead of automation, raise a workshop, field a
+ *  small robot/drone crew, and send idle automation to help any open site. */
+function runSymbiosisPlan(
+  ctx: PlanContext,
+  wip: Building[],
+  villagerCount: number,
+  hasPop: boolean,
+  afford: (cost: Partial<Record<ResourceType, number>>) => boolean,
+): boolean {
+  const { game, botId, buildings, automation } = ctx;
+  const player = game.players.get(botId);
+  if (!player) return false;
+  const grid = game.powerOf(botId);
+  const idleBots = automation.filter((u) => u.state === 'idle');
+  const site = wip.find((b) => b.type !== 'wall');
+  if (site && idleBots.length > 0) {
+    game.enqueueCommand(botId, {
+      kind: 'build', unitIds: idleBots.map((u) => u.id), building: site.type, tileX: site.tileX, tileY: site.tileY,
+    });
+  }
+  if (villagerCount < 6 || wip.length >= MAX_CONCURRENT_CORE_BUILDS) return false;
+
+  const generatorWip = wip.some((b) => b.type === 'solar_array' || b.type === 'wind_turbine');
+  if (!generatorWip && grid.supply - grid.draw < 2) {
+    const type: BuildingType = player.age >= 2 && afford(BUILDING_DEFS.wind_turbine.cost) ? 'wind_turbine' : 'solar_array';
+    if (afford(BUILDING_DEFS[type].cost)) return issueBuild(ctx, type, { role: 'civic', minRadius: 6, maxRadius: 14 }, 1);
+  }
+  const workshop = buildings.find((b) => b.type === 'robotics_workshop');
+  if (!workshop) {
+    if (villagerCount >= 8 && afford(BUILDING_DEFS.robotics_workshop.cost)) {
+      return issueBuild(ctx, 'robotics_workshop', requestForType(ctx, 'robotics_workshop'), 2);
+    }
+    return false;
+  }
+  const wantRobots = player.age >= 2 ? 4 : 2;
+  const wantDrones = player.age >= 2 ? 2 : 0;
+  const robots = automation.filter((u) => u.type === 'robot').length;
+  const drones = automation.filter((u) => u.type === 'drone').length;
+  const queued = workshop.queue.length;
+  if (workshop.progress >= 1 && hasPop && queued < 2 && grid.supply > grid.draw + queued) {
+    const unit: UnitType | null = robots < wantRobots ? 'robot' : drones < wantDrones ? 'drone' : null;
+    if (unit && (UNIT_AGE_REQ[unit] ?? 1) <= player.age && afford(UNIT_DEFS[unit].cost)) {
+      game.enqueueCommand(botId, { kind: 'train', buildingId: workshop.id, unit });
+      return false;
+    }
+    // Once the civilian automation crew is healthy, field a small mixed strike
+    // wing. It enters the ordinary military planner and attacks with the rest.
+    const strikeTargets: [UnitType, number][] = player.age >= 3
+      ? [['attack_drone', 2], ['fighter', 1], ['rocket_launcher', 1]]
+      : [['attack_drone', 2]];
+    for (const [type, wanted] of strikeTargets) {
+      const have = ctx.units.filter((u) => u.type === type).length;
+      const draw = POWER_DRAW[type] ?? 0;
+      if (have < wanted && grid.supply >= grid.draw + draw && afford(UNIT_DEFS[type].cost)) {
+        game.enqueueCommand(botId, { kind: 'train', buildingId: workshop.id, unit: type });
+        break;
+      }
+    }
+  }
+  return false;
 }
 
 function profileFor(botId: number): BotProfile {
@@ -500,7 +570,7 @@ function issueBuild(ctx: PlanContext, type: BuildingType, request: SpotRequest, 
 }
 
 function issueExactBuild(ctx: PlanContext, type: BuildingType, spot: Pt, builderCount: number): boolean {
-  const builders = chooseBuilders(ctx.villagers, spot, builderCount);
+  const builders = chooseBuilders(ctx.villagers, spot, builderCount, ctx.automation);
   if (builders.length === 0) return false;
   ctx.game.enqueueCommand(ctx.botId, {
     kind: 'build', unitIds: builders.map((u) => u.id), building: type, tileX: spot.x, tileY: spot.y,
@@ -508,7 +578,12 @@ function issueExactBuild(ctx: PlanContext, type: BuildingType, spot: Pt, builder
   return true;
 }
 
-function chooseBuilders(villagers: Unit[], spot: Pt, count: number): Unit[] {
+function chooseBuilders(villagers: Unit[], spot: Pt, count: number, automation: Unit[] = []): Unit[] {
+  // Idle robots/drones take construction first so villagers keep gathering.
+  const freeBots = automation.filter((u) => u.state === 'idle');
+  if (freeBots.length > 0) {
+    return freeBots.sort((a, b) => builderScore(a, spot) - builderScore(b, spot)).slice(0, Math.max(count, 2));
+  }
   return villagers
     .filter((u) => u.state !== 'building' && u.state !== 'movingToBuild' && u.state !== 'movingToGarrison')
     .sort((a, b) => builderScore(a, spot) - builderScore(b, spot))

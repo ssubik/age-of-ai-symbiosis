@@ -49,6 +49,15 @@ import {
   techBonus,
   tradeBuyCost,
   tradeSellGain,
+  BUILD_RATE,
+  CHAIN_BLOCK_TICKS,
+  POWER_DRAW,
+  SYMBIOSIS_UNITS,
+  SYMBIOSIS_COMBAT_UNITS,
+  TOWN_CENTER_POWER,
+  isBuilderUnit,
+  isFlyingUnit,
+  powerEfficiency,
 } from '@age/shared';
 import type {
   BotDifficulty,
@@ -57,7 +66,10 @@ import type {
   GameCommand,
   GameMode,
   ElonEvent,
+  ExperienceMode,
+  Standing,
   MapData,
+  PowerSnap,
   MarketPrices,
   NodeSnap,
   PlayerInfo,
@@ -73,6 +85,8 @@ import type {
 import { DIFFICULTY, runBotAI } from './ai';
 import { generateMap } from './mapgen';
 import { collectSpreadTiles, findPath, idx, isWalkable, nearestWalkableTile, ringTiles, type Grid } from './path';
+import { MatchLedger } from '../chain/ledger';
+import { needElon, rankStandings, reliabilityBonus, reliabilityPpm, stewardshipValue, type NeedSample } from './stewardship';
 import { createUnit, type Building, type GamePlayer, type ResNode, type Sheep, type Unit } from './state';
 
 interface QueuedCmd {
@@ -89,13 +103,30 @@ export interface RoomMember {
   team?: number; // 0/ausente = sozinho; 1/2 = time
 }
 
+export interface FacilityRecord {
+  tick: number;
+  playerId: number;
+  buildingId: number;
+  type: BuildingType;
+  stewardship: number;
+}
+
 export type SendFn = (playerId: number, msg: ServerMessage) => void;
 
 export class Game {
   readonly grid: Grid;
   /** Grade dos BARCOS: bloqueia grama; água funda e raso são passáveis. */
   readonly navalGrid: Grid;
+  /** Flying units (drones): open sky, only map bounds limit them. */
+  readonly airGrid: Grid;
   readonly map: MapData;
+  readonly symbiosis: boolean;
+  /** Symbiosis public match ledger (absent in Classic). */
+  readonly ledger: MatchLedger | null;
+  /** Ledger tx hash attesting each completed facility. */
+  private readonly facilityProofs = new Map<number, string>();
+  /** Per-tick grid state for each player (recomputed once per tick). */
+  private power = new Map<number, PowerSnap>();
   units = new Map<number, Unit>();
   buildings = new Map<number, Building>();
   nodes = new Map<number, ResNode>();
@@ -122,6 +153,7 @@ export class Game {
     stone: MARKET_START_PRICE,
   };
   readonly elonEvents: ElonEvent[] = [];
+  readonly facilityLog: FacilityRecord[] = [];
   private knownCompletedBuildings = new Set<number>();
   private knownUnits = new Set<number>();
   private knownAges = new Map<number, number>();
@@ -132,7 +164,11 @@ export class Game {
     private readonly onGameOver: (winner: number, winnerName: string) => void,
     mode: GameMode = 'normal',
     terrain: TerrainKind = 'classic',
+    experience: ExperienceMode = 'classic',
+    matchSalt = `${Date.now()}`,
   ) {
+    this.symbiosis = experience === 'symbiosis';
+    this.ledger = this.symbiosis ? new MatchLedger(matchSalt) : null;
     const gen = generateMap(members.length, undefined, terrain);
     this.grid = gen.grid;
     this.map = { size: gen.grid.size, tiles: gen.grid.tiles };
@@ -152,6 +188,7 @@ export class Game {
       if (n.type === 'fish') navalBlocked[idx(n.tileX, n.tileY, gen.grid.size)] = 1;
     }
     this.navalGrid = { size: gen.grid.size, tiles: gen.grid.tiles, blocked: navalBlocked };
+    this.airGrid = { size: gen.grid.size, tiles: gen.grid.tiles, blocked: new Uint8Array(gen.grid.size * gen.grid.size) };
 
     const battle = mode === 'batalha';
     const baseRes = battle ? BATTLE_STARTING_RESOURCES : STARTING_RESOURCES;
@@ -174,6 +211,8 @@ export class Game {
         difficulty: m.difficulty,
         team: m.team,
         elon: 0,
+        needDeclared: 0,
+        needServed: 0,
       });
       if (m.isBot) this.botIds.add(m.id);
     });
@@ -306,6 +345,7 @@ export class Game {
 
     this.applyQueuedCommands();
 
+    if (this.symbiosis) this.recomputePower();
     for (const u of this.units.values()) this.updateUnit(u, dt);
     this.freeTrappedUnits();
     this.separateIdleUnits(dt);
@@ -336,6 +376,10 @@ export class Game {
     }
 
     this.recordContributionEvents();
+    if (this.tick % CHAIN_BLOCK_TICKS === 0) {
+      this.sampleNeeds();
+      this.ledger?.seal(this.tick);
+    }
 
     this.checkVictory();
 
@@ -366,6 +410,7 @@ export class Game {
         techs: [...p.techs],
         elon: p.elon,
         elonEvents: this.elonEvents.filter((e) => e.playerId === p.id).slice(-5),
+        ...(this.symbiosis ? { power: { ...this.powerOf(p.id) }, score: this.liveScore(p.id) } : {}),
       });
     }
     const msg: ServerMessage = {
@@ -379,6 +424,7 @@ export class Game {
       market: { ...this.marketPrices },
       // Quem está jogando merece saber que está sendo observado.
       ...(this.spectators.size > 0 ? { spectators: this.spectators.size } : {}),
+      ...(this.ledger ? { chain: this.ledger.snapshot() } : {}),
     };
     for (const p of this.players.values()) this.send(p.id, msg);
 
@@ -406,6 +452,7 @@ export class Game {
       players: playersSnap.map((p) => ({
         id: p.id, pop: p.pop, popCap: p.popCap, defeated: p.defeated, age: p.age,
       })),
+      ...(this.ledger ? { chain: this.ledger.snapshot() } : {}),
     };
     for (const id of this.spectators) this.send(id, magro);
   }
@@ -416,6 +463,11 @@ export class Game {
     if (!player) return;
     player.elon += amount;
     this.elonEvents.push({ tick: this.tick, playerId, category, amount, reason, sourceId });
+    if (this.ledger) {
+      const facility = reason.startsWith('completed:');
+      const tx = this.ledger.record(this.tick, facility ? 'facility' : category, playerId, reason, amount);
+      if (facility && sourceId !== undefined) this.facilityProofs.set(sourceId, tx.hash);
+    }
   }
 
   /** Detects safe, completed authoritative outcomes exactly once. */
@@ -423,14 +475,18 @@ export class Game {
     for (const b of this.buildings.values()) {
       if (b.progress < 1 || this.knownCompletedBuildings.has(b.id)) continue;
       this.knownCompletedBuildings.add(b.id);
-      const energyTypes: BuildingType[] = ['mill', 'lumber_camp', 'mining_camp', 'dock'];
-      const amount = energyTypes.includes(b.type) ? 4 : b.type === 'house' ? 2 : b.type === 'town_center' ? 8 : 3;
-      this.addElon(b.owner, energyTypes.includes(b.type) ? 'energy' : 'obligation', amount, `completed:${b.type}`, b.id);
+      // Counted once, as stewardship value while it stands — never as standing.
+      this.facilityLog.push({ tick: this.tick, playerId: b.owner, buildingId: b.id, type: b.type, stewardship: stewardshipValue(b.type) });
+      if (this.ledger) {
+        const tx = this.ledger.record(this.tick, 'facility', b.owner, `completed:${b.type}`, stewardshipValue(b.type));
+        this.facilityProofs.set(b.id, tx.hash);
+      }
     }
     for (const u of this.units.values()) {
       if (this.knownUnits.has(u.id)) continue;
       this.knownUnits.add(u.id);
       if (u.type === 'villager') this.addElon(u.owner, 'labor', 1, 'trained:villager', u.id);
+      else if (SYMBIOSIS_UNITS.has(u.type)) this.addElon(u.owner, 'labor', 2, `trained:${u.type}`, u.id);
     }
     for (const p of this.players.values()) {
       const previous = this.knownAges.get(p.id) ?? p.age;
@@ -439,7 +495,90 @@ export class Game {
     }
   }
 
-  contributionSummary(): { tick: number; players: { id: number; name: string; elon: number; age: number; defeated: boolean; buildings: number; units: number; resources: Resources }[]; elonEvents: ElonEvent[] } {
+  /** One decision cycle of need: housing (people waiting for homes count as
+   *  unmet), work (idle villagers are unmet labor), and grid power. Standing is
+   *  earned only for need served; the running totals give reliability. */
+  private sampleNeeds(): void {
+    const held = new Map<number, number>();
+    for (const b of this.buildings.values()) {
+      const head = b.queue[0];
+      if (head && head.progress >= 1) held.set(b.owner, (held.get(b.owner) ?? 0) + UNIT_DEFS[head.unit].pop);
+    }
+    const work = new Map<number, { all: number; busy: number }>();
+    for (const u of this.units.values()) {
+      if (u.type !== 'villager') continue;
+      const w = work.get(u.owner) ?? { all: 0, busy: 0 };
+      w.all++;
+      if (u.state !== 'idle') w.busy++;
+      work.set(u.owner, w);
+    }
+    for (const p of this.players.values()) {
+      if (p.defeated) continue;
+      const pop = this.popOf(p.id);
+      const w = work.get(p.id) ?? { all: 0, busy: 0 };
+      const needs: NeedSample[] = [
+        { key: 'housing', declared: pop + (held.get(p.id) ?? 0), served: pop, perElon: 5 },
+        { key: 'work', declared: w.all, served: w.busy, perElon: 4 },
+      ];
+      if (this.symbiosis) {
+        const g = this.powerOf(p.id);
+        needs.push({ key: 'power', declared: g.draw, served: Math.min(g.draw, g.supply), perElon: 2 });
+      }
+      let declared = 0;
+      let served = 0;
+      let elon = 0;
+      let energy = 0;
+      for (const n of needs) {
+        declared += n.declared;
+        served += n.served;
+        if (n.key === 'power') energy += needElon(n);
+        else elon += needElon(n);
+      }
+      p.needDeclared += declared;
+      p.needServed += served;
+      this.addElon(p.id, 'need', elon, 'served:needs');
+      this.addElon(p.id, 'energy', energy, 'served:power');
+    }
+  }
+
+  private stewardshipOf(playerId: number): { facilities: number; value: number } {
+    let facilities = 0;
+    let value = 0;
+    for (const b of this.buildings.values()) {
+      if (b.owner !== playerId || b.progress < 1) continue;
+      facilities++;
+      value += stewardshipValue(b.type);
+    }
+    return { facilities, value };
+  }
+
+  private liveScore(playerId: number): { stewardship: number; reliabilityPpm: number; bonus: number; score: number } {
+    const p = this.players.get(playerId)!;
+    const st = this.stewardshipOf(playerId);
+    const ppm = reliabilityPpm(p.needServed, p.needDeclared);
+    const bonus = reliabilityBonus(ppm);
+    return { stewardship: st.value, reliabilityPpm: ppm, bonus, score: Math.round((p.elon + st.value + bonus) * 100) / 100 };
+  }
+
+  standings(): Standing[] {
+    return rankStandings([...this.players.values()].map((p) => {
+      const st = this.stewardshipOf(p.id);
+      const live = this.liveScore(p.id);
+      return {
+        playerId: p.id, name: p.name, standing: p.elon, facilities: st.facilities, stewardship: st.value,
+        reliabilityPpm: live.reliabilityPpm, declaredNeed: p.needDeclared, servedNeed: p.needServed,
+        bonus: live.bonus, score: live.score,
+      };
+    }));
+  }
+
+  ledgerExport(): { head: string; height: number; verified: boolean; blocks: ReturnType<MatchLedger['export']>['blocks']; txs: ReturnType<MatchLedger['export']>['txs'] } | null {
+    if (!this.ledger) return null;
+    this.ledger.seal(this.tick);
+    return { head: this.ledger.head, height: this.ledger.height, verified: this.ledger.verify(), ...this.ledger.export() };
+  }
+
+  contributionSummary(): { tick: number; players: { id: number; name: string; elon: number; age: number; defeated: boolean; buildings: number; units: number; resources: Resources }[]; elonEvents: ElonEvent[]; standings: Standing[]; facilities: FacilityRecord[] } {
     return {
       tick: this.tick,
       players: [...this.players.values()].map((p) => ({
@@ -449,6 +588,8 @@ export class Game {
         resources: { ...p.resources },
       })),
       elonEvents: this.elonEvents.map((event) => ({ ...event })),
+      standings: this.standings(),
+      facilities: this.facilityLog.map((f) => ({ ...f })),
     };
   }
 
@@ -495,7 +636,38 @@ export class Game {
     }
     if (b.targetId !== undefined) s.targetId = b.targetId; // torre atirando
     if (b.garrison?.length) s.garrison = b.garrison.length; // unidades dentro
+    const proof = this.facilityProofs.get(b.id);
+    if (proof) s.proof = proof;
     return s;
+  }
+
+  /** Supply from completed generators (+ the Town Center base) vs. draw from
+   *  automated builders. Only meaningful in Symbiosis matches. */
+  private recomputePower(): void {
+    const next = new Map<number, PowerSnap>();
+    for (const p of this.players.values()) next.set(p.id, { supply: 0, draw: 0 });
+    for (const b of this.buildings.values()) {
+      if (b.progress < 1) continue;
+      const g = next.get(b.owner);
+      if (!g) continue;
+      g.supply += BUILDING_DEFS[b.type].power ?? (b.type === 'town_center' ? TOWN_CENTER_POWER : 0);
+    }
+    for (const u of this.units.values()) {
+      const g = next.get(u.owner);
+      if (g) g.draw += POWER_DRAW[u.type] ?? 0;
+    }
+    this.power = next;
+  }
+
+  powerOf(playerId: number): PowerSnap {
+    return this.power.get(playerId) ?? { supply: 0, draw: 0 };
+  }
+
+  /** 1 for non-automated units; grid-limited for robots and drones. */
+  private automationFactor(u: Unit): number {
+    if (!POWER_DRAW[u.type]) return 1;
+    const g = this.powerOf(u.owner);
+    return powerEfficiency(g.supply, g.draw);
   }
 
   private popOf(playerId: number): number {
@@ -538,9 +710,10 @@ export class Game {
         // (mesmo um aliado já derrotado — o TIME dele venceu).
         const won = winner ? this.allied(p.id, winner.id) : false;
         const contributions = [...this.players.values()].map((player) => ({ playerId: player.id, name: player.name, elon: player.elon }));
+        const standings = this.standings();
         this.send(p.id, winner
-          ? { type: 'gameOver', winner: winner.id, winnerName, won, contributions }
-          : { type: 'gameOver', winner: -1, winnerName: '', won: false, contributions });
+          ? { type: 'gameOver', winner: winner.id, winnerName, won, contributions, standings }
+          : { type: 'gameOver', winner: -1, winnerName: '', won: false, contributions, standings });
       }
       this.onGameOver(winner ? winner.id : -1, winnerName);
     }
@@ -743,6 +916,7 @@ export class Game {
 
   /** Grade de movimento da unidade: barcos usam a naval, o resto a terrestre. */
   private gridFor(u: Unit): Grid {
+    if (isFlyingUnit(u.type)) return this.airGrid;
     return isNavalUnit(u.type) ? this.navalGrid : this.grid;
   }
 
@@ -755,8 +929,10 @@ export class Game {
     if (all.length === 0 && herd.length === 0) return;
     // Espalha destinos POR DOMÍNIO: barcos ganham tiles de água, o resto de terra
     // (senão uma seleção mista mandaria barco pra grama e soldado pro rio).
-    const land = all.filter((u) => !isNavalUnit(u.type));
+    const land = all.filter((u) => !isNavalUnit(u.type) && !isFlyingUnit(u.type));
     const naval = all.filter((u) => isNavalUnit(u.type));
+    const air = all.filter((u) => isFlyingUnit(u.type));
+    const airSpots = air.length > 0 ? collectSpreadTiles(this.airGrid, Math.round(x), Math.round(y), air.length) : [];
     const landSpots = land.length + herd.length > 0
       ? collectSpreadTiles(this.grid, Math.round(x), Math.round(y), land.length + herd.length)
       : [];
@@ -778,6 +954,7 @@ export class Game {
     };
     land.forEach((u, i) => dispatch(u, landSpots[i] ?? landSpots[landSpots.length - 1]));
     naval.forEach((u, i) => dispatch(u, navalSpots[i] ?? navalSpots[navalSpots.length - 1]));
+    air.forEach((u, i) => dispatch(u, airSpots[i] ?? airSpots[airSpots.length - 1]));
     herd.forEach((s, i) => {
       const target = landSpots[land.length + i] ?? landSpots[landSpots.length - 1] ?? { x: Math.round(x), y: Math.round(y) };
       this.pathSheepTo(s, target.x + 0.5, target.y + 0.5);
@@ -842,7 +1019,7 @@ export class Game {
     if (!b || b.owner !== playerId || b.progress < 1) return;
     if (b.hp >= BUILDING_DEFS[b.type].hp) return; // já com vida cheia
     for (const u of this.ownedUnits(playerId, unitIds)) {
-      if (u.type === 'villager') this.assignBuilder(u, b);
+      if (isBuilderUnit(u.type)) this.assignBuilder(u, b);
     }
   }
 
@@ -1211,11 +1388,11 @@ export class Game {
   // ---------------- Construção ----------------
 
   private cmdBuild(playerId: number, unitIds: number[], type: BuildingType, tileX: number, tileY: number, queue = false): void {
-    const units = this.ownedUnits(playerId, unitIds).filter((u) => u.type === 'villager');
+    const units = this.ownedUnits(playerId, unitIds).filter((u) => isBuilderUnit(u.type));
     if (units.length === 0) return;
     const p = this.players.get(playerId)!;
     const def = Object.prototype.hasOwnProperty.call(BUILDING_DEFS, type) ? BUILDING_DEFS[type] : undefined;
-    if (!def) {
+    if (!def || (def.symbiosis && !this.symbiosis)) {
       this.errorTo(playerId, 'err.bad_building_type');
       return;
     }
@@ -1390,6 +1567,7 @@ export class Game {
     if (!b || b.owner !== playerId || b.progress < 1) return;
     const def = BUILDING_DEFS[b.type];
     if (!def.trains.includes(unit)) return;
+    if ((SYMBIOSIS_UNITS.has(unit) || SYMBIOSIS_COMBAT_UNITS.has(unit)) && !this.symbiosis) return;
     if (b.queue.length >= TRAIN_QUEUE_MAX) {
       this.errorTo(playerId, 'err.queue_full');
       return;
@@ -1810,7 +1988,7 @@ export class Game {
 
   private advanceAlongPath(u: Unit, dt: number): void {
     if (u.path.length === 0) return;
-    let remaining = UNIT_DEFS[u.type].speed * dt;
+    let remaining = UNIT_DEFS[u.type].speed * this.automationFactor(u) * dt;
     while (remaining > 0 && u.path.length > 0) {
       const wp = u.path[0];
       const dx = wp.x + 0.5 - u.x;
@@ -1846,7 +2024,7 @@ export class Game {
       }
       return;
     }
-    if (u.type === 'transport') return; // transporte não briga
+    if (u.type === 'transport' || SYMBIOSIS_UNITS.has(u.type)) return; // transporte/automação não brigam
     // Bot FÁCIL: soldados NÃO perseguem — seguram posição (a IA original "não
     // atacava"). Torres e Centro da Vila do bot ainda defendem a base sozinhos.
     if (this.players.get(u.owner)?.difficulty === 'easy') return;
@@ -2200,7 +2378,8 @@ export class Game {
       this.repairTick(u, b, dt);
       return;
     }
-    b.progress = Math.min(1, b.progress + dt / def.buildTime);
+    const rate = (BUILD_RATE[u.type] ?? 1) * this.automationFactor(u);
+    b.progress = Math.min(1, b.progress + (dt * rate) / def.buildTime);
     b.hp = Math.round(def.hp * (0.1 + 0.9 * b.progress));
     if (b.progress >= 1) {
       if (b.type === 'farm') {
@@ -2228,7 +2407,8 @@ export class Game {
   private repairTick(u: Unit, b: Building, dt: number): void {
     const def = BUILDING_DEFS[b.type];
     const p = this.players.get(u.owner);
-    const gain = Math.min((def.hp / def.buildTime) * dt, def.hp - b.hp);
+    const rate = (BUILD_RATE[u.type] ?? 1) * this.automationFactor(u);
+    const gain = Math.min((def.hp / def.buildTime) * dt * rate, def.hp - b.hp);
     if (!p || gain <= 0) {
       u.buildTargetId = undefined;
       if (!this.advanceBuildQueue(u)) u.state = 'idle';
@@ -2335,4 +2515,9 @@ const UNIT_TRAIN_TIME: Record<UnitType, number> = {
   fishing_boat: UNIT_DEFS.fishing_boat.trainTime,
   war_galley: UNIT_DEFS.war_galley.trainTime,
   transport: UNIT_DEFS.transport.trainTime,
+  robot: UNIT_DEFS.robot.trainTime,
+  drone: UNIT_DEFS.drone.trainTime,
+  attack_drone: UNIT_DEFS.attack_drone.trainTime,
+  fighter: UNIT_DEFS.fighter.trainTime,
+  rocket_launcher: UNIT_DEFS.rocket_launcher.trainTime,
 };

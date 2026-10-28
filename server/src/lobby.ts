@@ -3,7 +3,7 @@
 import { MAX_PLAYERS_PER_ROOM, MIN_PLAYERS_TO_START, PLAYER_COLORS } from '@age/shared';
 import type { BotDifficulty, ClientMessage, ExperienceMode, GameMode, RoomPlayer, RoomSummary, ServerMessage, TerrainKind } from '@age/shared';
 import { Game, type RoomMember } from './game/room';
-import { writeChronicle } from './archive/chronicle';
+import { writeChronicle, writeProof } from './archive/chronicle';
 import { proofAdapterFromEnv, safelySubmitProof } from './proofs';
 
 export interface Connection {
@@ -394,7 +394,7 @@ export class Lobby {
       mode: 'normal',
       experience: 'classic',
       fog: false, // mapa começa ABERTO (o host fecha se quiser névoa)
-      terrain: 'classic', // padrão: continente clássico; host troca pra Rio
+      terrain: 'river', // Nepal-inspired valley: a river landscape is the default
       broadcast: true, // nasce transmitindo; o host desmarca pra jogar fechado
       matchNumber: 0,
       lastActivity: Date.now(),
@@ -802,6 +802,8 @@ export class Lobby {
       (_winner, winnerName) => this.onGameOver(room.id, winnerName),
       room.mode,
       room.terrain,
+      room.experience,
+      `${room.id}-${room.matchNumber + 1}-${Date.now()}`,
     );
     room.game = game;
     room.inGame = true;
@@ -827,6 +829,8 @@ export class Lobby {
     if (finishedGame) finishedGame.stop();
     if (finishedGame) {
       const summary = finishedGame.contributionSummary();
+      const ledger = finishedGame.ledgerExport();
+      const recipients = [...room.members.keys()];
       const matchId = `${room.id}-${room.matchNumber}`;
       setImmediate(() => {
         void writeChronicle({
@@ -836,16 +840,24 @@ export class Lobby {
           winnerName,
           players: summary.players,
           elonEvents: summary.elonEvents,
+          standings: summary.standings,
           activity: {
-            buildingsConstructed: summary.elonEvents.filter((event) => event.reason.startsWith('completed:')),
+            buildingsConstructed: summary.facilities,
             unitsTrained: summary.elonEvents.filter((event) => event.reason.startsWith('trained:')),
             agesReached: summary.elonEvents.filter((event) => event.reason.startsWith('reached:')),
             battles: [],
             councilRecommendations: [],
           },
+          ...(ledger ? { ledger } : {}),
         }).then(async (archive) => {
-          const proof = await safelySubmitProof(proofAdapterFromEnv(), matchId, archive.hash, archive.jsonPath);
-          console.log(`[archive] ${matchId} ${archive.hash} proof=${proof.status}`);
+          const anchor = ledger ? { head: ledger.head, height: ledger.height } : undefined;
+          const proof = await safelySubmitProof(proofAdapterFromEnv(), matchId, archive.hash, archive.jsonPath, anchor);
+          console.log(`[archive] ${matchId} ${archive.hash} proof=${proof.status}${proof.transactionHash ? ` tx=${proof.transactionHash}` : ''}`);
+          const { archivePath: _local, ...publicProof } = proof;
+          await writeProof(matchId, { ...publicProof, standings: summary.standings });
+          if (ledger) {
+            for (const id of recipients) this.conns.get(id)?.send({ type: 'matchProof', proof: publicProof });
+          }
         }).catch((error) => console.error('[archive] failed without affecting gameplay', error));
       });
     }

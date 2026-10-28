@@ -2,8 +2,11 @@
 // O servidor é autoritativo: o cliente só envia intenções (comandos) e
 // renderiza os snapshots que recebe.
 
+import type { MatchCommitment } from './proof-types';
 import type {
   BuildingSnap,
+  ChainSnap,
+  Standing,
   BuildingType,
   MapData,
   NodeSnap,
@@ -147,6 +150,8 @@ export type ServerMessage =
       /** Quantos estão assistindo. Vai só pros JOGADORES, pra ninguém ser
        *  observado sem saber. */
       spectators?: number;
+      /** Symbiosis: public match-ledger summary (hash chain head + recent activity). */
+      chain?: ChainSnap;
     }
   // Acabou o que se estava assistindo. NÃO tira o espectador da tela na força:
   // ele vê o que aconteceu e decide se continua olhando o tabuleiro final ou se
@@ -157,8 +162,10 @@ export type ServerMessage =
   //   'closed'      — o host fechou a transmissão (a partida pode seguir)
   | { type: 'spectateEnded'; reason: 'closed' | 'gameOver' | 'surrendered'; winnerName?: string; who?: string }
   // `won` (opcional) diz se VOCÊ venceu — necessário em times (vitória em dupla).
-  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean; contributions?: { playerId: number; name: string; elon: number }[] }
+  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean; contributions?: { playerId: number; name: string; elon: number }[]; standings?: Standing[] }
   // Partida pausada/retomada (para TODOS da sala). `by` = quem mexeu (mostra na tela).
   | { type: 'gamePaused'; paused: boolean; by: string }
   // Sinalização no minimapa (só chega aos ALIADOS do autor). `color` = cor do autor.
-  | { type: 'ping'; x: number; y: number; color: string };
+  | { type: 'ping'; x: number; y: number; color: string }
+  // Symbiosis: the finished match's archive/ledger commitment and its chain receipt.
+  | { type: 'matchProof'; proof: MatchCommitment };

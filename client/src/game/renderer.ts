@@ -4,12 +4,12 @@
 // substituídos por arte dedicada nas próximas etapas.
 
 import type { BuildingSnap, BuildingType, NodeSnap, NodeType, ResourceType, SheepSnap, UnitSnap } from '@age/shared';
-import { BUILDING_DEFS, DEFENSE_DEFS, SHEEP_FOOD, TILE_SHALLOW, TILE_WATER, UNIT_DEFS, isNavalUnit, techBonus } from '@age/shared';
+import { BUILDING_DEFS, DEFENSE_DEFS, SHEEP_FOOD, TILE_GRASS, TILE_SHALLOW, TILE_WATER, UNIT_DEFS, isNavalUnit, techBonus } from '@age/shared';
 import type { GameState } from '../state';
 import type { Camera } from './camera';
 import { ISO_HH, ISO_HW } from './camera';
 import { Ambient } from './ambient';
-import { Sprites, TreeSprites, type SpriteFit } from './sprites';
+import { ConstructionSprites, Sprites, SymbiosisCombatSprites, TreeSprites, type SpriteFit } from './sprites';
 import type { UIState } from './uistate';
 import { ghostTile, wallLineTiles } from './uistate';
 import { constructionFxPlan } from './constructionFx';
@@ -120,6 +120,8 @@ export class Renderer {
   private ambient: Ambient;
   private sprites = new Sprites();
   private trees = new TreeSprites();
+  private constructionSprites = new ConstructionSprites();
+  private combatSprites = new SymbiosisCombatSprites();
   /** Campo 0..1 de "chão de floresta" ao redor das árvores (terra + folhas). */
   private forest: Float32Array | null = null;
   private forestSig = '';
@@ -128,6 +130,8 @@ export class Renderer {
     this.ambient = new Ambient(gs);
     this.sprites.preload();
     this.trees.preload();
+    this.constructionSprites.preload();
+    this.combatSprites.preload();
   }
 
   /** Mancha suave de chão de floresta sob/ao redor de cada árvore. Recalculada
@@ -223,13 +227,13 @@ export class Renderer {
           // Azul mais PROFUNDO/escuro (pedido do usuário).
           const t = now * 0.00018;
           const wn = vnoise(tx / 4.5 + 3 + t, ty / 4.5 + 9 - t * 0.6);
-          ctx.fillStyle = `hsl(206, 52%, ${33 + wn * 8}%)`;
+          ctx.fillStyle = `hsl(${198 + wn * 6}, 58%, ${24 + wn * 7}%)`;
         } else if (v === TILE_SHALLOW) {
           // VAU = BANCO DE AREIA atravessando o rio (travessia a pé; barco não
           // passa). Areia com ruído suave; a borda ondulada com a água funda
           // vem da drawCoast (o vau conta como "terra" pra ela).
           const sn = vnoise(tx / 3.5 + 33, ty / 3.5 + 33);
-          ctx.fillStyle = `hsl(43, 31%, ${60 + sn * 6}%)`;
+          ctx.fillStyle = `hsl(184, 28%, ${48 + sn * 6}%)`;
         } else {
           // TERRA: sem pintar areia por tile (era o que deixava a borda "quadrada"
           // e grossa). A praia fica SÓ na franja ondulada da drawCoast, na beira
@@ -241,7 +245,7 @@ export class Renderer {
           const bio = vnoise(tx / 24 + 71, ty / 24 + 71);
           const dryT = clamp01((0.42 - bio) * 2.4);
           const lushT = clamp01((bio - 0.62) * 2.6);
-          ctx.fillStyle = `hsl(${95 + (n - 0.5) * 8 - dryT * 16 + lushT * 7}, ${33 - dryT * 7 + lushT * 5}%, ${30 + n * 7 + (n2 - 0.5) * 2.5 + dryT * 5 - lushT * 1.5}%)`;
+          ctx.fillStyle = `hsl(${137 + (n - 0.5) * 10 - dryT * 12 + lushT * 7}, ${20 - dryT * 3 + lushT * 5}%, ${23 + n * 6 + (n2 - 0.5) * 2 + dryT * 3}%)`;
           // manchas de terra batida (noise de baixa freq., borda suave)
           const dn = vnoise(tx / 8.5 + 40, ty / 8.5 + 40);
           if (dn > 0.66) dirtT = Math.min(0.72, ((dn - 0.66) / 0.2) * 0.72);
@@ -266,9 +270,13 @@ export class Renderer {
     // --- terra batida ao redor dos prédios + detalhes do chão ---
     this.drawBuildingDirt(ctx, px, py, hw, hh);
     this.drawScatter(ctx, tx0, tx1, ty0, ty1, px, py, cam.zoom, tiles, size);
+    this.drawHimalayanRelief(ctx, tx0, tx1, ty0, ty1, px, py, hh, tiles, size);
 
     // --- vida ambiente sob a água (peixes), logo após o terreno ---
     this.ambient.drawWater(ctx, cam, now);
+
+    // --- Symbiosis grid: animated energy flow from generators to hubs ---
+    this.drawPowerLines(ctx, px, py, hh, now);
 
     // --- entidades ordenadas por profundidade (x+y crescente) ---
     interface Item {
@@ -513,6 +521,50 @@ export class Renderer {
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    }
+  }
+
+  /** Sparse low-poly Himalayan ridges: geographic character without turning
+   * the readable RTS ground plane into a textured painting. Cyan nodes suggest
+   * a connected technology valley rather than a historical fantasy map. */
+  private drawHimalayanRelief(
+    ctx: CanvasRenderingContext2D,
+    tx0: number, tx1: number, ty0: number, ty1: number,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+    tiles: number[],
+    size: number,
+  ): void {
+    const gx0 = Math.floor(tx0 / 7), gx1 = Math.ceil(tx1 / 7);
+    const gy0 = Math.floor(ty0 / 7), gy1 = Math.ceil(ty1 / 7);
+    for (let gy = gy0; gy <= gy1; gy++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        if (hash01(gx * 19 + 7, gy * 23 + 11) < 0.68) continue;
+        const wx = gx * 7 + 2 + hash01(gx, gy) * 3;
+        const wy = gy * 7 + 2 + hash01(gx + 31, gy + 17) * 3;
+        const ix = Math.floor(wx), iy = Math.floor(wy);
+        if (ix < 1 || iy < 1 || ix >= size - 1 || iy >= size - 1 || tiles[iy * size + ix] !== TILE_GRASS) continue;
+        const x = px(wx, wy), y = py(wx, wy);
+        const w = hh * (1.8 + hash01(gx + 5, gy + 9) * 1.5);
+        const h = hh * (0.65 + hash01(gx + 13, gy + 3) * 0.55);
+        ctx.fillStyle = 'rgba(13,31,39,.18)';
+        ctx.strokeStyle = 'rgba(151,190,187,.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x - w, y);
+        ctx.lineTo(x - w * .28, y - h * .55);
+        ctx.lineTo(x, y - h);
+        ctx.lineTo(x + w * .32, y - h * .5);
+        ctx.lineTo(x + w, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(83,226,219,.34)';
+        ctx.beginPath();
+        ctx.arc(x + w * .32, y - h * .5, Math.max(1, hh * .06), 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
 
@@ -2141,6 +2193,9 @@ export class Renderer {
         case 'lumber_camp': topY = this.drawLumberCamp(ctx, site); break;
         case 'mining_camp': topY = this.drawMiningCamp(ctx, site); break;
         case 'dock': topY = this.drawDock(ctx, site); break;
+        case 'solar_array': topY = this.drawSolarArray(ctx, site); break;
+        case 'wind_turbine': topY = this.drawWindTurbine(ctx, site); break;
+        case 'robotics_workshop': topY = this.drawWorkshopFrame(ctx, site); break;
         default: topY = this.drawHouse(ctx, site); break;
       }
     }
@@ -2194,9 +2249,272 @@ export class Renderer {
     }
   }
 
+  /** Grid power lines: each own completed generator links to its nearest hub
+   *  (Town Center or Robotics Workshop). Cyan when supply covers draw, coral
+   *  dashes when the grid is congested — WATT Arena's energy-flow language. */
+  private drawPowerLines(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+    now: number,
+  ): void {
+    const grid = this.gs.me()?.power;
+    if (!grid) return;
+    const hubs: BuildingSnap[] = [];
+    const gens: BuildingSnap[] = [];
+    for (const b of this.gs.buildings.values()) {
+      if (b.owner !== this.gs.you || (b.progress ?? 1) < 1) continue;
+      if (b.type === 'town_center' || b.type === 'robotics_workshop') hubs.push(b);
+      else if (BUILDING_DEFS[b.type]?.power) gens.push(b);
+    }
+    if (hubs.length === 0 || gens.length === 0) return;
+    const center = (b: BuildingSnap): { x: number; y: number } => {
+      const s = BUILDING_DEFS[b.type]?.size ?? 1;
+      return { x: b.tileX + s / 2, y: b.tileY + s / 2 };
+    };
+    const congested = grid.draw > grid.supply;
+    ctx.save();
+    ctx.lineWidth = Math.max(1.2, hh * 0.12);
+    ctx.setLineDash([hh * 0.5, hh * 0.35]);
+    ctx.lineDashOffset = -now * 0.03;
+    ctx.strokeStyle = congested ? 'rgba(255,122,89,0.85)' : 'rgba(45,212,191,0.8)';
+    ctx.shadowColor = congested ? 'rgba(255,122,89,0.6)' : 'rgba(45,212,191,0.6)';
+    ctx.shadowBlur = hh * 0.6;
+    for (const g of gens) {
+      const a = center(g);
+      let best = hubs[0];
+      let bestD = Infinity;
+      for (const h of hubs) {
+        const c = center(h);
+        const d = Math.hypot(c.x - a.x, c.y - a.y);
+        if (d < bestD) { bestD = d; best = h; }
+      }
+      const c = center(best);
+      ctx.beginPath();
+      ctx.moveTo(px(a.x, a.y), py(a.x, a.y));
+      ctx.lineTo(px(c.x, c.y), py(c.x, c.y));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** Solar array: concrete pad with two tilted rows of panels on legs. */
+  private drawSolarArray(ctx: CanvasRenderingContext2D, st: BSite): number {
+    const { px, py, T, R, B, L, th, hh, s, owner, under, prog, b, now } = st;
+    const P = (x: number, y: number, z: number): Pt => ({ x: px(x, y), y: py(x, y) - z });
+    this.poly(ctx, [T, R, B, L], '#7d8a8f', 'rgba(20,30,34,0.5)');
+    const x0 = b.tileX + 0.18;
+    const x1 = b.tileX + s - 0.18;
+    const rows = 2;
+    let top = T.y - th * 0.6;
+    for (let r = 0; r < rows; r++) {
+      if (under && prog < (r + 1) / (rows + 1)) break;
+      const y0 = b.tileY + 0.2 + r * (s / rows);
+      const y1 = y0 + s / rows - 0.45;
+      const lowZ = th * 0.16;
+      const highZ = th * 0.48;
+      for (const lx of [x0 + 0.1, x1 - 0.1]) {
+        const foot = P(lx, y1, 0);
+        const head = P(lx, y1, highZ);
+        ctx.strokeStyle = '#3b4a52';
+        ctx.lineWidth = Math.max(1, hh * 0.08);
+        ctx.beginPath(); ctx.moveTo(foot.x, foot.y); ctx.lineTo(head.x, head.y); ctx.stroke();
+      }
+      const quad = [P(x0, y0, lowZ), P(x1, y0, lowZ), P(x1, y1, highZ), P(x0, y1, highZ)];
+      this.poly(ctx, quad, '#13324a', '#9fb7c4');
+      ctx.strokeStyle = 'rgba(120,200,235,0.45)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 4; i++) {
+        const f = i / 4;
+        const a = P(x0 + (x1 - x0) * f, y0, lowZ);
+        const c = P(x0 + (x1 - x0) * f, y1, highZ);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke();
+      }
+      const mid1 = P(x0, (y0 + y1) / 2, (lowZ + highZ) / 2);
+      const mid2 = P(x1, (y0 + y1) / 2, (lowZ + highZ) / 2);
+      ctx.beginPath(); ctx.moveTo(mid1.x, mid1.y); ctx.lineTo(mid2.x, mid2.y); ctx.stroke();
+      if (!under) {
+        const glint = (Math.sin(now * 0.0015 + b.id + r) + 1) / 2;
+        ctx.fillStyle = `rgba(190,240,255,${0.08 + glint * 0.14})`;
+        ctx.beginPath();
+        quad.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+        ctx.closePath();
+        ctx.fill();
+      }
+      top = Math.min(top, quad[3].y, quad[2].y);
+    }
+    this.poly(ctx, [L, B, P(b.tileX + s, b.tileY + s, hh * 0.18), P(b.tileX, b.tileY + s, hh * 0.18)], owner);
+    return top - hh * 0.4;
+  }
+
+  /** Wind turbine: tapered white tower, nacelle, and three turning blades. */
+  private drawWindTurbine(ctx: CanvasRenderingContext2D, st: BSite): number {
+    const { px, py, th, hh, owner, under, prog, b, now } = st;
+    const cx = px(b.tileX + 0.5, b.tileY + 0.5);
+    const cy = py(b.tileX + 0.5, b.tileY + 0.5) + hh * 0.5;
+    this.blob(ctx, cx, cy, hh * 0.8, hh * 0.4, '#7d8a8f');
+    const H = th * 3.3 * (under ? Math.max(0.15, prog) : 1);
+    const baseW = hh * 0.34;
+    const topW = hh * 0.16;
+    ctx.fillStyle = '#e9eef1';
+    ctx.beginPath();
+    ctx.moveTo(cx - baseW, cy);
+    ctx.lineTo(cx - topW, cy - H);
+    ctx.lineTo(cx + topW, cy - H);
+    ctx.lineTo(cx + baseW, cy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(80,100,112,0.28)';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, cy - H);
+    ctx.lineTo(cx + topW, cy - H);
+    ctx.lineTo(cx + baseW, cy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = owner;
+    ctx.fillRect(cx - baseW * 0.92, cy - H * 0.18, baseW * 1.84, hh * 0.22);
+    if (under && prog < 0.75) return cy - H - hh * 0.4;
+    const hubY = cy - H;
+    this.block(ctx, cx + hh * 0.12, hubY, hh * 0.62, hh * 0.32, '#dfe6ea', '#7d8a8f');
+    const spin = now * 0.004 + b.id;
+    ctx.strokeStyle = '#f4f7f9';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1.5, hh * 0.13);
+    for (let i = 0; i < 3; i++) {
+      const a = spin + (i * Math.PI * 2) / 3;
+      ctx.beginPath();
+      ctx.moveTo(cx - hh * 0.2, hubY);
+      ctx.lineTo(cx - hh * 0.2 + Math.cos(a) * hh * 0.35, hubY + Math.sin(a) * th * 1.15);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+    this.blob(ctx, cx - hh * 0.2, hubY, hh * 0.12, hh * 0.12, '#2dd4bf');
+    return hubY - th * 1.2;
+  }
+
+  /** Robotics Workshop while under construction (the finished building uses
+   *  its sprite): a steel frame rising with progress over a concrete slab. */
+  private drawWorkshopFrame(ctx: CanvasRenderingContext2D, st: BSite): number {
+    const { T, R, B, L, th, hh, owner, prog } = st;
+    const H = Math.max(4, th * 0.9) * prog;
+    const { T2, R2, B2, L2 } = this.walls(ctx, T, R, B, L, H, '#cfd6db');
+    this.poly(ctx, [T2, R2, B2, L2], '#5d6b73', '#2d3a41');
+    this.block(ctx, (T2.x + B2.x) / 2, (T2.y + B2.y) / 2 - hh * 0.25, hh * 0.9, hh * 0.35, owner);
+    return T2.y - hh * 0.6;
+  }
+
+  /** Builder robot: matte-white chassis, cyan visor, team-colored chest plate.
+   *  Swings a welding arm while building. */
+  private figRobot(
+    ctx: CanvasRenderingContext2D, sx: number, sy: number, U: number, color: string,
+    u: UnitSnap, now: number, moving: boolean, face: number,
+  ): void {
+    const step = moving ? Math.sin(now * 0.014 + u.id) : 0;
+    const shell = '#eef2f4';
+    const joint = '#4a5860';
+    ctx.save();
+    if (face === -1) { ctx.translate(sx, 0); ctx.scale(-1, 1); ctx.translate(-sx, 0); }
+    this.limb(ctx, sx - U * 0.14, sy - U * 0.55, sx - U * 0.16 + step * U * 0.1, sy - U * 0.04, U * 0.13, joint);
+    this.limb(ctx, sx + U * 0.14, sy - U * 0.55, sx + U * 0.16 - step * U * 0.1, sy - U * 0.04, U * 0.13, joint);
+    this.block(ctx, sx - U * 0.17 + step * U * 0.1, sy - U * 0.02, U * 0.2, U * 0.08, joint);
+    this.block(ctx, sx + U * 0.17 - step * U * 0.1, sy - U * 0.02, U * 0.2, U * 0.08, joint);
+    this.block(ctx, sx, sy - U * 0.88, U * 0.62, U * 0.62, shell, '#9aa7ae');
+    this.block(ctx, sx, sy - U * 0.86, U * 0.38, U * 0.22, color);
+    const working = u.state === 'building';
+    const swing = working ? Math.sin(now * 0.02 + u.id) * 0.35 : 0;
+    const shoulderX = sx + U * 0.3;
+    const shoulderY = sy - U * 1.02;
+    const handX = shoulderX + Math.cos(0.5 + swing) * U * 0.42;
+    const handY = shoulderY + Math.sin(0.5 + swing) * U * 0.42;
+    this.limb(ctx, shoulderX, shoulderY, handX, handY, U * 0.12, joint);
+    this.limb(ctx, sx - U * 0.3, shoulderY, sx - U * 0.36, sy - U * 0.6, U * 0.12, joint);
+    this.block(ctx, sx, sy - U * 1.38, U * 0.46, U * 0.34, shell, '#9aa7ae');
+    ctx.fillStyle = '#2dd4bf';
+    ctx.fillRect(sx - U * 0.04, sy - U * 1.44, U * 0.24, U * 0.09);
+    this.limb(ctx, sx - U * 0.1, sy - U * 1.55, sx - U * 0.14, sy - U * 1.72, Math.max(1, U * 0.04), joint);
+    this.blob(ctx, sx - U * 0.14, sy - U * 1.74, U * 0.05, U * 0.05, '#5eea9a');
+    if (working && U > 6) {
+      for (let i = 0; i < 4; i++) {
+        const a = now * 0.03 + i * 1.7 + u.id;
+        const r = U * (0.08 + ((now * 0.004 + i * 0.27) % 1) * 0.22);
+        ctx.fillStyle = i % 2 ? '#fff4b8' : '#ffd166';
+        ctx.fillRect(handX + Math.cos(a) * r, handY + Math.sin(a) * r * 0.6 - U * 0.05, Math.max(1, U * 0.05), Math.max(1, U * 0.05));
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Construction drone: hovers above its ground shadow with spinning rotors. */
+  private figDrone(ctx: CanvasRenderingContext2D, sx: number, sy: number, U: number, color: string, u: UnitSnap, now: number): void {
+    const alt = U * (1.9 + Math.sin(now * 0.004 + u.id) * 0.12);
+    const dy = sy - alt;
+    this.blob(ctx, sx, sy, U * 0.5, U * 0.22, 'rgba(0,0,0,0.22)');
+    const arm = U * 0.62;
+    ctx.strokeStyle = '#3c4a52';
+    ctx.lineWidth = Math.max(1, U * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(sx - arm, dy - U * 0.12); ctx.lineTo(sx + arm, dy + U * 0.12);
+    ctx.moveTo(sx - arm, dy + U * 0.12); ctx.lineTo(sx + arm, dy - U * 0.12);
+    ctx.stroke();
+    const spin = now * 0.05 + u.id;
+    for (const [ox, oy] of [[-arm, -U * 0.12], [arm, U * 0.12], [-arm, U * 0.12], [arm, -U * 0.12]]) {
+      ctx.fillStyle = 'rgba(220,235,240,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(sx + ox, dy + oy - U * 0.06, U * 0.3 * Math.abs(Math.cos(spin)) + U * 0.06, U * 0.07, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    this.block(ctx, sx, dy, U * 0.56, U * 0.3, '#eef2f4', '#9aa7ae');
+    ctx.fillStyle = color;
+    ctx.fillRect(sx - U * 0.28, dy - U * 0.04, U * 0.56, U * 0.09);
+    const blink = Math.sin(now * 0.012 + u.id) > 0.3;
+    this.blob(ctx, sx + U * 0.2, dy + U * 0.12, U * 0.06, U * 0.06, blink ? '#5eea9a' : '#1f3b33');
+  }
+
+  /** Building drones project a scanning beam onto their construction site. */
+  private drawDroneBeam(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    sx: number, sy: number, U: number, u: UnitSnap, now: number,
+  ): void {
+    if (u.state !== 'building' || u.targetId == null) return;
+    const b = this.gs.buildings.get(u.targetId);
+    if (!b) return;
+    const s = BUILDING_DEFS[b.type]?.size ?? 1;
+    const tx = px(b.tileX + s / 2, b.tileY + s / 2);
+    const ty = py(b.tileX + s / 2, b.tileY + s / 2);
+    const dy = sy - U * 1.9;
+    const pulse = 0.35 + (Math.sin(now * 0.01 + u.id) + 1) * 0.15;
+    const g = ctx.createLinearGradient(sx, dy, tx, ty);
+    g.addColorStop(0, `rgba(94,234,154,${pulse + 0.2})`);
+    g.addColorStop(1, 'rgba(45,212,191,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(sx - U * 0.08, dy + U * 0.12);
+    ctx.lineTo(tx - U * 0.9, ty);
+    ctx.lineTo(tx + U * 0.9, ty);
+    ctx.lineTo(sx + U * 0.08, dy + U * 0.12);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** Draw a transparent construction cutout with its feet/base at x/baseY. */
+  private drawConstructionSprite(
+    ctx: CanvasRenderingContext2D,
+    img: HTMLImageElement,
+    x: number,
+    baseY: number,
+    width: number,
+  ): void {
+    const height = width * img.naturalHeight / img.naturalWidth;
+    ctx.drawImage(img, x - width / 2, baseY - height, width, height);
+  }
+
   /** Civilian human/robot collaboration derived from existing build progress.
-   * These marks are intentionally lightweight Canvas primitives: no unit,
-   * collision, command, or build-speed state is introduced. */
+   * WATT Arena cutouts are cosmetic only and retain procedural fallbacks: no
+   * unit, collision, command, or build-speed state is introduced. */
   private drawConstructionCrew(
     ctx: CanvasRenderingContext2D,
     T: Pt,
@@ -2218,76 +2536,96 @@ export class Renderer {
     if (plan.crane) {
       const baseX = T.x * 0.72 + R.x * 0.28;
       const baseY = T.y * 0.72 + R.y * 0.28;
-      const mastH = hh * 3.1;
-      ctx.strokeStyle = '#d29b43';
-      ctx.lineWidth = Math.max(1.3, hh * 0.12);
-      ctx.beginPath();
-      ctx.moveTo(baseX, baseY);
-      ctx.lineTo(baseX, baseY - mastH);
-      ctx.lineTo(baseX + hh * 2.2, baseY - mastH + hh * 0.25);
-      ctx.stroke();
-      const hookX = baseX + hh * (1.25 + Math.sin(pulse * 0.35) * 0.35);
-      ctx.strokeStyle = '#59645f';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(hookX, baseY - mastH + hh * 0.13);
-      ctx.lineTo(hookX, baseY - hh * 1.15);
-      ctx.stroke();
-      ctx.fillStyle = '#d7b05f';
-      ctx.fillRect(hookX - hh * 0.18, baseY - hh * 1.2, hh * 0.36, hh * 0.2);
+      const crane = this.constructionSprites.get('crane');
+      if (crane) {
+        this.drawConstructionSprite(ctx, crane, baseX + hh * 0.55, baseY + hh * 0.08, hh * 3.25);
+      } else {
+        const mastH = hh * 3.1;
+        ctx.strokeStyle = '#d29b43';
+        ctx.lineWidth = Math.max(1.3, hh * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(baseX, baseY - mastH);
+        ctx.lineTo(baseX + hh * 2.2, baseY - mastH + hh * 0.25);
+        ctx.stroke();
+        const hookX = baseX + hh * (1.25 + Math.sin(pulse * 0.35) * 0.35);
+        ctx.strokeStyle = '#59645f';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(hookX, baseY - mastH + hh * 0.13);
+        ctx.lineTo(hookX, baseY - hh * 1.15);
+        ctx.stroke();
+        ctx.fillStyle = '#d7b05f';
+        ctx.fillRect(hookX - hh * 0.18, baseY - hh * 1.2, hh * 0.36, hh * 0.2);
+      }
     }
 
     if (plan.human) {
       const bob = Math.abs(Math.sin(pulse)) * hh * 0.08;
-      ctx.strokeStyle = '#3a3028';
-      ctx.lineWidth = Math.max(1, hh * 0.12);
-      ctx.beginPath();
-      ctx.moveTo(humanX, humanY - hh * 0.28 - bob);
-      ctx.lineTo(humanX - hh * 0.2, humanY);
-      ctx.moveTo(humanX, humanY - hh * 0.28 - bob);
-      ctx.lineTo(humanX + hh * 0.2, humanY);
-      ctx.stroke();
-      ctx.fillStyle = '#c66b42';
-      ctx.fillRect(humanX - hh * 0.23, humanY - hh * 0.95 - bob, hh * 0.46, hh * 0.68);
-      this.blob(ctx, humanX, humanY - hh * 1.12 - bob, hh * 0.2, hh * 0.2, '#d7ad86');
-      ctx.fillStyle = '#e5b84f';
-      ctx.beginPath();
-      ctx.arc(humanX, humanY - hh * 1.19 - bob, hh * 0.22, Math.PI, Math.PI * 2);
-      ctx.fill();
+      const humans = this.constructionSprites.get('human');
+      if (humans) {
+        this.drawConstructionSprite(ctx, humans, humanX, humanY - bob, hh * 1.65);
+      } else {
+        ctx.strokeStyle = '#3a3028';
+        ctx.lineWidth = Math.max(1, hh * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(humanX, humanY - hh * 0.28 - bob);
+        ctx.lineTo(humanX - hh * 0.2, humanY);
+        ctx.moveTo(humanX, humanY - hh * 0.28 - bob);
+        ctx.lineTo(humanX + hh * 0.2, humanY);
+        ctx.stroke();
+        ctx.fillStyle = '#c66b42';
+        ctx.fillRect(humanX - hh * 0.23, humanY - hh * 0.95 - bob, hh * 0.46, hh * 0.68);
+        this.blob(ctx, humanX, humanY - hh * 1.12 - bob, hh * 0.2, hh * 0.2, '#d7ad86');
+        ctx.fillStyle = '#e5b84f';
+        ctx.beginPath();
+        ctx.arc(humanX, humanY - hh * 1.19 - bob, hh * 0.22, Math.PI, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     if (plan.robot) {
       const work = Math.sin(pulse * 1.15) * hh * 0.1;
-      ctx.strokeStyle = '#8b9695';
-      ctx.lineWidth = Math.max(1, hh * 0.11);
-      ctx.beginPath();
-      ctx.moveTo(robotX - hh * 0.12, robotY - hh * 0.35);
-      ctx.lineTo(robotX - hh * 0.2, robotY);
-      ctx.moveTo(robotX + hh * 0.12, robotY - hh * 0.35);
-      ctx.lineTo(robotX + hh * 0.2, robotY);
-      ctx.moveTo(robotX + hh * 0.2, robotY - hh * 0.78);
-      ctx.lineTo(robotX + hh * 0.48 + work, robotY - hh * 0.5);
-      ctx.stroke();
-      ctx.fillStyle = '#f1f4f2';
-      ctx.fillRect(robotX - hh * 0.24, robotY - hh * 0.92, hh * 0.48, hh * 0.58);
-      ctx.fillRect(robotX - hh * 0.2, robotY - hh * 1.25, hh * 0.4, hh * 0.27);
-      ctx.fillStyle = '#6cb9dc';
-      ctx.fillRect(robotX + hh * 0.03, robotY - hh * 1.17, hh * 0.08, hh * 0.06);
+      const humanoid = this.constructionSprites.get('humanoid');
+      if (humanoid) {
+        this.drawConstructionSprite(ctx, humanoid, robotX + work * 0.2, robotY, hh * 1.45);
+      } else {
+        ctx.strokeStyle = '#8b9695';
+        ctx.lineWidth = Math.max(1, hh * 0.11);
+        ctx.beginPath();
+        ctx.moveTo(robotX - hh * 0.12, robotY - hh * 0.35);
+        ctx.lineTo(robotX - hh * 0.2, robotY);
+        ctx.moveTo(robotX + hh * 0.12, robotY - hh * 0.35);
+        ctx.lineTo(robotX + hh * 0.2, robotY);
+        ctx.moveTo(robotX + hh * 0.2, robotY - hh * 0.78);
+        ctx.lineTo(robotX + hh * 0.48 + work, robotY - hh * 0.5);
+        ctx.stroke();
+        ctx.fillStyle = '#f1f4f2';
+        ctx.fillRect(robotX - hh * 0.24, robotY - hh * 0.92, hh * 0.48, hh * 0.58);
+        ctx.fillRect(robotX - hh * 0.2, robotY - hh * 1.25, hh * 0.4, hh * 0.27);
+        ctx.fillStyle = '#6cb9dc';
+        ctx.fillRect(robotX + hh * 0.03, robotY - hh * 1.17, hh * 0.08, hh * 0.06);
+      }
     }
 
     if (plan.drone) {
       const droneX = (T.x + R.x) / 2 + Math.sin(pulse * 0.55) * hh * 0.7;
       const droneY = (T.y + R.y) / 2 - hh * (2.15 + Math.cos(pulse * 0.7) * 0.16);
-      ctx.strokeStyle = '#899493';
-      ctx.lineWidth = Math.max(1, hh * 0.07);
-      ctx.beginPath();
-      ctx.moveTo(droneX - hh * 0.5, droneY);
-      ctx.lineTo(droneX + hh * 0.5, droneY);
-      ctx.stroke();
-      ctx.fillStyle = '#f4f6f4';
-      ctx.fillRect(droneX - hh * 0.24, droneY - hh * 0.12, hh * 0.48, hh * 0.24);
-      ctx.fillStyle = '#67b8df';
-      ctx.fillRect(droneX - hh * 0.06, droneY + hh * 0.06, hh * 0.12, hh * 0.06);
+      const drone = this.constructionSprites.get('drone');
+      if (drone) {
+        this.drawConstructionSprite(ctx, drone, droneX, droneY + hh * 0.32, hh * 1.5);
+      } else {
+        ctx.strokeStyle = '#899493';
+        ctx.lineWidth = Math.max(1, hh * 0.07);
+        ctx.beginPath();
+        ctx.moveTo(droneX - hh * 0.5, droneY);
+        ctx.lineTo(droneX + hh * 0.5, droneY);
+        ctx.stroke();
+        ctx.fillStyle = '#f4f6f4';
+        ctx.fillRect(droneX - hh * 0.24, droneY - hh * 0.12, hh * 0.48, hh * 0.24);
+        ctx.fillStyle = '#67b8df';
+        ctx.fillRect(droneX - hh * 0.06, droneY + hh * 0.06, hh * 0.12, hh * 0.06);
+      }
       ctx.strokeStyle = 'rgba(100,190,225,0.25)';
       ctx.beginPath();
       ctx.moveTo(droneX, droneY + hh * 0.14);
@@ -2437,13 +2775,31 @@ export class Renderer {
       ctx.fill();
     };
 
-    // arqueiros atacando disparam periodicamente
-    const archerCd = (UNIT_DEFS.archer?.attackCooldown ?? 2) * 1000;
+    const drawTechShot = (ax: number, ay: number, bx: number, by: number, p: number, heavy: boolean): void => {
+      const x = ax + (bx - ax) * p;
+      const y = ay + (by - ay) * p - Math.sin(p * Math.PI) * (heavy ? hh * 1.9 : hh * 0.45);
+      if (!onScreen(x, y)) return;
+      const ang = Math.atan2(by - ay, bx - ax);
+      const len = hh * (heavy ? 0.95 : 0.55);
+      ctx.strokeStyle = heavy ? 'rgba(255,113,87,.42)' : 'rgba(73,220,234,.38)';
+      ctx.lineWidth = heavy ? 3 : 2;
+      ctx.beginPath();
+      ctx.moveTo(x - Math.cos(ang) * len * 2.2, y - Math.sin(ang) * len * 2.2);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.fillStyle = heavy ? '#ff765c' : '#8af7ff';
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1.5, hh * (heavy ? 0.16 : 0.1)), 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    // Ranged units show deterministic in-flight projectiles between snapshots.
     for (const u of this.gs.units.values()) {
-      if (u.state !== 'attacking' || u.type !== 'archer' || u.targetId == null) continue;
+      const tech = u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'rocket_launcher';
+      if (u.state !== 'attacking' || (u.type !== 'archer' && !tech) || u.targetId == null) continue;
       const tgt = this.gs.units.get(u.targetId) ?? this.gs.buildings.get(u.targetId);
       if (!tgt) continue;
-      const phase = (now + u.id * 137) % archerCd;
+      const phase = (now + u.id * 137) % (UNIT_DEFS[u.type].attackCooldown * 1000);
       if (phase >= flight) continue;
       const a = this.gs.unitPos(u, now);
       let txw: number;
@@ -2460,7 +2816,10 @@ export class Renderer {
       // névoa: flecha aparece se uma das pontas estiver à vista (a que sai do
       // escuro fica escondida pelo próprio overlay na parte escura do arco)
       if (!fogVis(a.x, a.y) && !fogVis(txw, tyw)) continue;
-      drawArrow(px(a.x, a.y), py(a.x, a.y) - hh * 0.9, px(txw, tyw), py(txw, tyw) - hh * 0.7, phase / flight);
+      const ax = px(a.x, a.y), ay = py(a.x, a.y) - hh * (tech ? 1.35 : 0.9);
+      const bx = px(txw, tyw), by = py(txw, tyw) - hh * 0.7;
+      if (tech) drawTechShot(ax, ay, bx, by, phase / flight, u.type === 'rocket_launcher');
+      else drawArrow(ax, ay, bx, by, phase / flight);
     }
 
     // prédios de defesa atirando (torre de vigia + Centro da Cidade; alvo vem no
@@ -2553,6 +2912,31 @@ export class Renderer {
     return Math.min(4, Math.max(1, this.gs.playerSnaps.get(owner)?.age ?? 1));
   }
 
+  private figSymbiosisCombat(ctx: CanvasRenderingContext2D, u: UnitSnap, sx: number, sy: number, U: number, now: number): void {
+    if (u.type !== 'attack_drone' && u.type !== 'fighter' && u.type !== 'rocket_launcher') return;
+    const img = this.combatSprites.get(u.type);
+    const airborne = u.type !== 'rocket_launcher';
+    const bob = airborne ? Math.sin(now * 0.004 + u.id) * U * 0.12 : 0;
+    const width = U * (u.type === 'fighter' ? 4.4 : u.type === 'attack_drone' ? 3.5 : 3.15);
+    if (img) {
+      const height = width * img.naturalHeight / img.naturalWidth;
+      ctx.drawImage(img, sx - width / 2, sy - height + U * (airborne ? 0.35 : 0.15) + bob, width, height);
+      return;
+    }
+    // Fast geometric fallback while an image is unavailable.
+    ctx.fillStyle = '#e9f0ef';
+    ctx.strokeStyle = '#243541';
+    ctx.lineWidth = Math.max(1, U * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(sx + width * 0.42, sy - U * 0.75 + bob);
+    ctx.lineTo(sx - width * 0.35, sy - U * 1.25 + bob);
+    ctx.lineTo(sx - width * 0.12, sy - U * 0.55 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    this.blob(ctx, sx + width * 0.08, sy - U * 0.82 + bob, U * 0.16, U * 0.1, '#41d8e5');
+  }
+
   /** Só o "corpo" da unidade (sem sombra/seleção/vida), reusado na morte. */
   private drawUnitBody(ctx: CanvasRenderingContext2D, u: UnitSnap, sx: number, sy: number, U: number, now: number): void {
     const color = this.gs.colorOf(u.owner);
@@ -2564,6 +2948,9 @@ export class Renderer {
     else if (u.type === 'swordsman') this.figSwordsman(ctx, sx, sy, U, color, dark, skin, steel, age);
     else if (u.type === 'archer') this.figArcher(ctx, sx, sy, U, color, dark, skin, age);
     else if (u.type === 'knight') this.figKnight(ctx, sx, sy, U, color, dark, skin, steel, age);
+    else if (u.type === 'robot') this.figRobot(ctx, sx, sy, U, color, u, now, false, 1);
+    else if (u.type === 'drone') this.figDrone(ctx, sx, sy, U, color, u, now);
+    else if (u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'rocket_launcher') this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
   }
 
   // ---------- unidades (figuras isométricas) ----------
@@ -3002,7 +3389,14 @@ export class Renderer {
     }
 
     const age = this.ownerAge(u.owner);
-    if (u.type === 'villager') {
+    if (u.type === 'robot') {
+      this.figRobot(ctx, sx, sy, U, color, u, now, moving, face);
+    } else if (u.type === 'drone') {
+      this.figDrone(ctx, sx, sy, U, color, u, now);
+      this.drawDroneBeam(ctx, px, py, sx, sy, U, u, now);
+    } else if (u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'rocket_launcher') {
+      this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
+    } else if (u.type === 'villager') {
       this.figVillager(ctx, sx, sy, U, color, dark, skin, u, now, moving, face, tool, age);
     } else {
       // militares: leve saltito ao andar e avanço ao atacar (corpo inteiro)

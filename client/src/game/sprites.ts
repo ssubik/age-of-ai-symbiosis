@@ -50,7 +50,8 @@ export const BUILDING_SPRITES: Partial<Record<BuildingType, SpriteFit>> = {
   // cantos do losango; dropY 0.15 => base no canto frontal (antes afundava).
   town_center: { file: 'symbiosis_civic_hub_v1.png', scale: 0.96, dropY: 0.12 },
   barracks: { file: 'barracks.png', scale: 1.1, dropY: 0.3 },
-  blacksmith: { file: 'symbiosis_robotics_workshop_v1.png', scale: 1.05, dropY: 0.16 },
+  blacksmith: { file: 'blacksmith.png', scale: 1.35, dropY: 0.22 },
+  robotics_workshop: { file: 'symbiosis_robotics_workshop_v1.png', scale: 1.05, dropY: 0.16 },
   archery_range: { file: 'archery_range.png', scale: 1.15, dropY: 0.3 },
   mill: { file: 'mill.png', scale: 1.3, dropY: 0.28 },
   lumber_camp: { file: 'lumber_camp.png', scale: 1.3, dropY: 0.28 },
@@ -126,5 +127,54 @@ export class TreeSprites {
     const list = this.imgs.filter((x): x is HTMLImageElement => !!x);
     if (!list.length) return null;
     return list[Math.abs(seed) % list.length];
+  }
+}
+
+export type ConstructionSprite = 'human' | 'humanoid' | 'drone' | 'crane';
+
+/** Civilian construction art imported from the independently owned WATT Arena
+ * project. These are presentation-only overlays; the simulation still derives
+ * every worker, progress value, and completion event from server snapshots. */
+export class ConstructionSprites {
+  private imgs = new Map<ConstructionSprite, HTMLImageElement>();
+
+  preload(base = '/sprites/'): void {
+    const files: Record<ConstructionSprite, string> = {
+      human: 'symbiosis_human_builders_v1.png',
+      humanoid: 'symbiosis_humanoid_installer_v1.png',
+      drone: 'symbiosis_construction_drone_v1.png',
+      crane: 'symbiosis_autonomous_crane_v1.png',
+    };
+    for (const [kind, file] of Object.entries(files) as [ConstructionSprite, string][]) {
+      const img = new Image();
+      img.onload = () => { this.imgs.set(kind, img); };
+      img.onerror = () => { /* keep the renderer's procedural fallback */ };
+      img.src = base + file;
+    }
+  }
+
+  get(kind: ConstructionSprite): HTMLImageElement | null {
+    return this.imgs.get(kind) ?? null;
+  }
+}
+
+export type SymbiosisCombatSprite = 'attack_drone' | 'fighter' | 'rocket_launcher';
+
+/** Original transparent combat-unit cutouts. Simulation and hit geometry stay
+ * unit-based; these images only replace the procedural body drawing. */
+export class SymbiosisCombatSprites {
+  private imgs = new Map<SymbiosisCombatSprite, HTMLImageElement>();
+
+  preload(base = '/sprites/'): void {
+    for (const kind of ['attack_drone', 'fighter', 'rocket_launcher'] as const) {
+      const img = new Image();
+      img.onload = () => { this.imgs.set(kind, img); };
+      img.onerror = () => { /* renderer uses a compact geometric fallback */ };
+      img.src = `${base}symbiosis_${kind}_v1.png`;
+    }
+  }
+
+  get(kind: SymbiosisCombatSprite): HTMLImageElement | null {
+    return this.imgs.get(kind) ?? null;
   }
 }

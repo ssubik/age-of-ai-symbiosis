@@ -51,15 +51,40 @@ npm run smoke       # E2E test: starts the server and simulates a match with 2 W
 
 ## Age of Symbiosis
 
-Rooms can optionally enable **Symbiosis** presentation while retaining the same authoritative simulation, resources, balance, controls, and victory condition. This adds Nepal-tech presentation, cosmetic human/robot construction crews, a deterministic local advisory council, and server-authoritative **ELON** contribution standing (Energy, Labor, Obligation, and Need). ELON is non-transferable match metadata, not currency.
+Hosts can switch a room to **Symbiosis**, which layers the WATT Arena model on top of the RTS. In Classic rooms none of these rules apply.
 
-Completed matches produce deterministic local JSON and text chronicles in `archives/` (ignored by Git). Optional proof infrastructure is disabled by default:
+- **Robots and drones that build.** The Robotics Workshop trains Builder Robots (build/repair 1.8× a villager, cannot gather) and Construction Drones (fly over water and terrain, build 1.25×). Bots use them too.
+- **Air and rocket attacks.** The same workshop unlocks Attack Drones (fast harassment), Autonomous Fighters (heavy air strike), and Rocket Launchers (slow long-range ground artillery). They draw grid power and remain fully server-authoritative.
+- **A power grid.** Solar Arrays (+4) and Wind Turbines (+6, Feudal) add supply; the Town Center gives a base of 2. Each robot or drone draws 1. When draw exceeds supply, automation slows proportionally (floor 30%) — shown as cyan or coral energy-flow lines on the map and ⚡ draw/supply in the HUD.
+- **ELON standing.** Non-transferable contribution points (Energy, Labor, Obligation, Need). Not currency.
+- **Match ledger.** Every ELON event becomes a transaction in a deterministic SHA-256 hash chain (Merkle tx roots) sealed every 5 s by the authoritative server. Completed facilities carry a provenance hash, and the live ledger is shown in-game.
+- **On-chain anchoring.** When a match ends, the archive hash and ledger head may be committed to `contracts/MatchCommitmentRegistry.sol` (`commitWithLedger`) when blockchain support is explicitly enabled. Players see the actual disabled, local, submitted, confirmed, or failed status on the result screen.
 
-```bash
-BLOCKCHAIN_ENABLED=false npm run dev:server
+The trust boundary is deliberately narrow:
+
+```text
+player intents → authoritative server → live state + deterministic match ledger
+                                           │
+                                           └─ match ends → canonical archive + SHA-256
+                                                                    │
+                                                                    └─ optional hash commitment
 ```
 
-When enabled for local development, the current adapter labels commitments `local`; it never claims confirmation. `contracts/MatchCommitmentRegistry.sol` and the Anvil endpoint in `contracts/foundry.toml` provide the narrow future on-chain boundary. No wallet, node, model API, or IPFS provider is required to play.
+The chain is a provenance layer, not a game server: it never validates commands, stores ordinary gameplay actions, controls resources or victory, or turns ELON into a token. A chain outage cannot change or invalidate the match result.
+
+The UI follows the WATT Arena design language (navy plane, cyan/mint signals, flat 1px panels, Space Grotesk + JetBrains Mono).
+
+### Local chain (optional)
+
+Requires [Foundry](https://book.getfoundry.sh/).
+
+```bash
+npm run chain:node                      # terminal 1: Anvil on :8545
+npm run chain:build && npm run chain:deploy   # writes contracts/deployment.json
+BLOCKCHAIN_ENABLED=true npm run dev:server
+```
+
+Without `BLOCKCHAIN_ENABLED=true` the ledger still runs and is archived to `archives/`, but nothing is sent to a chain. The deploy script refuses any chain other than Anvil (31337) because it uses the node's unlocked dev account. No wallet, token, or IPFS provider is involved.
 
 ## Architecture
 
@@ -93,9 +118,9 @@ client/   Vite + TypeScript + Canvas 2D frontend (dimetric isometric 2:1)
 
 | Action | Control |
 |---|---|
-| Select | Left click / box drag (Shift adds) |
+| Select | Left click; drag from a unit for box selection (Shift adds) |
 | Contextual command | Right click (move, gather, attack, build) |
-| Camera | WASD / arrows, middle-button drag, wheel = zoom |
+| Camera | Click-drag empty terrain, screen-edge scroll, middle-button drag, or WASD / arrows |
 | Center on Town Center | H |
 | Options (volume, resolution, language) | gear icon in the corner |
 | Chat | Enter |
@@ -104,6 +129,10 @@ client/   Vite + TypeScript + Canvas 2D frontend (dimetric isometric 2:1)
 - **Resources**: food, wood, gold, stone — villagers gather and drop them off at the Town Center.
 - **Ages**: advance by constructing buildings and gathering resources, unlocking new units and structures.
 - **Victory**: destroy all enemy Town Centers.
+
+### Gameplay preservation contract
+
+The battlefield remains the game: it fills the screen, pans like the original RTS, and keeps resources, selection, commands, construction actions, and the minimap at the edges instead of replacing the map with dashboard pages. In Symbiosis rooms, selecting either human villagers or builder robots/drones opens the same construction palette. Place a building, then right-click it with one or more builders selected; every selected human or robotic builder works through the authoritative simulation. Robots build faster but cannot gather resources, so humans remain essential to the economy.
 
 ## Contributing
 

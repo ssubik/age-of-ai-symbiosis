@@ -1,0 +1,869 @@
+/* Generated from WATT Arena (apps/web/app): styles.css (landing base), ui.css, guide.css, symbiosis.css.
+   Scoped under .wattApp so generic WATT selectors never reach the game HUD. */
+.wattApp .brand{font:700 16px 'Space Grotesk';letter-spacing:1.8px;display:flex;align-items:center;gap:10px}
+.wattApp .brand i{width:18px;height:24px;background:linear-gradient(145deg,#81f2a8,#2bcbdc);display:block;clip-path:polygon(55% 0,100% 0,66% 38%,96% 38%,31% 100%,47% 53%,16% 53%)}
+.wattApp .landing{min-height:100vh;background:radial-gradient(circle at 75% 50%,#123749 0,transparent 32%),linear-gradient(125deg,#07111b 45%,#0b202b);overflow:hidden}
+.wattApp .landing nav{height:82px;display:flex;align-items:center;justify-content:space-between;padding:0 7vw;border-bottom:1px solid #ffffff12}
+.wattApp .button{display:inline-block;background:var(--green);color:#052013;padding:15px 23px;border-radius:4px;font-weight:800;text-transform:uppercase;letter-spacing:.7px}
+.wattApp .button.small{padding:10px 15px;font-size:11px}
+.wattApp .eyebrow{color:var(--cyan);font-weight:700;letter-spacing:3px;font-size:11px}
+.wattApp .heroActions{display:flex;gap:24px;align-items:center;margin:35px 0}
+.wattApp .ghost{padding:14px;border-bottom:1px solid #69808f}
+.wattApp .proof{display:grid;grid-template-columns:auto auto auto auto auto auto;align-items:center;gap:10px 15px;border-top:1px solid #ffffff16;padding-top:25px;max-width:620px}
+.wattApp .proof b{font:700 25px 'Space Grotesk';color:#fff}
+.wattApp .proof span{color:#6f899a;font-size:10px;text-transform:uppercase}
+@media(max-width:700px){.wattApp .proof{grid-template-columns:auto auto}}
+:root{--wa-plane: #06101a;
+  --wa-surface: #0a1722;
+  --wa-raised: #0d1e2b;
+  --wa-sunken: #081320;
+
+  --wa-hairline: #16293a;
+  --wa-border: #1d3447;
+  --wa-axis: #243d52;
+
+  --wa-ink: #dcebf1;
+  --wa-ink-2: #9db2c3;
+  --wa-muted: #7890a3;
+  --wa-dim: #607b8d;
+
+  --wa-accent: #35d9e6;
+  --wa-good: #0ca30c;
+  --wa-warning: #fab219;
+  --wa-serious: #ec835a;
+  --wa-critical: #d03b3b;
+
+  --wa-volt: #3987e5;
+  --wa-atlas: #d95926;
+  --wa-nova: #9085e9;
+  --wa-terra: #199e70;
+
+  --wa-sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wa-display: "Space Grotesk", var(--wa-sans);
+
+  --wa-nav: 232px;}
+.wattApp .waShell{min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--wa-nav) minmax(0, 1fr);
+  background: var(--wa-plane);
+  color: var(--wa-ink);
+  font: 13px/1.55 var(--wa-sans);}
+.wattApp .waNav{position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 14px 14px;
+  background: var(--wa-surface);
+  border-right: 1px solid var(--wa-border);
+  overflow-y: auto;}
+.wattApp .waNav > .brand{margin: 0 8px 18px;
+  font-size: 15px;}
+.wattApp .waNavGroup{margin: 14px 8px 6px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  color: var(--wa-dim);
+  text-transform: uppercase;}
+.wattApp .waNavLink{display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  color: var(--wa-ink-2);
+  border-left: 2px solid transparent;}
+.wattApp .waNavLink i{font-style: normal;
+  font-size: 15px;
+  text-align: center;
+  color: var(--wa-muted);}
+.wattApp .waNavLink span{overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;}
+.wattApp .waNavLink small{display: block;
+  font-size: 9px;
+  color: var(--wa-dim);}
+.wattApp .waNavLink:hover{background: #0f2131;
+  color: var(--wa-ink);}
+.wattApp .waNavLink[aria-current="page"]{background: #112a3c;
+  color: #eafaff;
+  border-left-color: var(--wa-accent);}
+.wattApp .waNavLink[aria-current="page"] i{color: var(--wa-accent);}
+.wattApp .waNavFoot{margin-top: auto;
+  padding: 12px 10px 4px;
+  border-top: 1px solid var(--wa-hairline);
+  font-size: 10px;
+  color: var(--wa-dim);}
+.wattApp .waNavFoot b{display: block;
+  color: var(--wa-ink-2);
+  font-weight: 600;}
+.wattApp .waMain{min-width: 0;
+  display: flex;
+  flex-direction: column;}
+.wattApp .waTopbar{position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 14px 28px;
+  background: #081521f2;
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--wa-border);}
+.wattApp .waCrumbs{display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--wa-muted);}
+.wattApp .waCrumbs b{color: var(--wa-ink);
+  font-weight: 600;}
+.wattApp .waCrumbs em{font-style: normal;
+  color: var(--wa-dim);}
+.wattApp .waTopFacts{margin-left: auto;
+  display: flex;
+  gap: 26px;}
+.wattApp .waTopFacts span{font-size: 8px;
+  letter-spacing: 1.2px;
+  color: var(--wa-dim);
+  text-transform: uppercase;}
+.wattApp .waTopFacts b{display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wa-ink);
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;}
+.wattApp .waBody{padding: 26px 28px 70px;
+  max-width: 1480px;}
+.wattApp .waHead{margin-bottom: 22px;
+  max-width: 820px;}
+.wattApp .waEyebrow{font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2.4px;
+  color: var(--wa-accent);
+  text-transform: uppercase;}
+.wattApp .waHead h1{margin: 10px 0 8px;
+  font: 600 30px/1.15 var(--wa-display);
+  letter-spacing: -0.6px;}
+.wattApp .waHead p{margin: 0;
+  color: var(--wa-ink-2);
+  font-size: 14px;
+  line-height: 1.65;}
+.wattApp .waNote{display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 11px 13px;
+  background: var(--wa-raised);
+  border: 1px solid var(--wa-border);
+  border-left: 2px solid var(--wa-accent);
+  border-radius: 4px;
+  color: var(--wa-ink-2);
+  font-size: 12px;
+  line-height: 1.6;}
+.wattApp .waNote b{color: var(--wa-ink);
+  font-weight: 600;}
+.wattApp .waHero{display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 22px 24px;
+  background: var(--wa-surface);
+  border: 1px solid var(--wa-border);
+  border-radius: 6px;}
+.wattApp .waHeroFigure label{display: block;
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  color: var(--wa-muted);
+  text-transform: uppercase;}
+.wattApp .waHeroFigure b{display: block;
+  margin: 6px 0 4px;
+  font: 600 52px/1 var(--wa-sans);
+  letter-spacing: -1.5px;
+  color: #f2fbff;}
+.wattApp .waHeroFigure small{color: var(--wa-ink-2);
+  font-size: 12px;}
+.wattApp .waTiles{display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;}
+.wattApp .waTile{padding: 14px 15px;
+  background: var(--wa-surface);
+  border: 1px solid var(--wa-border);
+  border-radius: 6px;
+  min-width: 0;}
+.wattApp .waTile > label{display: block;
+  font-size: 11px;
+  color: var(--wa-muted);}
+.wattApp .waTile > b{display: block;
+  margin: 7px 0 0;
+  font: 600 23px/1.1 var(--wa-sans);
+  letter-spacing: -0.5px;
+  color: var(--wa-ink);}
+.wattApp .waTile > b span{font-size: 12px;
+  font-weight: 500;
+  color: var(--wa-muted);
+  letter-spacing: 0;
+  margin-left: 4px;}
+.wattApp .waTile > small{display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--wa-dim);}
+.wattApp .waTileSpark{margin-top: 10px;
+  height: 30px;}
+.wattApp .waDelta{font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;}
+.wattApp .waDelta.up{color: #35c535;}
+.wattApp .waDelta.down{color: #e8695f;}
+.wattApp .waDelta.flat{color: var(--wa-muted);}
+.wattApp .waGrid{display: grid;
+  gap: 16px;
+  margin-bottom: 16px;}
+.wattApp .waGrid.two{grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));}
+.wattApp .waGrid.three{grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));}
+.wattApp .waGrid.wide{grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);}
+.wattApp .waPanel{display: flex;
+  flex-direction: column;
+  background: var(--wa-surface);
+  border: 1px solid var(--wa-border);
+  border-radius: 6px;
+  min-width: 0;
+  overflow: hidden;}
+.wattApp .waPanelHead{display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 15px 17px 0;}
+.wattApp .waPanelHead h2{margin: 0;
+  font: 600 14px/1.3 var(--wa-sans);
+  color: var(--wa-ink);}
+.wattApp .waPanelHead p{margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--wa-muted);}
+.wattApp .waPanelTools{margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;}
+.wattApp .waPanelBody{padding: 14px 17px 17px;
+  min-width: 0;}
+.wattApp .waPanelBody.flush{padding: 12px 6px 6px;}
+.wattApp .waPanelBody.table{padding: 12px 0 0;}
+.wattApp .waPanelFoot{margin-top: auto;
+  padding: 10px 17px;
+  border-top: 1px solid var(--wa-hairline);
+  font-size: 11px;
+  color: var(--wa-dim);}
+.wattApp .waFilters{display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;}
+.wattApp .waSeg{display: inline-flex;
+  padding: 2px;
+  background: var(--wa-sunken);
+  border: 1px solid var(--wa-border);
+  border-radius: 5px;}
+.wattApp .waSeg button{padding: 6px 11px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--wa-muted);
+  font: 500 11px var(--wa-sans);
+  cursor: pointer;
+  white-space: nowrap;}
+.wattApp .waSeg button:hover{color: var(--wa-ink);}
+.wattApp .waSeg button[aria-pressed="true"]{background: #15324a;
+  color: #eafaff;}
+.wattApp .waField{display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  background: var(--wa-sunken);
+  border: 1px solid var(--wa-border);
+  border-radius: 5px;}
+.wattApp .waField label{font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--wa-dim);
+  text-transform: uppercase;}
+.wattApp .waField input,.wattApp .waField select{padding: 7px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--wa-ink);
+  font: 12px var(--wa-sans);
+  outline: none;
+  min-width: 90px;}
+.wattApp .waField select option{background: var(--wa-raised);}
+.wattApp .waGhost{padding: 6px 11px;
+  border: 1px solid var(--wa-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--wa-ink-2);
+  font: 500 11px var(--wa-sans);
+  cursor: pointer;}
+.wattApp .waGhost:hover{background: #0f2131;
+  color: var(--wa-ink);}
+.wattApp .waGhost[aria-pressed="true"]{background: #15324a;
+  color: #eafaff;
+  border-color: #27506e;}
+.wattApp .waElonBar{display:flex;align-items:center;gap:18px;min-height:42px;padding:9px 24px;border-bottom:1px solid #214253;background:#09212a;color:#91aab5;font-size:11px}
+.wattApp .waElonBar b{color:#69e8ee;font:600 11px 'Space Grotesk';letter-spacing:.4px;white-space:nowrap}
+.wattApp .waElonBar span{line-height:1.4}
+.wattApp .waElonBar a{margin-left:auto;color:#73f2a0;white-space:nowrap}
+.wattApp .waElonBar a:hover{text-decoration:underline}
+@media(max-width:760px){.wattApp .waElonBar{align-items:flex-start;flex-direction:column;gap:5px}
+.wattApp .waElonBar a{margin-left:0}}
+.wattApp .waChip{display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--wa-ink-2);
+  white-space: nowrap;}
+.wattApp .waChip i{width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: var(--chip, var(--wa-accent));}
+.wattApp .waChip.line i{width: 14px;
+  height: 2px;
+  border-radius: 1px;}
+.wattApp .waLegend{display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 0 1px 10px;}
+.wattApp .waBadge{display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: #112231;
+  border: 1px solid var(--wa-border);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--wa-ink-2);
+  text-transform: uppercase;}
+.wattApp .waBadge.good{border-color: #1d5c2a;
+  color: #7fe08a;}
+.wattApp .waBadge.warning{border-color: #6b5417;
+  color: #f6cc63;}
+.wattApp .waBadge.critical{border-color: #6d2626;
+  color: #f08b86;}
+.wattApp .waBadge i{font-style: normal;}
+.wattApp .waMeter{margin: 0 0 12px;}
+.wattApp .waMeterTop{display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--wa-ink-2);}
+.wattApp .waMeterTop b{color: var(--wa-ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;}
+.wattApp .waMeterTrack{margin-top: 6px;
+  height: 7px;
+  border-radius: 4px;
+  
+  background: color-mix(in oklab, var(--meter, #3987e5) 26%, var(--wa-sunken));
+  overflow: hidden;}
+.wattApp .waMeterFill{height: 100%;
+  border-radius: 4px;
+  background: var(--meter, #3987e5);}
+.wattApp .waTableWrap{overflow-x: auto;}
+.wattApp .waTable{width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;}
+.wattApp .waTable caption{padding: 0 17px 10px;
+  color: var(--wa-muted);
+  font-size: 11px;
+  text-align: left;}
+.wattApp .waTable th,.wattApp .waTable td{padding: 9px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--wa-hairline);
+  white-space: nowrap;}
+.wattApp .waTable thead th{position: sticky;
+  top: 0;
+  background: var(--wa-raised);
+  color: var(--wa-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--wa-border);}
+.wattApp .waTable thead th button{display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;}
+.wattApp .waTable thead th button:hover{color: var(--wa-ink);}
+.wattApp .waTable thead th button em{font-style: normal;
+  color: var(--wa-accent);}
+.wattApp .waTable .num{text-align: right;
+  font-variant-numeric: tabular-nums;}
+.wattApp .waTable tbody tr:hover td{background: #0d1f2d;}
+.wattApp .waTable tbody tr:last-child td{border-bottom: 0;}
+.wattApp .waTable td b{font-weight: 600;
+  color: var(--wa-ink);}
+.wattApp .waTable td small{display: block;
+  color: var(--wa-dim);
+  font-size: 10px;}
+.wattApp .waTable .neg{color: #e8695f;}
+.wattApp .waTable .pos{color: #35c535;}
+.wattApp .waTableFoot{display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 11px 17px;
+  border-top: 1px solid var(--wa-border);
+  font-size: 11px;
+  color: var(--wa-muted);}
+.wattApp .waTableFoot .spacer{margin-left: auto;}
+.wattApp .waOwner{display: inline-flex;
+  align-items: center;
+  gap: 8px;}
+.wattApp .waOwner i{width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;}
+.wattApp .waRank{display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  background: #13293a;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--wa-ink-2);}
+.wattApp .waRank.first{background: #1b4a33;
+  color: #8fe8a9;}
+.wattApp .waHeat{display: grid;
+  gap: 2px; 
+  grid-template-columns: 34px repeat(24, minmax(0, 1fr));
+  min-width: 620px;}
+.wattApp .waHeat .rowLabel,.wattApp .waHeat .colLabel{display: grid;
+  place-items: center;
+  font-size: 9px;
+  color: var(--wa-muted);
+  font-variant-numeric: tabular-nums;}
+.wattApp .waHeat .colLabel{padding-bottom: 3px;}
+.wattApp .waHeatCell{aspect-ratio: 1;
+  min-height: 16px;
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  cursor: pointer;
+  background: var(--cell);}
+.wattApp .waHeatCell:hover,.wattApp .waHeatCell:focus-visible{outline: 2px solid var(--wa-accent);
+  outline-offset: 1px;}
+.wattApp .waScale{display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 10px;
+  color: var(--wa-muted);}
+.wattApp .waScale .ramp{display: flex;
+  gap: 2px;}
+.wattApp .waScale .ramp i{width: 20px;
+  height: 9px;
+  border-radius: 2px;}
+.wattApp .waReadout{display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 1px;
+  margin-top: 14px;
+  background: var(--wa-hairline);
+  border: 1px solid var(--wa-hairline);
+  border-radius: 4px;
+  overflow: hidden;}
+.wattApp .waReadout span{padding: 9px 11px;
+  background: var(--wa-raised);}
+.wattApp .waReadout small{display: block;
+  font-size: 10px;
+  color: var(--wa-muted);}
+.wattApp .waReadout b{display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;}
+.wattApp .waDefs{display: grid;
+  gap: 1px;
+  background: var(--wa-hairline);
+  border-radius: 4px;
+  overflow: hidden;}
+.wattApp .waDefs > div{display: grid;
+  grid-template-columns: minmax(130px, 200px) minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 15px;
+  background: var(--wa-surface);}
+.wattApp .waDefs dt{font-weight: 600;
+  color: var(--wa-ink);}
+.wattApp .waDefs dd{margin: 0;
+  color: var(--wa-ink-2);
+  line-height: 1.6;}
+.wattApp .waDefs dd code{font-size: 11px;
+  color: var(--wa-accent);}
+.wattApp .waTimeline{display: flex;
+  flex-direction: column;}
+.wattApp .waTimeline > div{display: grid;
+  grid-template-columns: 52px 14px minmax(0, 1fr);
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--wa-hairline);}
+.wattApp .waTimeline > div:first-child{border-top: 0;}
+.wattApp .waTimeline time{font-size: 11px;
+  color: var(--wa-muted);
+  font-variant-numeric: tabular-nums;}
+.wattApp .waTimeline .dot{position: relative;
+  justify-self: center;}
+.wattApp .waTimeline .dot i{position: absolute;
+  top: 5px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  
+  box-shadow: 0 0 0 2px var(--wa-surface);
+  background: var(--dot, var(--wa-accent));}
+.wattApp .waTimeline .dot:before{content: "";
+  position: absolute;
+  top: 14px;
+  bottom: -16px;
+  left: -1px;
+  width: 1px;
+  background: var(--wa-hairline);}
+.wattApp .waTimeline > div:last-child .dot:before{display: none;}
+.wattApp .waTimeline b{display: block;
+  font-size: 12px;
+  font-weight: 600;}
+.wattApp .waTimeline p{margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--wa-muted);}
+.wattApp .waBare{padding: 26px 17px;
+  color: var(--wa-muted);
+  text-align: center;
+  font-size: 12px;}
+.wattApp .waLink{color: var(--wa-accent);}
+.wattApp .waLink:hover{text-decoration: underline;}
+.wattApp .waSr{position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;}
+.wattApp .waChart .recharts-cartesian-axis-tick-value{font-size: 10px;
+  fill: var(--wa-muted);
+  font-variant-numeric: tabular-nums;}
+.wattApp .waChart .recharts-cartesian-grid line{stroke: var(--wa-hairline);
+  stroke-width: 1;}
+.wattApp .waChart .recharts-cartesian-axis-line,.wattApp .waChart .recharts-cartesian-axis-tick-line{stroke: var(--wa-axis);}
+.wattApp .waTip{min-width: 150px;
+  padding: 9px 11px;
+  background: #0b1a27;
+  border: 1px solid var(--wa-border);
+  border-radius: 4px;
+  box-shadow: 0 12px 28px #00000080;
+  font-size: 11px;}
+.wattApp .waTip > strong{display: block;
+  margin-bottom: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wa-ink);}
+.wattApp .waTipRow{display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--wa-ink-2);}
+.wattApp .waTipRow i{width: 9px;
+  height: 9px;
+  border-radius: 2px;}
+.wattApp .waTipRow b{font-weight: 600;
+  color: var(--wa-ink);
+  font-variant-numeric: tabular-nums;}
+@media (max-width: 1180px){.wattApp .waGrid.wide{grid-template-columns: minmax(0, 1fr);}
+.wattApp .waHero{grid-template-columns: minmax(0, 1fr);}}
+@media (max-width: 900px){:root{--wa-nav: 0px;}
+.wattApp .waShell{grid-template-columns: minmax(0, 1fr);}
+.wattApp .waNav{position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--wa-border);}
+.wattApp .waNav > .brand,.wattApp .waNavGroup,.wattApp .waNavFoot,.wattApp .waNavLink small{display: none;}
+.wattApp .waNavLink{grid-template-columns: 20px auto;
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 4px;}
+.wattApp .waNavLink[aria-current="page"]{border-bottom-color: var(--wa-accent);}
+.wattApp .waBody,.wattApp .waTopbar{padding-left: 16px;
+    padding-right: 16px;}
+.wattApp .waTopFacts{width: 100%;
+    margin-left: 0;
+    gap: 18px;}}
+.wattApp .clarityLanding{overflow:auto;background:radial-gradient(circle at 78% 30%,#123749 0,transparent 28%),linear-gradient(125deg,#07111b 45%,#0b202b)}
+.appGuideLink{position:fixed;right:18px;bottom:18px;z-index:50;display:flex;align-items:center;gap:8px;padding:9px 12px;background:#0c202b;border:1px solid #2c5969;color:#c5dae1;font-size:10px;letter-spacing:.4px;box-shadow:0 10px 35px #0008}
+.appGuideLink b{display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--cyan);color:#06131b;font-size:11px}
+.appGuideLink:hover{border-color:var(--cyan)}
+.wattApp .landingNav{display:flex;align-items:center;gap:28px}
+.wattApp .landingNav>a:first-child{color:#9ab0bc;font-size:12px}
+.wattApp .clarityLanding .hero{min-height:680px}
+.wattApp .clarityLanding .hero h1{font-size:clamp(48px,5.3vw,76px)}
+.wattApp .truthPill{display:inline-flex;align-items:center;gap:9px;background:#10232c;border:1px solid #295061;color:#b5cbd3;padding:10px 13px;margin-top:10px;font-size:11px}
+.wattApp .truthPill i{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan)}
+.wattApp .systemPreview{width:min(430px,100%);justify-self:flex-end;background:#081721dd;border:1px solid #285164;padding:28px;box-shadow:0 35px 90px #0007}
+.wattApp .previewTitle{border-bottom:1px solid #24404f;padding-bottom:20px;margin-bottom:18px}
+.wattApp .previewTitle span{display:block;color:var(--cyan);font-size:9px;letter-spacing:2px}
+.wattApp .previewTitle b{display:block;font:600 22px 'Space Grotesk';margin-top:8px}
+.wattApp .previewStep{display:flex;align-items:center;gap:15px}
+.wattApp .previewStep>i{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#102a36;border:1px solid #36cbd5;color:#65e8ee;font:600 12px 'Space Grotesk';font-style:normal}
+.wattApp .previewStep span{display:flex;flex-direction:column}
+.wattApp .previewStep b{font:600 14px 'Space Grotesk'}
+.wattApp .previewStep small{color:#728d9c;margin-top:4px}
+.wattApp .previewLine{height:25px;border-left:1px dashed #315468;margin:4px 0 4px 19px}
+.wattApp .plainSection{max-width:1220px;margin:auto;padding:70px 4vw 90px;border-top:1px solid #ffffff13}
+.wattApp .plainHeading{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px}
+.wattApp .plainHeading h2{font:600 32px 'Space Grotesk';margin:0}
+.wattApp .plainGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.wattApp .plainGrid article{background:#091924;border:1px solid #1b3b4c;padding:22px;min-height:200px}
+.wattApp .plainGrid article>span{color:#45dce5;font:600 11px 'Space Grotesk'}
+.wattApp .plainGrid h3{font:600 17px 'Space Grotesk';margin:28px 0 10px}
+.wattApp .plainGrid p{color:#8099a8;line-height:1.65;margin:0;font-size:12px}
+.wattApp .scopeStrip{margin-top:14px;border:1px solid #1d3b4b;background:#07141e;padding:18px 22px;display:flex;gap:26px;align-items:center;flex-wrap:wrap}
+.wattApp .scopeStrip>b{font:600 12px 'Space Grotesk';margin-right:auto}
+.wattApp .scopeStrip span{color:#8da3af;font-size:10px}
+.wattApp .scopeStrip i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px}
+.wattApp .scopeStrip .yes{background:var(--green)}
+.wattApp .scopeStrip .no{background:#ffb05f}
+.wattApp .elonDefinition{display:grid;grid-template-columns:280px 1fr;gap:30px;align-items:center;margin:16px 0 34px;padding:26px;border:1px solid #2a5b68;background:linear-gradient(100deg,#0a2530,#091923)}
+.wattApp .elonDefinition>div span{display:block;color:#6cf0d1;font:700 38px 'Space Grotesk';letter-spacing:6px}
+.wattApp .elonDefinition>div small{color:#6ddce2;font-size:8px;letter-spacing:1.8px}
+.wattApp .elonDefinition p{margin:0;color:#96adb8;line-height:1.7}
+.wattApp .elonDefinition p b{color:#e3f3f5}
+.wattApp .guidePage main{max-width:1180px}
+.wattApp .guideHero{padding:35px 0 55px;border-bottom:1px solid var(--line)}
+.wattApp .guideHero h1{font:600 clamp(40px,5vw,65px)/1.05 'Space Grotesk';letter-spacing:-2px;margin:18px 0}
+.wattApp .guideHero p{max-width:770px;font-size:17px;line-height:1.7;color:#8da4b2}
+.wattApp .flowSection{display:grid;grid-template-columns:320px 1fr;gap:70px;padding:70px 0}
+.wattApp .flowIntro>span{color:var(--cyan);font-size:9px;letter-spacing:2px}
+.wattApp .flowIntro h2,.wattApp .boundarySection h2,.wattApp .whereSection h2{font:600 29px 'Space Grotesk';margin:12px 0}
+.wattApp .flowIntro p{color:#748d9d;line-height:1.6}
+.wattApp .flowSteps article{display:grid;grid-template-columns:48px 1fr;gap:18px;border-top:1px solid #1a3445;padding:19px 0}
+.wattApp .flowSteps article>i{font:600 11px 'Space Grotesk';font-style:normal;color:var(--cyan);border:1px solid #285064;width:36px;height:36px;display:grid;place-items:center}
+.wattApp .flowSteps h3{font:600 17px 'Space Grotesk';margin:0 0 7px}
+.wattApp .flowSteps p{color:#7891a1;line-height:1.6;margin:0}
+.wattApp .boundarySection{border-top:1px solid var(--line);padding:65px 0}
+.wattApp .boundaryGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:28px}
+.wattApp .boundaryGrid article{padding:28px;border:1px solid #254557;background:#091a26}
+.wattApp .boundaryGrid article>b{font-size:9px;letter-spacing:2px}
+.wattApp .boundaryGrid .real>b{color:var(--green)}
+.wattApp .boundaryGrid .notYet>b{color:#ffb05f}
+.wattApp .boundaryGrid ul{list-style:none;padding:0;margin:20px 0 0}
+.wattApp .boundaryGrid li{padding:10px 0;border-top:1px solid #ffffff0b;color:#9cb0ba}
+.wattApp .boundaryGrid li:before{content:'✓';color:var(--green);margin-right:10px}
+.wattApp .boundaryGrid .notYet li:before{content:'—';color:#ffb05f}
+.wattApp .whereSection{border-top:1px solid var(--line);padding:65px 0}
+.wattApp .whereGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:25px}
+.wattApp .whereGrid a{border:1px solid #244354;background:#0a1a26;padding:18px;min-height:130px;transition:.2s}
+.wattApp .whereGrid a:hover{border-color:var(--cyan);transform:translateY(-2px)}
+.wattApp .whereGrid b{display:block;font:600 15px 'Space Grotesk';color:#e3f2f5}
+.wattApp .whereGrid span{display:block;color:#7891a1;font-size:11px;line-height:1.5;margin-top:12px}
+@media(max-width:900px){.wattApp .plainGrid{grid-template-columns:1fr 1fr}
+.wattApp .flowSection{grid-template-columns:1fr;gap:20px}
+.wattApp .whereGrid{grid-template-columns:1fr 1fr}
+.wattApp .systemPreview{justify-self:flex-start}
+.wattApp .clarityLanding .hero{padding-top:70px;padding-bottom:70px}}
+@media(max-width:600px){.wattApp .landingNav>a:first-child{display:none}
+.wattApp .plainGrid,.wattApp .boundaryGrid,.wattApp .whereGrid{grid-template-columns:1fr}
+.wattApp .plainHeading{display:block}
+.wattApp .plainHeading h2{margin-top:12px}
+.wattApp .scopeStrip{align-items:flex-start;flex-direction:column}
+.wattApp .guideHero h1{font-size:38px}}
+:root{--bg: #07100e;
+  --panel: #0b1714;
+  --line: #294139;
+  --muted: #8da398;
+  --text: #e9eadf;
+  --cyan: #67d6b0;
+  --green: #d8b86a;
+  --wa-plane: #07100e;
+  --wa-surface: #0b1714;
+  --wa-raised: #10211c;
+  --wa-sunken: #081310;
+  --wa-hairline: #1a3029;
+  --wa-border: #294139;
+  --wa-axis: #38564b;
+  --wa-ink: #e9eadf;
+  --wa-ink-2: #acbdb3;
+  --wa-muted: #8da398;
+  --wa-dim: #698177;
+  --wa-accent: #d8b86a;
+  --wa-good: #67d6a3;
+  --wa-warning: #dfac55;
+  --wa-serious: #d97e58;}
+.wattApp .brand{color: #f1ecdc; letter-spacing: 1.45px;}
+.wattApp .brand i{position: relative;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  clip-path: none;
+  border: 1px solid #d8b86a;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #d8b86a 0 2px, transparent 3px), radial-gradient(circle at 68% 68%, #67d6b0 0 2px, transparent 3px), #0c1c18;
+  box-shadow: 0 0 24px #67d6b026, inset 0 0 12px #d8b86a1c;}
+.wattApp .brand i::before,.wattApp .brand i::after{content:""; position:absolute; width:10px; height:15px; border:1px solid; border-radius:50%; transform:rotate(38deg);}
+.wattApp .brand i::before{left:4px; top:3px; border-color:#d8b86a;}
+.wattApp .brand i::after{right:4px; bottom:3px; border-color:#67d6b0;}
+.wattApp .button{background: #d8b86a;
+  color: #10150f;
+  border-radius: 2px;
+  box-shadow: 0 8px 30px #d8b86a1f;}
+.wattApp .button:hover{background:#e6ca82; transform:translateY(-1px);}
+.wattApp .eyebrow,.wattApp .waEyebrow{color:#d8b86a;}
+.wattApp .symLanding{overflow: visible;
+  background:
+    radial-gradient(circle at 80% 11%, #2d604d42 0, transparent 27%),
+    radial-gradient(circle at 16% 22%, #806d3630 0, transparent 25%),
+    linear-gradient(145deg, #07100e, #091511 50%, #07100e);}
+.wattApp .symLanding::before{content:"";
+  position:absolute;
+  inset:0 0 auto;
+  height:100vh;
+  pointer-events:none;
+  opacity:.15;
+  background-image:linear-gradient(#b8d5c31a 1px,transparent 1px),linear-gradient(90deg,#b8d5c31a 1px,transparent 1px);
+  background-size:56px 56px;
+  mask-image:linear-gradient(to bottom,black,transparent 90%);}
+.wattApp .symLanding nav{position:relative; z-index:2; height:88px; padding:0 max(5vw,34px); border-bottom-color:#d8b86a24;}
+.wattApp .landingNav{display:flex; align-items:center; gap:28px; color:#aabbb1; font-size:11px; text-transform:uppercase; letter-spacing:1.2px;}
+.wattApp .symHero{position:relative;
+  z-index:1;
+  max-width:1380px;
+  min-height:calc(100vh - 88px);
+  margin:auto;
+  padding:70px max(5vw,34px) 82px;
+  display:grid;
+  grid-template-columns:minmax(0,1.15fr) minmax(390px,.85fr);
+  gap:7vw;
+  align-items:center;}
+.wattApp .symHero h1{margin:24px 0; font:600 clamp(60px,7.6vw,112px)/.88 'Space Grotesk'; letter-spacing:-6px;}
+.wattApp .symHero h1 span{color:#d8b86a; font-style:italic; font-weight:500;}
+.wattApp .symHeroCopy>p{max-width:660px; color:#a6b7ae; font-size:17px; line-height:1.75;}
+.wattApp .truthPill{display:inline-flex; gap:9px; align-items:center; margin-top:14px; padding:8px 11px; border:1px solid #365248; background:#0b1a16b8; color:#8fa89b; font-size:10px; letter-spacing:.4px;}
+.wattApp .truthPill i{width:6px; height:6px; border-radius:50%; background:#67d6a3; box-shadow:0 0 10px #67d6a3;}
+.wattApp .symProof{border-top-color:#d8b86a26;}
+.wattApp .symProof b{color:#f0ead9;}
+.wattApp .agePanel{border:1px solid #365147; background:#091612d9; box-shadow:0 25px 90px #0007; backdrop-filter:blur(8px);}
+.wattApp .agePanelHead{padding:21px 23px; border-bottom:1px solid #2a4139;}
+.wattApp .agePanelHead span,.wattApp .civilizationSignal span{display:block; color:#d8b86a; font-size:8px; font-weight:800; letter-spacing:2px;}
+.wattApp .agePanelHead b{display:block; margin-top:5px; font:600 19px 'Space Grotesk';}
+.wattApp .agePath{padding:7px 22px;}
+.wattApp .agePath article{position:relative; display:grid; grid-template-columns:44px 1fr auto; gap:15px; align-items:center; min-height:103px; border-bottom:1px solid #243a32; color:#677c72;}
+.wattApp .agePath article:last-child{border-bottom:0;}
+.wattApp .agePath article:not(:last-child)::after{content:""; position:absolute; left:21px; bottom:-14px; height:27px; width:1px; background:#38574b; z-index:2;}
+.wattApp .agePath i{width:42px; height:42px; display:grid; place-items:center; border:1px solid #385248; border-radius:50%; font:normal 600 13px 'Space Grotesk';}
+.wattApp .agePath small{font-size:7px; letter-spacing:1.5px;}
+.wattApp .agePath h3{margin:3px 0 2px; font:600 16px 'Space Grotesk';}
+.wattApp .agePath p{margin:0; font-size:10px; line-height:1.45;}
+.wattApp .agePath em{font-style:normal; font-size:8px; letter-spacing:1px;}
+.wattApp .agePath .complete{color:#9eb2a7;}
+.wattApp .agePath .complete i{color:#67d6a3; border-color:#67d6a3;}
+.wattApp .agePath .current{color:#eceddf; background:linear-gradient(90deg,#d8b86a10,transparent);}
+.wattApp .agePath .current i{color:#15150e; background:#d8b86a; border-color:#d8b86a; box-shadow:0 0 28px #d8b86a35;}
+.wattApp .agePath .current small,.wattApp .agePath .current em{color:#d8b86a;}
+.wattApp .civilizationSignal{padding:17px 22px; background:#10231d; border-top:1px solid #375148;}
+.wattApp .civilizationSignal p{margin:5px 0 0; color:#b9c8bf; font-size:11px;}
+.wattApp .symSection{position:relative; padding:110px max(6vw,45px); border-top:1px solid #294139;}
+.wattApp .sectionLead{max-width:760px; margin-bottom:54px;}
+.wattApp .sectionLead.compact{margin-bottom:35px;}
+.wattApp .sectionLead h2,.wattApp .elonCopy h2{margin:12px 0 18px; font:600 clamp(36px,4.5vw,65px)/1.05 'Space Grotesk'; letter-spacing:-2.4px;}
+.wattApp .sectionLead p,.wattApp .elonCopy p{color:#99aca2; font-size:15px; line-height:1.75; max-width:700px;}
+.wattApp .pillarsSection{background:linear-gradient(180deg,#0b1714,#07110e);}
+.wattApp .symPillars{display:grid; grid-template-columns:repeat(4,1fr); border:1px solid #2b433a;}
+.wattApp .symPillars article{min-height:250px; padding:28px; border-right:1px solid #2b433a; background:#0b1814b8;}
+.wattApp .symPillars article:last-child{border-right:0;}
+.wattApp .symPillars article>span{color:#d8b86a; font:600 11px 'Space Grotesk';}
+.wattApp .symPillars h3{margin:55px 0 12px; font:600 19px 'Space Grotesk';}
+.wattApp .symPillars p{margin:0; color:#81968b; font-size:12px; line-height:1.7;}
+.wattApp .civilizationSection{background:linear-gradient(180deg,#081310,#0d1914);}
+.wattApp .realmGrid{display:grid; grid-template-columns:repeat(4,1fr); gap:12px;}
+.wattApp .realmCard{position:relative; min-height:390px; padding:30px 25px; overflow:hidden; border:1px solid #30483f; background:radial-gradient(circle at 80% 10%,#ffffff0b,transparent 24%),#0b1714; transition:.2s ease;}
+.wattApp .realmCard::after{content:""; position:absolute; inset:auto -35px -65px auto; width:180px; height:180px; border:1px solid currentColor; border-radius:50%; opacity:.08;}
+.wattApp .realmCard:hover{transform:translateY(-4px); border-color:#d8b86a88; background-color:#0f1e19;}
+.wattApp .realmCard.volt{color:#6aa8ee;}
+.wattApp .realmCard.atlas{color:#e17a4d;}
+.wattApp .realmCard.nova{color:#aaa0ef;}
+.wattApp .realmCard.terra{color:#55bd93;}
+.wattApp .realmCrest{width:58px; height:58px; display:grid; place-items:center; margin-bottom:52px; border:1px solid currentColor; border-radius:50% 50% 45% 45%; font:600 23px 'Space Grotesk'; background:#07110e; box-shadow:inset 0 0 24px currentColor;}
+.wattApp .realmCard>span{font-size:8px; font-weight:800; letter-spacing:1.7px;}
+.wattApp .realmCard h3{margin:8px 0 6px; color:#ececdf; font:600 21px 'Space Grotesk';}
+.wattApp .realmCard p{margin:0; color:#a8b7af; font-size:12px;}
+.wattApp .realmCard small{display:block; margin-top:18px; color:#6f867a; font-size:9px; text-transform:uppercase; letter-spacing:1px;}
+.wattApp .realmCard blockquote{margin:10px 0 28px; color:#83978d; font:italic 12px/1.55 Georgia,serif;}
+.wattApp .realmCard em{position:absolute; bottom:24px; color:#d8b86a; font:normal 700 9px Inter; letter-spacing:1px; text-transform:uppercase;}
+.wattApp .gameLoopSection{background:radial-gradient(circle at 75% 45%,#28534328,transparent 35%),#081310;}
+.wattApp .campaignLoop{display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:#31483f; border:1px solid #31483f;}
+.wattApp .campaignLoop article{min-height:240px; padding:25px; background:#0b1714;}
+.wattApp .campaignLoop i{color:#50675d; font:normal 500 34px 'Space Grotesk';}
+.wattApp .campaignLoop span{display:block; margin-top:45px; color:#d8b86a; font-size:8px; font-weight:800; letter-spacing:1.7px;}
+.wattApp .campaignLoop h3{margin:8px 0; font:600 17px 'Space Grotesk';}
+.wattApp .campaignLoop p{color:#81968b; font-size:11px; line-height:1.6;}
+.wattApp .elonSection{display:grid; grid-template-columns:.8fr 1.2fr; gap:9vw; align-items:center; background:linear-gradient(110deg,#101f18,#0a1512);}
+.wattApp .elonSigil{width:min(36vw,390px); aspect-ratio:1; border:1px solid #d8b86a66; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#e3c779; font:600 clamp(55px,8vw,105px) 'Space Grotesk'; box-shadow:inset 0 0 80px #d8b86a15,0 0 100px #67d6b012; background:repeating-radial-gradient(circle,#d8b86a09 0 1px,transparent 2px 22px);}
+.wattApp .elonSigil small{margin-top:10px; color:#7f978b; font:700 8px Inter; letter-spacing:2px;}
+.wattApp .elonCopy a{display:inline-block; margin-top:12px; color:#d8b86a; border-bottom:1px solid #d8b86a55; padding-bottom:4px;}
+.wattApp .currentWorld{background:#07100e;}
+.wattApp .worldStats{display:grid; grid-template-columns:repeat(4,1fr); border:1px solid #2c443b;}
+.wattApp .worldStats article{padding:24px; border-right:1px solid #2c443b;}
+.wattApp .worldStats article:last-child{border-right:0;}
+.wattApp .worldStats small{display:block; color:#6f887b; font-size:8px; letter-spacing:1.4px;}
+.wattApp .worldStats b{display:block; margin:10px 0 3px; color:#ece9db; font:600 22px 'Space Grotesk';}
+.wattApp .worldStats span{color:#7f9388; font-size:10px;}
+.wattApp .symScope{margin-top:12px; border-color:#2c443b; background:#0a1713;}
+.wattApp .finalCall{margin-top:90px; display:flex; align-items:flex-end; justify-content:space-between;}
+.wattApp .finalCall p{margin:0; color:#889d92; font:400 clamp(30px,4vw,55px)/1.16 'Space Grotesk'; letter-spacing:-1.7px;}
+.wattApp .finalCall b{color:#e9eadf;}
+.wattApp .waShell{background:#07100e;}
+.wattApp .waNav{background:#0a1613;}
+.wattApp .waTopbar{background:#091512ee;}
+.wattApp .waNavLink:hover{background:#10231d;}
+.wattApp .waNavLink[aria-current="page"]{background:#16291f; color:#f0eadc; border-left-color:#d8b86a;}
+.wattApp .waNavLink[aria-current="page"] i{color:#d8b86a;}
+.wattApp .waElonBar{background:linear-gradient(90deg,#342f1b,#10231d); border-color:#675d34;}
+.wattApp .waElonBar b,.wattApp .waElonBar a{color:#e0c477;}
+.wattApp .wa-raised,.wattApp .waPanel{background:#0b1714;}
+.wattApp .feed>button b{color:#d8b86a;}
+@media(max-width:1050px){.wattApp .symHero{grid-template-columns:1fr;}
+.wattApp .agePanel{max-width:700px;}
+.wattApp .symPillars{grid-template-columns:1fr 1fr;}
+.wattApp .realmGrid{grid-template-columns:1fr 1fr;}
+.wattApp .symPillars article:nth-child(2){border-right:0;}
+.wattApp .symPillars article:nth-child(-n+2){border-bottom:1px solid #2b433a;}
+.wattApp .campaignLoop{grid-template-columns:1fr 1fr;}
+.wattApp .campaignLoop article:last-child{grid-column:1/3;}}
+@media(max-width:720px){.wattApp .symLanding nav{padding:0 20px;}
+.wattApp .landingNav>a:first-child{display:none;}
+.wattApp .symHero{padding:55px 22px 70px;}
+.wattApp .symHero h1{font-size:58px; letter-spacing:-4px;}
+.wattApp .symSection{padding:78px 22px;}
+.wattApp .symPillars,.wattApp .campaignLoop,.wattApp .elonSection,.wattApp .worldStats{grid-template-columns:1fr;}
+.wattApp .realmGrid{grid-template-columns:1fr;}
+.wattApp .symPillars article,.wattApp .worldStats article{border-right:0; border-bottom:1px solid #2b433a;}
+.wattApp .campaignLoop article:last-child{grid-column:auto;}
+.wattApp .elonSigil{width:260px; margin:auto;}
+.wattApp .finalCall{align-items:flex-start; flex-direction:column; gap:30px;}}
+.appGuideLink{text-decoration:none}

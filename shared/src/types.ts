@@ -11,7 +11,12 @@ export type UnitType =
   // Navais (andam SÓ na água; treinadas no Porto):
   | 'fishing_boat' // pesca bancos de peixe e entrega no Porto
   | 'war_galley'   // barco de guerra (ataque à distância)
-  | 'transport';   // leva unidades terrestres pelo rio (embarcar/desembarcar)
+  | 'transport'    // leva unidades terrestres pelo rio (embarcar/desembarcar)
+  // Symbiosis-only automated builders (Robotics Workshop):
+  | 'robot'        // ground builder: fast construction, cannot gather
+  | 'drone'        // flying builder: crosses water and terrain
+  // Symbiosis aerial/strategic attack wing:
+  | 'attack_drone' | 'fighter' | 'rocket_launcher';
 export type BuildingType =
   | 'town_center'
   | 'house'
@@ -26,7 +31,11 @@ export type BuildingType =
   | 'mill'          // depósito de comida
   | 'lumber_camp'   // depósito de madeira
   | 'mining_camp'   // depósito de ouro e pedra
-  | 'dock';         // Porto: NA água (costa); deposita peixe e treina barcos
+  | 'dock'          // Porto: NA água (costa); deposita peixe e treina barcos
+  // Symbiosis-only energy grid and automation:
+  | 'solar_array'
+  | 'wind_turbine'
+  | 'robotics_workshop';
 export type NodeType = 'tree' | 'berry_bush' | 'gold_mine' | 'stone_mine' | 'fish';
 
 export type Resources = Record<ResourceType, number>;
@@ -83,6 +92,8 @@ export interface BuildingSnap {
   /** Quantas unidades estão GUARNECIDAS dentro (torre/Centro) — o cliente mostra
    *  a contagem e desenha flechas extras. */
   garrison?: number;
+  /** Symbiosis: ledger transaction hash attesting this facility's completion. */
+  proof?: string;
 }
 
 export interface NodeSnap {
@@ -124,6 +135,64 @@ export interface PlayerSnap {
   elon?: number;
   /** Recent explainable server-authoritative contribution events. */
   elonEvents?: ElonEvent[];
+  /** Symbiosis power grid: generation capacity vs. automated-builder draw. */
+  power?: PowerSnap;
+  /** Live stewardship score (Symbiosis). */
+  score?: { stewardship: number; reliabilityPpm: number; bonus: number; score: number };
+}
+
+/** WATT-style stewardship result for one player. */
+export interface Standing {
+  rank: number;
+  playerId: number;
+  name: string;
+  /** ELON contribution standing (earned by serving needs, labor, ages). */
+  standing: number;
+  facilities: number;
+  /** Completed, still-standing facilities, counted once. */
+  stewardship: number;
+  /** Share of declared need served, in parts per million. */
+  reliabilityPpm: number;
+  declaredNeed: number;
+  servedNeed: number;
+  bonus: number;
+  score: number;
+}
+
+export interface PowerSnap {
+  supply: number;
+  draw: number;
+}
+
+export type ChainTxKind = 'facility' | 'labor' | 'obligation' | 'energy' | 'need' | 'genesis';
+
+export interface ChainTx {
+  hash: string;
+  tick: number;
+  kind: ChainTxKind;
+  playerId: number;
+  label: string;
+  amount: number;
+  block?: number;
+}
+
+export interface ChainBlock {
+  height: number;
+  tick: number;
+  hash: string;
+  prevHash: string;
+  txRoot: string;
+  txCount: number;
+}
+
+/** Public match ledger summary: a deterministic hash chain sealed by the
+ *  authoritative server. Its head is committed on-chain when the match ends. */
+export interface ChainSnap {
+  height: number;
+  head: string;
+  pending: number;
+  blocks: ChainBlock[];
+  txs: ChainTx[];
 }
 
 export interface ElonEvent {
