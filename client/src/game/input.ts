@@ -1,5 +1,5 @@
 // Entrada do jogo: câmera (WASD/setas + arrasto do terreno/botão do meio +
-// rolagem pela borda; zoom é FIXO, sem roda), seleção (clique/arrasto com
+// rolagem pela borda; zoom tático pela roda), seleção (clique/arrasto com
 // caixa a partir de uma unidade, Shift/Ctrl), comandos (botão direito) e
 // posicionamento de prédios.
 
@@ -73,13 +73,20 @@ export class GameInput {
     const c = this.canvas;
     c.addEventListener('contextmenu', (e) => e.preventDefault());
     c.addEventListener('mousedown', this.onMouseDown);
+    c.addEventListener('wheel', this.onWheel, { passive: false });
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     // Sem handler de mouseleave DE PROPÓSITO ("latch", pedido do dono): se o
     // cursor sai da janela empurrando uma borda, a rolagem CONTINUA naquela
     // direção (última posição conhecida fica na zona). Ela para quando o mouse
     // volta um pouco pra dentro (mousemove atualiza a posição) ou no blur.
-    c.addEventListener('mouseenter', () => {
+    c.addEventListener('mouseenter', (e) => {
+      // The canvas can appear under a still cursor (match start): without the
+      // real position the last known one is (0,0) and edge-scroll drags the
+      // camera to the map corner until the mouse moves.
+      const pos = this.canvasPos(e);
+      this.ui.mouseX = pos.x;
+      this.ui.mouseY = pos.y;
       this.ui.hasMouse = true;
     });
     // duplo clique numa unidade própria: seleciona todas do mesmo tipo na tela (AoE2)
@@ -102,12 +109,25 @@ export class GameInput {
   };
 
   destroy(): void {
+    this.canvas.removeEventListener('wheel', this.onWheel);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
   }
+
+  private onWheel = (e: WheelEvent): void => {
+    if (this.deps.isChatOpen() || this.paused) return;
+    e.preventDefault();
+    const rect = this.canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    // Trackpads send small deltas and mouse wheels usually send ~100. An
+    // exponential scale treats both consistently and avoids uneven steps.
+    const delta = Math.max(-180, Math.min(180, e.deltaY));
+    this.cam.setZoomAt(this.cam.zoom * Math.exp(-delta * 0.0015), sx, sy);
+  };
 
   /** Chamado a cada frame para aplicar o pan por teclado. */
   tick(now: number): void {

@@ -21,6 +21,8 @@ export interface MatchChronicle {
   elonEvents: ElonEvent[];
   /** WATT stewardship table: standing + stewardship + reliability recognition. */
   standings?: Standing[];
+  /** Developer shortcuts were used during this match. */
+  dev?: boolean;
   /** Symbiosis match ledger: every block and transaction, plus its verified head. */
   ledger?: { head: string; height: number; verified: boolean; blocks: ChainBlock[]; txs: ChainTx[] };
 }

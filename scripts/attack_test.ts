@@ -26,6 +26,8 @@ const mkGame = (): any => {
   const g: any = new Game(members as any, () => {}, () => {});
   g.buildings.clear();
   g.units.clear();
+  // Unified modern-city rules: war unlocks only between level-5 Command cities.
+  for (const p of g.players.values()) { p.age = 5; p.cityPath = 'command'; }
   return g;
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -38,6 +38,7 @@ export function proofTone(p: ProofRecord | null): { tone: 'good' | 'warning' | '
     case 'failed': return { tone: 'critical', text: L('Failed', 'Falhou', 'Falló') };
     case 'local': return { tone: 'neutral', text: L('Local only', 'Só local', 'Solo local') };
     case 'disabled': return { tone: 'neutral', text: L('Chain off', 'Blockchain off', 'Blockchain off') };
+    case 'skipped': return { tone: 'warning', text: L('Dev match', 'Partida dev', 'Partida dev') };
     default: return { tone: 'neutral', text: '—' };
   }
 }
@@ -118,6 +119,7 @@ export function renderStewardship(root: HTMLElement, nav: PageNav, matchId?: str
     slot.innerHTML = '';
     if (!chosen?.standings?.length) { slot.append(emptyState(nav)); return; }
     const rows = chosen.standings;
+    if (chosen.dev) slot.append(devNote());
     const winner = rows[0];
     const runner = rows[1];
     const margin = runner ? winner.score - runner.score : winner.score;
@@ -147,6 +149,12 @@ function campaignPicker(list: CampaignSummary[], current: string, pick: (id: str
         a.addEventListener('click', (e) => { e.preventDefault(); pick(c.matchId); });
         return [c.matchId === current ? h('b', '', c.matchId) : a, c.winnerName || '—', c.standings?.[0]?.name ?? '—'];
       })));
+}
+
+export function devNote(): HTMLElement {
+  return h('div', 'waNote', h('span', { 'aria-hidden': 'true' }, '›'), h('div', '', rich(
+    L('Dev match.', 'Partida dev.', 'Partida dev.'),
+    L('Developer commands (/age, /res, /build, /power) were used, so these scores are not comparable with real matches. It was archived locally and not committed on-chain.', 'Comandos de desenvolvedor (/age, /res, /build, /power) foram usados, então estas pontuações não são comparáveis às de partidas reais. Ela foi arquivada localmente e não foi gravada on-chain.', 'Se usaron comandos de desarrollador (/age, /res, /build, /power), así que estas puntuaciones no son comparables con partidas reales. Se archivó localmente y no se registró on-chain.'))));
 }
 
 // ---------------------------------------------------------------- Proof layer
@@ -316,7 +324,7 @@ export function renderCampaigns(root: HTMLElement, nav: PageNav): void {
             open.addEventListener('click', (e) => { e.preventDefault(); nav.go('stewardship', c.matchId); });
             const ledger = c.ledger ? h('a', { class: 'waLink', href: '#' }, `${fmt(c.ledger.height + 1)} ${L('blocks', 'blocos', 'bloques')}`) : null;
             ledger?.addEventListener('click', (e) => { e.preventDefault(); nav.go('ledger', c.matchId); });
-            return [code(c.matchId), new Date(c.savedAt).toLocaleString(), String(c.players), c.winnerName || '—', c.standings?.[0]?.name ?? '—', ledger ?? L('Classic', 'Clássica', 'Clásica'), badge(pt.tone, pt.text), c.standings?.length ? open : ''];
+            return [h('span', '', code(c.matchId), c.dev ? h('span', '', ' ', badge('warning', L('Dev', 'Dev', 'Dev'))) : ''), new Date(c.savedAt).toLocaleString(), String(c.players), c.winnerName || '—', c.standings?.[0]?.name ?? '—', ledger ?? L('Classic', 'Clássica', 'Clásica'), badge(pt.tone, pt.text), c.standings?.length ? open : ''];
           })))),
     );
   })();

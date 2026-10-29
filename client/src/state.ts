@@ -15,6 +15,7 @@ import type {
   SheepSnap,
   UnitSnap,
   UnitType,
+  RaidSnap,
 } from '@age/shared';
 import {
   BUILDING_DEFS,
@@ -48,6 +49,7 @@ export interface SnapshotData {
   spectators?: number;
   /** Symbiosis public match ledger. */
   chain?: ChainSnap;
+  raid?: RaidSnap;
 }
 
 export type PickResult =
@@ -58,7 +60,7 @@ export type PickResult =
 
 /** Raio visual/de clique de uma unidade, em tiles. */
 export function unitRadius(type: UnitType): number {
-  if (type === 'villager') return 0.28;
+  if (type === 'villager' || type === 'designer') return 0.28;
   if (type === 'knight') return 0.44;
   return 0.35;
 }
@@ -81,6 +83,10 @@ export const B_H: Partial<Record<BuildingType, number>> = {
   stable: 1.1, blacksmith: 0.8, mill: 0.8, lumber_camp: 0.8,
   mining_camp: 0.8, dock: 0.9, solar_array: 0.6, wind_turbine: 4.2,
   robotics_workshop: 2.2,
+  design_studio: 1.6,
+  data_center: 1.6, elon_vault: 1.6, army_camp: 1.8,
+  drone_factory: 2.0, aerospace_hangar: 2.0, missile_foundry: 2.0,
+  mech_forge: 2.0, exosuit_lab: 2.2,
 };
 
 /** Margem MORTA na borda do prédio, em tiles (a caixa de clique encolhe por
@@ -102,6 +108,7 @@ export class GameState {
   sheep = new Map<number, SheepSnap>();
   playerSnaps = new Map<number, PlayerSnap>();
   chain: ChainSnap | null = null;
+  raid: RaidSnap | null = null;
   /** Preços do mercado (ouro por lote de 100), atualizados por snapshot. */
   marketPrices: MarketPrices = { food: 100, wood: 100, stone: 100 };
   /** Quantos estão assistindo esta partida (0 se ninguém). Só chega pra quem
@@ -208,6 +215,7 @@ export class GameState {
     if (snap.market) this.marketPrices = snap.market;
     this.spectatorCount = snap.spectators ?? 0;
     this.chain = snap.chain ?? null;
+    this.raid = snap.raid ?? null;
 
     // --- deltas de combate (dano/morte) comparando com o snapshot anterior ---
     const now = this.snapTime;

@@ -30,7 +30,7 @@ assert.equal(player.elon, 6, 'age reached posts five obligation points');
 
 for (const u of game.units.values()) if (u.owner === 1) { u.state = 'idle'; u.path = []; }
 const before = player.elon;
-while (internal.tick % 50 !== 49) internal.step();
+while (internal.tick < 300 || internal.tick % 50 !== 49) internal.step();
 for (const u of game.units.values()) if (u.owner === 1) u.state = 'idle';
 internal.step();
 const s1 = game.standings()[0];

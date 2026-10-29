@@ -8,7 +8,7 @@
 export type ResourceType = 'food' | 'wood' | 'gold' | 'stone';
 export type CityPath = 'command' | 'space';
 export type UnitType =
-  | 'villager' | 'swordsman' | 'archer' | 'knight'
+  | 'villager' | 'designer' | 'swordsman' | 'archer' | 'knight'
   // Navais (andam SÓ na água; treinadas no Porto):
   | 'fishing_boat' // pesca bancos de peixe e entrega no Porto
   | 'war_galley'   // barco de guerra (ataque à distância)
@@ -17,7 +17,8 @@ export type UnitType =
   | 'robot'        // ground builder: fast construction, cannot gather
   | 'drone'        // flying builder: crosses water and terrain
   // Symbiosis aerial/strategic attack wing:
-  | 'attack_drone' | 'fighter' | 'rocket_launcher';
+  | 'attack_drone' | 'fighter' | 'rocket_launcher'
+  | 'siege_mech' | 'stealth_bomber' | 'plasma_tank' | 'iron_guardian';
 export type BuildingType =
   | 'town_center'
   | 'house'
@@ -36,7 +37,16 @@ export type BuildingType =
   // Symbiosis-only energy grid and automation:
   | 'solar_array'
   | 'wind_turbine'
-  | 'robotics_workshop';
+  | 'robotics_workshop'
+  | 'design_studio'
+  | 'data_center'
+  | 'elon_vault'
+  | 'army_camp'
+  | 'drone_factory'
+  | 'aerospace_hangar'
+  | 'missile_foundry'
+  | 'mech_forge'
+  | 'exosuit_lab';
 export type NodeType = 'tree' | 'berry_bush' | 'gold_mine' | 'stone_mine' | 'fish';
 
 export type Resources = Record<ResourceType, number>;
@@ -138,12 +148,55 @@ export interface PlayerSnap {
   techs?: string[];
   /** Optional non-transferable contribution standing (Symbiosis presentation). */
   elon?: number;
+  /** Spendable manufacturing currency, distinct from lifetime contribution standing. */
+  elonBalance?: number;
+  elonCapacity?: number;
+  elonPerMinute?: number;
+  armyUsed?: number;
+  armyCapacity?: number;
   /** Recent explainable server-authoritative contribution events. */
   elonEvents?: ElonEvent[];
   /** Symbiosis power grid: generation capacity vs. automated-builder draw. */
   power?: PowerSnap;
   /** Live stewardship score (Symbiosis). */
   score?: { stewardship: number; reliabilityPpm: number; bonus: number; score: number };
+}
+
+export type RaidPhase = 'idle' | 'scouting' | 'deploying' | 'battle' | 'result' | 'replay';
+
+export interface RaidArmy {
+  attack_drone: number;
+  fighter: number;
+  rocket_launcher: number;
+  siege_mech: number;
+  stealth_bomber: number;
+  plasma_tank: number;
+  iron_guardian: number;
+}
+
+export interface RaidEvent {
+  at: number;
+  kind: 'start' | 'deploy' | 'destroy' | 'star' | 'finish';
+  label: string;
+  x?: number;
+  y?: number;
+}
+
+/** Server-authoritative Clash-style assault state, visible only to its attacker. */
+export interface RaidSnap {
+  id: number;
+  phase: RaidPhase;
+  attacker: number;
+  defender: number;
+  army: RaidArmy;
+  remaining: RaidArmy;
+  deployed: number;
+  duration: number;
+  secondsLeft: number;
+  destruction: number;
+  stars: number;
+  loot: Resources;
+  events: RaidEvent[];
 }
 
 /** WATT-style stewardship result for one player. */

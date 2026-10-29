@@ -1424,3 +1424,62 @@ body.in-game .appGuideLink { display: none; }
 /* in-game Symbiosis HUD: same green/gold language, display type for numbers */
 .elon-panel strong, .chain-height, .sel-title { font-family: var(--w-display); }
 .elon-panel .elon-score { color: var(--w-mint); font: 600 12px var(--w-mono); margin-left: 6px; }
+
+/* Level-5 Clash-style assault controller. */
+.raid-panel { position: absolute; top: 88px; right: 18px; width: 288px; padding: 16px; z-index: 18; color: #e8f7ff; background: linear-gradient(145deg, rgba(5,18,31,.96), rgba(9,37,48,.92)); border: 1px solid rgba(85,220,255,.32); border-radius: 14px; box-shadow: 0 18px 60px rgba(0,0,0,.45); backdrop-filter: blur(16px); }
+.raid-panel h3 { margin: 4px 0 10px; font: 700 17px/1.2 system-ui; }
+.raid-kicker { color: #65e7ff; font: 700 10px/1 system-ui; letter-spacing: .18em; }
+.raid-muted,.raid-loot { color: #9cb6c3; font: 12px/1.45 system-ui; }
+.raid-target,.raid-unit,.raid-primary,.raid-army-row button { color: inherit; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 8px; cursor: pointer; }
+.raid-target,.raid-unit,.raid-primary { width: 100%; margin-top: 7px; padding: 9px 10px; text-align: left; }
+.raid-primary { color: #02151d; background: #62e5ff; border-color: #8beeff; text-align: center; font-weight: 800; }
+.raid-unit.active { border-color: #62e5ff; box-shadow: inset 0 0 0 1px #62e5ff; }
+.raid-unit:disabled { opacity: .35; cursor: default; }
+.raid-army-row { display: grid; grid-template-columns: 1fr 30px 24px 30px; align-items: center; gap: 5px; margin: 7px 0; font-size: 12px; }
+.raid-army-row button { height: 26px; }
+.raid-score { margin: 10px 0; color: #ffd76a; font: 800 18px/1 system-ui; }
+.raid-result-stars { margin-top: 12px; color: #ffd76a; font-size: 30px; letter-spacing: 4px; text-align: center; }
+.raid-result-destruction { margin: 6px 0 12px; font: 800 24px/1 system-ui; text-align: center; }
+.raid-timeline { max-height: 180px; overflow: auto; padding-left: 25px; color: #b8d1db; font: 11px/1.55 ui-monospace, monospace; }
+.build-group-title { grid-column: 1 / -1; margin: 5px 2px 1px; color: #76d9c0; font: 700 9px/1 var(--w-mono); letter-spacing: .16em; }
+.build-tabs { display: flex; gap: 4px; margin: 0 0 8px; }
+.build-tab { flex: 1; padding: 5px 0; border: 1px solid var(--w-line); border-radius: 2px; background: #0b1714; color: #8da398; font: 700 9px/1 var(--w-mono); letter-spacing: .12em; cursor: pointer; }
+.build-tab:hover { color: var(--w-text); border-color: var(--w-cyan); }
+.build-tab.on { background: #d8b86a; border-color: #d8b86a; color: #10150f; }
+.build-tab.empty:not(.on) { opacity: .4; }
+.elon-resource b { color: #75efc7; }
+.army-resource b { color: #ffd76a; }
+
+/* Primary CoC-style actions: the player always knows where to build, produce,
+   inspect the army, or attack without first learning RTS selection rules. */
+.quick-dock { position: absolute; z-index: 19; left: 50%; bottom: 196px; transform: translateX(-50%); display: flex; gap: 7px; padding: 7px; border: 1px solid rgba(118,217,192,.28); border-radius: 16px; background: rgba(5,16,14,.9); box-shadow: 0 14px 44px rgba(0,0,0,.38); backdrop-filter: blur(16px); }
+.quick-action { min-width: 74px; height: 55px; padding: 5px 10px; display: grid; place-items: center; gap: 1px; color: #c7d7d0; border: 1px solid transparent; border-radius: 11px; background: transparent; cursor: pointer; transition: transform .12s ease, color .12s ease, background .12s ease; }
+.quick-action:hover { color: #fff; background: rgba(255,255,255,.08); transform: translateY(-2px); }
+.quick-action.accent { color: #071713; background: linear-gradient(150deg, #83efd1, #d5bf70); font-weight: 800; }
+/* Next-level tracker (top-left, under the Impact chip in Symbiosis). */
+.goal-panel { position: absolute; z-index: 17; top: 52px; left: 12px; width: 268px; padding: 9px 12px 10px; display: flex; flex-direction: column; gap: 5px; text-align: left; color: var(--w-text); font: 12px/1.35 var(--w-font); background: rgba(9, 21, 18, 0.94); border: 1px solid var(--w-line); border-left: 2px solid #d8b86a; border-radius: 2px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); cursor: pointer; }
+.goal-panel.below-impact { top: 92px; }
+.goal-panel:hover { border-color: var(--w-cyan); }
+.goal-panel.ready { border-color: #d8b86a; box-shadow: 0 0 0 1px #d8b86a, 0 0 22px rgba(216, 184, 106, 0.35); }
+.goal-eyebrow { color: #d8b86a; font: 700 9.5px/1 var(--w-mono); letter-spacing: .16em; text-transform: uppercase; }
+.goal-line { display: flex; gap: 7px; align-items: flex-start; color: #c7d7d0; }
+.goal-line small { display: block; color: var(--w-muted); font-size: 10.5px; }
+.goal-line.done { color: var(--w-muted); text-decoration: line-through; text-decoration-color: rgba(117, 239, 199, .5); }
+.goal-check { flex: none; width: 12px; color: #d8b86a; font-weight: 700; }
+.goal-line.done .goal-check { color: var(--w-mint); }
+.goal-cta { margin-top: 2px; color: #d8b86a; font-weight: 600; }
+.goal-bar { height: 5px; background: #081310; border: 1px solid var(--w-line); border-radius: 2px; overflow: hidden; }
+.goal-fill { height: 100%; background: linear-gradient(90deg, var(--w-cyan), #d8b86a); }
+.screen.spectating .goal-panel { display: none; }
+.quick-action.locked { position: relative; opacity: .55; }
+.quick-action.locked::after { content: 'LV5'; position: absolute; top: 3px; right: 4px; padding: 1px 3px; border-radius: 3px; background: #2a3b36; color: #d8b86a; font: 700 7px/1 var(--w-mono); }
+.quick-icon { font: 700 21px/1 var(--w-display); }
+.quick-label { font: 700 9px/1 var(--w-mono); letter-spacing: .09em; text-transform: uppercase; }
+
+@media (max-width: 900px) {
+  .quick-dock { bottom: 174px; gap: 3px; padding: 5px; }
+  .quick-action { min-width: 55px; height: 48px; padding: 4px 6px; }
+  .quick-label { font-size: 7.5px; }
+  .raid-panel { top: 72px; right: 8px; width: min(288px, calc(100vw - 16px)); }
+  .sym-rail { display: none; }
+}

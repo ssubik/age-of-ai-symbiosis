@@ -47,6 +47,7 @@ interface CampaignSummary {
   standings: MatchChronicle['standings'];
   ledger: { head: string; height: number; verified: boolean; txs: number } | null;
   proof: Record<string, unknown> | null;
+  dev: boolean;
 }
 
 async function campaigns(): Promise<CampaignSummary[]> {
@@ -71,6 +72,7 @@ async function campaigns(): Promise<CampaignSummary[]> {
       standings: c.standings,
       ledger: c.ledger ? { head: c.ledger.head, height: c.ledger.height, verified: c.ledger.verified, txs: c.ledger.txs.length } : null,
       proof: await readJson<Record<string, unknown>>(path.join(dir, `${safeMatchId(c.matchId)}.proof.json`)),
+      dev: c.dev === true,
     } satisfies CampaignSummary;
   }));
   return rows.filter((r): r is CampaignSummary => r !== null)

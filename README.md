@@ -100,6 +100,16 @@ BLOCKCHAIN_ENABLED=true npm run dev:server
 
 Without `BLOCKCHAIN_ENABLED=true` the ledger still runs and is archived to `archives/`, but nothing is sent to a chain. The deploy script refuses any chain other than Anvil (31337) because it uses the node's unlocked dev account. No wallet, token, or IPFS provider is involved.
 
+## Developer commands (testing only)
+
+To skip the long climb while testing, allow your own browser to use chat commands on **your local server**:
+
+1. In any match, type `/whoami` in chat — only you see the reply with your browser ID.
+2. Restart the server with that ID: `DEV_PLAYERS=<your id> npm run dev:server` (comma-separate several IDs).
+3. In a match, type `/perfectbase` for an instant level-5 showcase city with every factory, full resources/ELON, designers, robots and a complete strike force. Smaller tools remain available: `/age`, `/res 5000`, `/build`, and `/power 50`.
+
+Replies are private and other players never see the commands; browsers not in `DEV_PLAYERS` just send them as chat. A match where any command was used is labeled **Dev match** in Campaigns, Stewardship and the result screen, and is archived locally but never committed on-chain. Never set `DEV_PLAYERS` on a public server.
+
 ## Architecture
 
 ```

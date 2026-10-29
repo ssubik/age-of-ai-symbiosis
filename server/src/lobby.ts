@@ -39,7 +39,7 @@ interface Room {
   inGame: boolean;
   game: Game | null;
   mode: GameMode; // 'normal' | 'batalha' (escolhido pelo host)
-  experience: ExperienceMode; // presentation only; classic is compatibility default
+  experience: ExperienceMode; // fixed to the single modern-city experience
   fog: boolean; // névoa de guerra (mapa fechado); default false = mapa aberto
   terrain: TerrainKind; // 'classic' (lagos) | 'river' (rio + vaus + peixes)
   /** Transmitir a partida: deixa gente de fora ASSISTIR. Nasce LIGADO — o host
@@ -127,6 +127,10 @@ const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 60_000;
 /** Sala fora de jogo sem NENHUMA ação por este tempo é fechada (sala fantasma:
  *  criou, foi embora e deixou os outros esperando). Ajustável via env p/ testes. */
 const ROOM_IDLE_MS = Number(process.env.ROOM_IDLE_MS) || 5 * 60_000;
+/** Browser client IDs allowed to use developer chat commands (/age, /res,
+ *  /build, /power). Empty by default: never set this on a public server. */
+const DEV_PLAYERS = new Set((process.env.DEV_PLAYERS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+if (DEV_PLAYERS.size > 0) console.log(`[dev] developer commands enabled for ${DEV_PLAYERS.size} browser(s)`);
 
 export class Lobby {
   private conns = new Map<number, Connection>();
@@ -361,12 +365,12 @@ export class Lobby {
     this.broadcastRoomState(room.id);
   }
 
-  private setExperience(conn: Connection, experience: ExperienceMode): void {
+  private setExperience(conn: Connection, _experience: ExperienceMode): void {
     if (!conn.roomId) return;
     const room = this.rooms.get(conn.roomId);
     if (!room || room.inGame || room.hostId !== conn.id) return;
-    if (experience !== 'classic' && experience !== 'symbiosis') return;
-    room.experience = experience;
+    // Compatibility path for older clients: the product now has one identity.
+    room.experience = 'symbiosis';
     this.touch(room);
     this.broadcastRoomState(room.id);
   }
@@ -392,7 +396,7 @@ export class Lobby {
       inGame: false,
       game: null,
       mode: 'normal',
-      experience: 'classic',
+      experience: 'symbiosis',
       fog: false, // mapa começa ABERTO (o host fecha se quiser névoa)
       terrain: 'river', // Nepal-inspired valley: a river landscape is the default
       broadcast: true, // nasce transmitindo; o host desmarca pra jogar fechado
@@ -676,8 +680,9 @@ export class Lobby {
     if (!conn.roomId) return;
     const room = this.rooms.get(conn.roomId);
     if (!room || room.inGame || room.hostId !== conn.id) return;
-    if (terrain !== 'classic' && terrain !== 'river' && terrain !== 'strait') return;
-    room.terrain = terrain;
+    // Older clients may still send this message; there is now one Nepal valley.
+    void terrain;
+    room.terrain = 'river';
     this.touch(room);
     this.broadcastRoomState(room.id);
   }
@@ -841,6 +846,7 @@ export class Lobby {
           players: summary.players,
           elonEvents: summary.elonEvents,
           standings: summary.standings,
+          ...(summary.dev ? { dev: true } : {}),
           activity: {
             buildingsConstructed: summary.facilities,
             unitsTrained: summary.elonEvents.filter((event) => event.reason.startsWith('trained:')),
@@ -851,7 +857,11 @@ export class Lobby {
           ...(ledger ? { ledger } : {}),
         }).then(async (archive) => {
           const anchor = ledger ? { head: ledger.head, height: ledger.height } : undefined;
-          const proof = await safelySubmitProof(proofAdapterFromEnv(), matchId, archive.hash, archive.jsonPath, anchor);
+          // A match where developer shortcuts were used is archived locally
+          // but never committed on-chain as if it were a real record.
+          const proof = summary.dev
+            ? { matchId, archiveHash: archive.hash, archivePath: archive.jsonPath, status: 'skipped' as const, ledgerHead: anchor?.head, ledgerHeight: anchor?.height, error: 'developer commands were used' }
+            : await safelySubmitProof(proofAdapterFromEnv(), matchId, archive.hash, archive.jsonPath, anchor);
           console.log(`[archive] ${matchId} ${archive.hash} proof=${proof.status}${proof.transactionHash ? ` tx=${proof.transactionHash}` : ''}`);
           const { archivePath: _local, ...publicProof } = proof;
           await writeProof(matchId, { ...publicProof, standings: summary.standings });
@@ -883,6 +893,7 @@ export class Lobby {
   private chat(conn: Connection, text: string): void {
     const trimmed = text.trim().slice(0, 200);
     if (trimmed.length === 0) return;
+    if (trimmed.startsWith('/') && this.slashCommand(conn, trimmed)) return;
     const msg: ServerMessage = { type: 'chat', from: conn.name, text: trimmed };
     if (conn.roomId) {
       const room = this.rooms.get(conn.roomId);
@@ -894,6 +905,21 @@ export class Lobby {
         if (c.roomId === null) c.send(msg);
       }
     }
+  }
+
+  /** Private slash commands. Returns true when handled (never broadcast).
+   *  /whoami is open to everyone (it only reveals your own browser ID); the
+   *  rest only for browsers listed in DEV_PLAYERS. Anything else is chat. */
+  private slashCommand(conn: Connection, text: string): boolean {
+    const reply = (msg: string): void => conn.send({ type: 'chat', from: 'DEV', text: msg });
+    if (/^\/whoami\b/i.test(text)) {
+      reply(conn.clientId ? `Your browser ID: ${conn.clientId}` : 'This browser sent no ID.');
+      return true;
+    }
+    if (!conn.clientId || !DEV_PLAYERS.has(conn.clientId)) return false;
+    const room = conn.roomId ? this.rooms.get(conn.roomId) : undefined;
+    reply(room?.inGame && room.game ? room.game.devCommand(conn.id, text) : 'Dev commands work during a match.');
+    return true;
   }
 
   // ---------------- Comandos de jogo ----------------

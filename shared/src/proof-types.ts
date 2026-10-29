@@ -1,4 +1,4 @@
-export type ProofStatus = 'disabled' | 'local' | 'simulated' | 'submitted' | 'confirmed' | 'failed';
+export type ProofStatus = 'disabled' | 'local' | 'simulated' | 'submitted' | 'confirmed' | 'failed' | 'skipped';
 
 export interface MatchCommitment {
   matchId: string;

@@ -75,6 +75,20 @@ interface BSite {
   now: number;
 }
 
+/** Palette and massing for the procedural modern facilities (drawFacility). */
+interface FacilityLook { wall: string; roof: string; glass: string; h: number; bands: number }
+const FACILITY_LOOKS: Partial<Record<BuildingType, FacilityLook>> = {
+  data_center: { wall: '#d5dde1', roof: '#8a979d', glass: '#1d3a4a', h: 0.85, bands: 2 },
+  elon_vault: { wall: '#cbbf9c', roof: '#7f735a', glass: '#3a3222', h: 0.7, bands: 1 },
+  army_camp: { wall: '#7d7466', roof: '#a39a7d', glass: '#4a4337', h: 0.28, bands: 0 },
+  design_studio: { wall: '#eef2f4', roof: '#9aa7ae', glass: '#4fb3c9', h: 1.0, bands: 2 },
+  drone_factory: { wall: '#9aa7ae', roof: '#4a5860', glass: '#22333b', h: 0.9, bands: 1 },
+  aerospace_hangar: { wall: '#9aa7ae', roof: '#90a4ae', glass: '#22333b', h: 0.7, bands: 0 },
+  missile_foundry: { wall: '#8d8a84', roof: '#5f5c57', glass: '#3b2a24', h: 0.85, bands: 1 },
+  mech_forge: { wall: '#6d5f55', roof: '#4a3f38', glass: '#ff8a50', h: 1.0, bands: 1 },
+  exosuit_lab: { wall: '#e3e9ec', roof: '#a7b4ba', glass: '#2a8fa3', h: 0.9, bands: 2 },
+};
+
 /** Hash determinístico 0..1 por coordenada de tile. */
 function hash01(x: number, y: number): number {
   let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
@@ -405,15 +419,39 @@ export class Renderer {
       const ry = Math.min(box.y0, box.y1);
       const rw = Math.abs(box.x1 - box.x0);
       const rh = Math.abs(box.y1 - box.y0);
-      ctx.fillStyle = 'rgba(150,210,255,0.12)';
+      ctx.fillStyle = 'rgba(91,229,215,0.11)';
       ctx.fillRect(rx, ry, rw, rh);
-      ctx.strokeStyle = 'rgba(190,230,255,0.9)';
+      ctx.strokeStyle = 'rgba(152,255,238,0.92)';
       ctx.lineWidth = 1;
       ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
     }
 
     // --- vida ambiente por cima de tudo (pássaros, borboletas, gaivotas) ---
     this.ambient.drawSky(ctx, cam, now);
+
+    // Screen-space optical frame only: no entity, fog or hit target changes.
+    this.drawAtmosphereFrame(ctx, cam);
+  }
+
+  private drawAtmosphereFrame(ctx: CanvasRenderingContext2D, cam: Camera): void {
+    ctx.save();
+    const vignette = ctx.createRadialGradient(
+      cam.viewW * 0.5, cam.viewH * 0.46, Math.min(cam.viewW, cam.viewH) * 0.22,
+      cam.viewW * 0.5, cam.viewH * 0.48, Math.max(cam.viewW, cam.viewH) * 0.72,
+    );
+    vignette.addColorStop(0, 'rgba(2, 10, 12, 0)');
+    vignette.addColorStop(0.72, 'rgba(2, 10, 12, 0.035)');
+    vignette.addColorStop(1, 'rgba(1, 7, 10, 0.34)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, cam.viewW, cam.viewH);
+
+    const horizon = ctx.createLinearGradient(0, 0, 0, cam.viewH);
+    horizon.addColorStop(0, 'rgba(75, 215, 205, 0.035)');
+    horizon.addColorStop(0.48, 'rgba(75, 215, 205, 0)');
+    horizon.addColorStop(1, 'rgba(232, 177, 91, 0.025)');
+    ctx.fillStyle = horizon;
+    ctx.fillRect(0, 0, cam.viewW, cam.viewH);
+    ctx.restore();
   }
 
   // ---------- detalhes do chão (terra, grama ralinha, pedras, tronco caído) ----------
@@ -2203,6 +2241,15 @@ export class Renderer {
         case 'solar_array': topY = this.drawSolarArray(ctx, site); break;
         case 'wind_turbine': topY = this.drawWindTurbine(ctx, site); break;
         case 'robotics_workshop': topY = this.drawWorkshopFrame(ctx, site); break;
+        case 'design_studio':
+        case 'data_center':
+        case 'elon_vault':
+        case 'army_camp':
+        case 'drone_factory':
+        case 'aerospace_hangar':
+        case 'missile_foundry':
+        case 'mech_forge':
+        case 'exosuit_lab': topY = under ? this.drawWorkshopFrame(ctx, site) : this.drawFacility(ctx, site); break;
         default: topY = this.drawHouse(ctx, site); break;
       }
     }
@@ -2410,6 +2457,189 @@ export class Renderer {
     this.poly(ctx, [T2, R2, B2, L2], '#5d6b73', '#2d3a41');
     this.block(ctx, (T2.x + B2.x) / 2, (T2.y + B2.y) / 2 - hh * 0.25, hh * 0.9, hh * 0.35, owner);
     return T2.y - hh * 0.6;
+  }
+
+  /** Finished modern facilities without sprite art: a shaded block with glass
+   *  bands, a team stripe, and one rooftop silhouette per type so each reads
+   *  at a glance (servers, vault dome, tents, helipad, hangar arch, silos,
+   *  smokestacks, lab dome). */
+  private drawFacility(ctx: CanvasRenderingContext2D, st: BSite): number {
+    const { T, R, B, L, th, hh, s, owner, b, now } = st;
+    const look = FACILITY_LOOKS[b.type] ?? FACILITY_LOOKS.data_center!;
+    const H = th * look.h;
+    const up = (p: Pt, z: number): Pt => ({ x: p.x, y: p.y - z });
+    const lerp = (a: Pt, c: Pt, f: number): Pt => ({ x: a.x + (c.x - a.x) * f, y: a.y + (c.y - a.y) * f });
+    const band = (p0: Pt, p1: Pt, z0: number, z1: number, fill: string, inset = 0.08): void => {
+      const a = lerp(p0, p1, inset), c = lerp(p0, p1, 1 - inset);
+      this.poly(ctx, [up(a, z0), up(c, z0), up(c, z1), up(a, z1)], fill);
+    };
+
+    const { T2, R2, B2, L2 } = this.walls(ctx, T, R, B, L, H, look.wall);
+    for (let i = 0; i < look.bands; i++) {
+      const z0 = H * (0.2 + (i * 0.7) / look.bands);
+      const z1 = z0 + (H * 0.7) / look.bands * 0.55;
+      band(L, B, z0, z1, shadeHex(look.glass, -0.25));
+      band(B, R, z0, z1, look.glass);
+    }
+    // team stripe at the base of both front faces
+    band(L, B, 0, hh * 0.16, owner, 0);
+    band(B, R, 0, hh * 0.16, owner, 0);
+    this.poly(ctx, [T2, R2, B2, L2], look.roof, shadeHex(look.roof, -0.35));
+    const c: Pt = { x: (T2.x + B2.x) / 2, y: (T2.y + B2.y) / 2 };
+    const U = hh * s * 0.5; // half the roof's depth on screen
+    const pulse = (Math.sin(now * 0.004 + b.id) + 1) / 2;
+    let top = T2.y;
+
+    switch (b.type) {
+      case 'data_center': {
+        // cooling units with spinning fans; blinking rack LEDs on the right face
+        for (const [ox, oy] of [[-0.9, 0], [0, -0.45], [0.9, 0], [0, 0.45]]) {
+          const x = c.x + ox * U * 0.9, y = c.y + oy * U * 0.9;
+          this.block(ctx, x, y - hh * 0.2, U * 0.55, hh * 0.4, '#cfd8dc', '#7d8a8f');
+          this.blob(ctx, x, y - hh * 0.42, U * 0.18, U * 0.09, '#37474f');
+        }
+        for (let i = 0; i < 6; i++) {
+          const on = Math.sin(now * 0.01 + i * 1.9 + b.id) > 0;
+          const p = up(lerp(B, R, 0.15 + i * 0.13), H * 0.45);
+          this.blob(ctx, p.x, p.y, hh * 0.07, hh * 0.07, on ? '#5eea9a' : '#1f3b33');
+        }
+        top = c.y - hh * 0.6;
+        break;
+      }
+      case 'elon_vault': {
+        // gold dome with a glowing ELON ring
+        const r = U * 0.95;
+        ctx.fillStyle = '#d8b86a';
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y, r, r * 0.5, 0, Math.PI, 0);
+        ctx.ellipse(c.x, c.y, r, r * 0.95, 0, 0, Math.PI, true);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,240,190,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(c.x - r * 0.3, c.y - r * 0.45, r * 0.25, r * 0.2, -0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(117,239,199,${0.45 + pulse * 0.45})`;
+        ctx.lineWidth = Math.max(1.2, hh * 0.12);
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y - r * 0.2, r * 1.1, r * 0.42, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        top = c.y - r;
+        break;
+      }
+      case 'army_camp': {
+        // three canvas tents on a drill yard + a flag
+        for (const [ox, oy] of [[-0.8, 0.1], [0.15, -0.45], [0.55, 0.45]]) {
+          const x = c.x + ox * U, y = c.y + oy * U * 0.6;
+          const w = U * 0.42, h2 = hh * 0.9;
+          this.poly(ctx, [{ x: x - w, y }, { x, y: y - h2 }, { x, y: y + hh * 0.18 }], '#6f7d5c');
+          this.poly(ctx, [{ x, y: y + hh * 0.18 }, { x, y: y - h2 }, { x: x + w, y }], '#8a9a72');
+        }
+        const fx = c.x + U * 0.95, fy = c.y - hh * 0.1;
+        ctx.strokeStyle = '#cfd8dc';
+        ctx.lineWidth = Math.max(1, hh * 0.08);
+        ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - th * 1.3); ctx.stroke();
+        const wave = Math.sin(now * 0.006 + b.id) * hh * 0.1;
+        this.poly(ctx, [{ x: fx, y: fy - th * 1.3 }, { x: fx + hh * 0.8, y: fy - th * 1.15 + wave }, { x: fx, y: fy - th * 1.0 }], owner);
+        top = fy - th * 1.3;
+        break;
+      }
+      case 'design_studio': {
+        // sawtooth skylights
+        for (let i = 0; i < 3; i++) {
+          const a = lerp(L2, T2, 0.15 + i * 0.28), d = lerp(B2, R2, 0.15 + i * 0.28);
+          this.poly(ctx, [a, d, up(d, hh * 0.55), up(a, hh * 0.55)], i % 2 ? '#9fe3f0' : '#b8ecf5', '#5d7f88');
+        }
+        top = T2.y - hh * 0.6;
+        break;
+      }
+      case 'drone_factory': {
+        // helipad with a hovering attack drone
+        ctx.strokeStyle = '#f2c94c';
+        ctx.lineWidth = Math.max(1, hh * 0.1);
+        ctx.beginPath(); ctx.ellipse(c.x, c.y, U * 0.75, U * 0.38, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#f2c94c';
+        ctx.font = `700 ${Math.max(7, U * 0.45)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('H', c.x, c.y);
+        const dy = c.y - th * (1 + Math.sin(now * 0.003 + b.id) * 0.12);
+        this.blob(ctx, c.x, c.y, U * 0.25, U * 0.1, 'rgba(0,0,0,0.25)');
+        ctx.strokeStyle = '#3c4a52';
+        ctx.beginPath(); ctx.moveTo(c.x - U * 0.4, dy); ctx.lineTo(c.x + U * 0.4, dy); ctx.stroke();
+        this.block(ctx, c.x, dy, U * 0.35, hh * 0.25, '#eef2f4', '#9aa7ae');
+        this.blob(ctx, c.x + U * 0.12, dy + hh * 0.05, hh * 0.06, hh * 0.06, pulse > 0.5 ? '#ff7a59' : '#4a2a22');
+        top = dy - hh * 0.4;
+        break;
+      }
+      case 'aerospace_hangar': {
+        // barrel-vault roof with ribs, big door on the right face
+        const rise = th * 0.9;
+        const a0 = L2, a1 = B2, b0 = T2, b1 = R2;
+        const arc = (p: Pt, q: Pt, f: number): Pt => ({ x: p.x + (q.x - p.x) * f, y: p.y + (q.y - p.y) * f - Math.sin(f * Math.PI) * rise });
+        ctx.fillStyle = '#b0bec5';
+        ctx.beginPath();
+        for (let i = 0; i <= 12; i++) { const p = arc(a0, a1, i / 12); i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }
+        for (let i = 12; i >= 0; i--) { const p = arc(b0, b1, i / 12); ctx.lineTo(p.x, p.y); }
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#78909c';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 6; i++) {
+          const f = i / 6;
+          const p = arc(a0, a1, f), q = arc(b0, b1, f);
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        }
+        band(B, R, 0, H * 0.85, '#263238', 0.2);
+        top = Math.min(arc(a0, a1, 0.5).y, arc(b0, b1, 0.5).y);
+        break;
+      }
+      case 'missile_foundry': {
+        // three silos with coral warning caps
+        for (const ox of [-0.7, 0, 0.7]) {
+          const x = c.x + ox * U, y = c.y + Math.abs(ox) * hh * 0.2;
+          const r = U * 0.22, h2 = th * 1.1;
+          ctx.fillStyle = '#cfd8dc';
+          ctx.fillRect(x - r, y - h2, r * 2, h2);
+          ctx.fillStyle = 'rgba(0,0,0,0.18)';
+          ctx.fillRect(x, y - h2, r, h2);
+          this.blob(ctx, x, y - h2, r, r * 0.5, '#ff7a59', '#8a3a28');
+          top = Math.min(top, y - h2 - r);
+        }
+        break;
+      }
+      case 'mech_forge': {
+        // two smokestacks with glowing vents and drifting smoke
+        for (const ox of [-0.5, 0.45]) {
+          const x = c.x + ox * U, y = c.y;
+          const w = U * 0.28, h2 = th * 1.6;
+          this.block(ctx, x, y - h2 / 2, w, h2, '#5d4037', '#3e2723');
+          this.block(ctx, x, y - h2 * 0.25, w * 1.02, hh * 0.18, `rgba(255,${120 + pulse * 80},60,0.9)`);
+          for (let i = 0; i < 3; i++) {
+            const k = ((now * 0.0004 + i / 3 + b.id * 0.13) % 1);
+            this.blob(ctx, x + k * U * 0.5, y - h2 - k * th * 1.2, U * (0.12 + k * 0.2), U * (0.1 + k * 0.15), `rgba(160,160,160,${0.45 * (1 - k)})`);
+          }
+          top = Math.min(top, y - h2);
+        }
+        break;
+      }
+      case 'exosuit_lab': {
+        // translucent glass dome with an armour silhouette inside
+        const r = U * 0.9;
+        ctx.fillStyle = 'rgba(103,214,229,0.28)';
+        ctx.strokeStyle = 'rgba(160,240,255,0.8)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y, r, r, 0, Math.PI, 0);
+        ctx.ellipse(c.x, c.y, r, r * 0.5, 0, 0, Math.PI);
+        ctx.fill();
+        ctx.stroke();
+        this.block(ctx, c.x, c.y - r * 0.35, U * 0.22, r * 0.55, '#455a64');
+        this.blob(ctx, c.x, c.y - r * 0.72, U * 0.12, U * 0.12, `rgba(94,234,154,${0.5 + pulse * 0.5})`);
+        top = c.y - r;
+        break;
+      }
+    }
+    return top - hh * 0.3;
   }
 
   /** Builder robot: matte-white chassis, cyan visor, team-colored chest plate.
@@ -2729,7 +2959,7 @@ export class Renderer {
       const sx = px(u.x, u.y);
       const sy = py(u.x, u.y);
       if (!onScreen(sx, sy)) continue;
-      const U = hh * (u.type === 'knight' ? 1.15 : u.type === 'villager' ? 0.82 : 0.95);
+      const U = hh * (u.type === 'knight' ? 1.15 : u.type === 'villager' || u.type === 'designer' ? 0.82 : 0.95);
       const bloodA = 0.5 * (1 - age) * Math.min(1, age * 6);
       ctx.fillStyle = `rgba(120,22,20,${bloodA})`;
       ctx.beginPath();
@@ -2822,7 +3052,7 @@ export class Renderer {
 
     // Ranged units show deterministic in-flight projectiles between snapshots.
     for (const u of this.gs.units.values()) {
-      const tech = u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'rocket_launcher';
+      const tech = ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type);
       if (u.state !== 'attacking' || (u.type !== 'archer' && !tech) || u.targetId == null) continue;
       const tgt = this.gs.units.get(u.targetId) ?? this.gs.buildings.get(u.targetId);
       if (!tgt) continue;
@@ -2940,11 +3170,11 @@ export class Renderer {
   }
 
   private figSymbiosisCombat(ctx: CanvasRenderingContext2D, u: UnitSnap, sx: number, sy: number, U: number, now: number): void {
-    if (u.type !== 'attack_drone' && u.type !== 'fighter' && u.type !== 'rocket_launcher') return;
-    const img = this.combatSprites.get(u.type);
-    const airborne = u.type !== 'rocket_launcher';
+    if (!['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type)) return;
+    const img = this.combatSprites.get(u.type as import('./sprites').SymbiosisCombatSprite);
+    const airborne = u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'stealth_bomber' || u.type === 'iron_guardian';
     const bob = airborne ? Math.sin(now * 0.004 + u.id) * U * 0.12 : 0;
-    const width = U * (u.type === 'fighter' ? 4.4 : u.type === 'attack_drone' ? 3.5 : 3.15);
+    const width = U * (u.type === 'fighter' || u.type === 'stealth_bomber' ? 4.4 : u.type === 'iron_guardian' ? 2.4 : u.type === 'plasma_tank' || u.type === 'siege_mech' ? 3.8 : u.type === 'attack_drone' ? 3.5 : 3.15);
     if (img) {
       const height = width * img.naturalHeight / img.naturalWidth;
       ctx.drawImage(img, sx - width / 2, sy - height + U * (airborne ? 0.35 : 0.15) + bob, width, height);
@@ -2971,13 +3201,13 @@ export class Renderer {
     const skin = '#e2b48a';
     const steel = '#c9ccd2';
     const age = this.ownerAge(u.owner);
-    if (u.type === 'villager') this.figVillager(ctx, sx, sy, U, color, dark, skin, u, now, false, 1, null, age);
+    if (u.type === 'villager' || u.type === 'designer') this.figVillager(ctx, sx, sy, U, u.type === 'designer' ? '#58c9d4' : color, dark, skin, u, now, false, 1, null, age);
     else if (u.type === 'swordsman') this.figSwordsman(ctx, sx, sy, U, color, dark, skin, steel, age);
     else if (u.type === 'archer') this.figArcher(ctx, sx, sy, U, color, dark, skin, age);
     else if (u.type === 'knight') this.figKnight(ctx, sx, sy, U, color, dark, skin, steel, age);
     else if (u.type === 'robot') this.figRobot(ctx, sx, sy, U, color, u, now, false, 1);
     else if (u.type === 'drone') this.figDrone(ctx, sx, sy, U, color, u, now);
-    else if (u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'rocket_launcher') this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
+    else if (['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type)) this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
   }
 
   // ---------- unidades (figuras isométricas) ----------
@@ -3370,7 +3600,7 @@ export class Renderer {
     const sx = px(wx, wy);
     const sy = py(wx, wy);
     const mounted = u.type === 'knight';
-    const U = hh * (mounted ? 1.15 : u.type === 'villager' ? 0.82 : 0.95);
+    const U = hh * (mounted ? 1.15 : u.type === 'villager' || u.type === 'designer' ? 0.82 : 0.95);
     const color = this.gs.colorOf(u.owner);
     const dark = shadeHex(color, -0.45);
     const skin = '#e2b48a';
@@ -3421,10 +3651,10 @@ export class Renderer {
     } else if (u.type === 'drone') {
       this.figDrone(ctx, sx, sy, U, color, u, now);
       this.drawDroneBeam(ctx, px, py, sx, sy, U, u, now);
-    } else if (u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'rocket_launcher') {
+    } else if (['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type)) {
       this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
-    } else if (u.type === 'villager') {
-      this.figVillager(ctx, sx, sy, U, color, dark, skin, u, now, moving, face, tool, age);
+    } else if (u.type === 'villager' || u.type === 'designer') {
+      this.figVillager(ctx, sx, sy, U, u.type === 'designer' ? '#58c9d4' : color, dark, skin, u, now, moving, face, tool, age);
     } else {
       // militares: leve saltito ao andar e avanço ao atacar (corpo inteiro)
       let fx = sx;

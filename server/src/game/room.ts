@@ -58,6 +58,7 @@ import {
   isBuilderUnit,
   isFlyingUnit,
   powerEfficiency,
+  ELON_UNIT_COST,
 } from '@age/shared';
 import type {
   BotDifficulty,
@@ -82,6 +83,9 @@ import type {
   TerrainKind,
   UnitSnap,
   UnitType,
+  RaidArmy,
+  RaidEvent,
+  RaidSnap,
 } from '@age/shared';
 import { DIFFICULTY, runBotAI } from './ai';
 import { generateMap } from './mapgen';
@@ -90,9 +94,21 @@ import { MatchLedger } from '../chain/ledger';
 import { needElon, rankStandings, reliabilityBonus, reliabilityPpm, stewardshipValue, type NeedSample } from './stewardship';
 import { createUnit, type Building, type GamePlayer, type ResNode, type Sheep, type Unit } from './state';
 
+/** First 30 s of a match: need cycles are not sampled (see sampleNeeds). */
+const NEED_GRACE_TICKS = 300;
+
 interface QueuedCmd {
   playerId: number;
   cmd: GameCommand;
+}
+
+interface ActiveRaid extends RaidSnap {
+  startedTick?: number;
+  initialBuildings: Set<number>;
+  initialHp: number;
+  raidUnits: Set<number>;
+  awardedStars: Set<number>;
+  recordedDestroyed: Set<number>;
 }
 
 export interface RoomMember {
@@ -128,6 +144,8 @@ export class Game {
   private readonly facilityProofs = new Map<number, string>();
   /** Per-tick grid state for each player (recomputed once per tick). */
   private power = new Map<number, PowerSnap>();
+  /** True once any developer shortcut was used: the record is not comparable. */
+  private dev = false;
   units = new Map<number, Unit>();
   buildings = new Map<number, Building>();
   nodes = new Map<number, ResNode>();
@@ -158,6 +176,8 @@ export class Game {
   private knownCompletedBuildings = new Set<number>();
   private knownUnits = new Set<number>();
   private knownAges = new Map<number, number>();
+  private raids = new Map<number, ActiveRaid>();
+  private nextRaidId = 1;
 
   constructor(
     members: RoomMember[],
@@ -165,11 +185,14 @@ export class Game {
     private readonly onGameOver: (winner: number, winnerName: string) => void,
     mode: GameMode = 'normal',
     terrain: TerrainKind = 'classic',
-    experience: ExperienceMode = 'classic',
+    experience: ExperienceMode = 'symbiosis',
     matchSalt = `${Date.now()}`,
   ) {
-    this.symbiosis = experience === 'symbiosis';
-    this.ledger = this.symbiosis ? new MatchLedger(matchSalt) : null;
+    // One game, one city system. `experience` remains in the constructor only
+    // so older clients/tests remain wire-compatible; Classic no longer exists.
+    void experience;
+    this.symbiosis = true;
+    this.ledger = new MatchLedger(matchSalt);
     const gen = generateMap(members.length, undefined, terrain);
     this.grid = gen.grid;
     this.map = { size: gen.grid.size, tiles: gen.grid.tiles };
@@ -212,6 +235,7 @@ export class Game {
         difficulty: m.difficulty,
         team: m.team,
         elon: 0,
+        elonBalance: 100,
         needDeclared: 0,
         needServed: 0,
       });
@@ -345,6 +369,8 @@ export class Game {
     }
 
     this.applyQueuedCommands();
+    this.updateRaids();
+    if (this.tick % 10 === 0) this.generateElon();
 
     if (this.symbiosis) this.recomputePower();
     for (const u of this.units.values()) this.updateUnit(u, dt);
@@ -356,11 +382,14 @@ export class Game {
 
     // pesquisa de era em andamento
     for (const p of this.players.values()) {
+      // Migration for already-running/saved level-5 cities created under the
+      // removed Command-vs-Space branch.
+      if (p.age >= 5) p.cityPath = 'command';
       if (p.defeated || !p.ageResearch) continue;
       p.ageResearch.elapsed += dt;
       if (p.ageResearch.elapsed >= (AGE_RESEARCH_TIME[p.ageResearch.target] ?? 0)) {
         p.age = p.ageResearch.target;
-        if (p.ageResearch.path) p.cityPath = p.ageResearch.path;
+        if (p.age >= 5) p.cityPath = 'command';
         p.ageResearch = undefined;
       }
     }
@@ -379,7 +408,9 @@ export class Game {
 
     this.recordContributionEvents();
     if (this.tick % CHAIN_BLOCK_TICKS === 0) {
-      this.sampleNeeds();
+      // Grace period: nobody can give their first orders before the opening
+      // cycles, so idle starting villagers must not cost reliability.
+      if (this.tick >= NEED_GRACE_TICKS) this.sampleNeeds();
       this.ledger?.seal(this.tick);
     }
 
@@ -413,11 +444,16 @@ export class Game {
         pathResearch: p.ageResearch?.path,
         techs: [...p.techs],
         elon: p.elon,
+        elonBalance: Math.floor(p.elonBalance),
+        elonCapacity: this.elonCapacityOf(p.id),
+        elonPerMinute: this.elonPerMinuteOf(p.id),
+        armyUsed: this.armyUsedOf(p.id),
+        armyCapacity: this.armyCapacityOf(p.id),
         elonEvents: this.elonEvents.filter((e) => e.playerId === p.id).slice(-5),
         ...(this.symbiosis ? { power: { ...this.powerOf(p.id) }, score: this.liveScore(p.id) } : {}),
       });
     }
-    const msg: ServerMessage = {
+    const common = {
       type: 'snapshot',
       tick: this.tick,
       units: unitsSnap,
@@ -429,8 +465,11 @@ export class Game {
       // Quem está jogando merece saber que está sendo observado.
       ...(this.spectators.size > 0 ? { spectators: this.spectators.size } : {}),
       ...(this.ledger ? { chain: this.ledger.snapshot() } : {}),
-    };
-    for (const p of this.players.values()) this.send(p.id, msg);
+    } as const;
+    for (const p of this.players.values()) {
+      const raid = this.raids.get(p.id);
+      this.send(p.id, { ...common, ...(raid ? { raid: this.raidSnap(raid) } : {}) });
+    }
 
     // ESPECTADORES: mesma partida, pacote MAGRO. Sai a economia (recursos, techs,
     // progresso de era, preços do mercado) — o espectador vê a ação, não os
@@ -474,6 +513,47 @@ export class Game {
     }
   }
 
+  private elonCapacityOf(playerId: number): number {
+    let cap = 200;
+    for (const b of this.buildings.values()) if (b.owner === playerId && b.progress >= 1) cap += BUILDING_DEFS[b.type].elonCapacity ?? 0;
+    return cap;
+  }
+
+  private elonPerMinuteOf(playerId: number): number {
+    let rate = 0;
+    for (const b of this.buildings.values()) if (b.owner === playerId && b.progress >= 1) rate += BUILDING_DEFS[b.type].elonPerMinute ?? 0;
+    return rate;
+  }
+
+  private generateElon(): void {
+    for (const p of this.players.values()) {
+      if (p.defeated) continue;
+      const rate = this.elonPerMinuteOf(p.id);
+      p.elonBalance = Math.min(this.elonCapacityOf(p.id), p.elonBalance + rate / 60);
+    }
+  }
+
+  private armyCapacityOf(playerId: number): number {
+    let cap = 0;
+    for (const b of this.buildings.values()) if (b.owner === playerId && b.progress >= 1) cap += BUILDING_DEFS[b.type].armyCapacity ?? 0;
+    return cap;
+  }
+
+  private armyUsedOf(playerId: number): number {
+    let used = 0;
+    for (const u of this.units.values()) if (u.owner === playerId && SYMBIOSIS_COMBAT_UNITS.has(u.type)) used += UNIT_DEFS[u.type].pop;
+    return used;
+  }
+
+  private armyCommittedOf(playerId: number): number {
+    let used = this.armyUsedOf(playerId);
+    for (const b of this.buildings.values()) {
+      if (b.owner !== playerId) continue;
+      for (const item of b.queue) if (SYMBIOSIS_COMBAT_UNITS.has(item.unit)) used += UNIT_DEFS[item.unit].pop;
+    }
+    return used;
+  }
+
   /** Detects safe, completed authoritative outcomes exactly once. */
   private recordContributionEvents(): void {
     for (const b of this.buildings.values()) {
@@ -490,6 +570,7 @@ export class Game {
       if (this.knownUnits.has(u.id)) continue;
       this.knownUnits.add(u.id);
       if (u.type === 'villager') this.addElon(u.owner, 'labor', 1, 'trained:villager', u.id);
+      else if (u.type === 'designer') this.addElon(u.owner, 'labor', 2, 'trained:designer', u.id);
       else if (SYMBIOSIS_UNITS.has(u.type)) this.addElon(u.owner, 'labor', 2, `trained:${u.type}`, u.id);
     }
     for (const p of this.players.values()) {
@@ -497,6 +578,139 @@ export class Game {
       if (p.age > previous) this.addElon(p.id, 'obligation', (p.age - previous) * 5, `reached:age-${p.age}`);
       this.knownAges.set(p.id, p.age);
     }
+  }
+
+  get devMatch(): boolean {
+    return this.dev;
+  }
+
+  /** Developer shortcuts for testing. The lobby only routes allowlisted
+   *  browsers here; the result is a private reply for that player. */
+  devCommand(playerId: number, input: string): string {
+    const p = this.players.get(playerId);
+    if (!p || p.defeated || this.ended) return 'You are not an active player in this match.';
+    const [rawCmd = '', arg] = input.trim().replace(/^\//, '').split(/\s+/);
+    const n = arg === undefined ? undefined : Number(arg);
+    if (arg !== undefined && !Number.isFinite(n)) return `Not a number: ${arg}`;
+    switch (rawCmd.toLowerCase()) {
+      case 'age': {
+        const target = Math.floor(n ?? p.age + 1);
+        if (target < 1 || target > MAX_AGE) return `Age must be 1–${MAX_AGE}.`;
+        if (target <= p.age) return `Already at age ${p.age}.`;
+        p.age = target;
+        p.ageResearch = undefined;
+        this.dev = true;
+        return `Age set to ${target}.`;
+      }
+      case 'res': {
+        const amount = Math.floor(n ?? 5000);
+        if (amount < 1 || amount > 1_000_000) return 'Amount must be 1–1000000.';
+        for (const k of Object.keys(p.resources) as ResourceType[]) p.resources[k] += amount;
+        this.dev = true;
+        return `+${amount} food, wood, gold, and stone.`;
+      }
+      case 'build': {
+        let done = 0;
+        for (const b of this.buildings.values()) {
+          if (b.owner !== playerId || b.progress >= 1) continue;
+          b.progress = 1;
+          b.hp = BUILDING_DEFS[b.type].hp;
+          if (b.type === 'farm') b.foodLeft = FARM_FOOD;
+          done++;
+        }
+        if (done > 0) this.dev = true;
+        return done > 0 ? `${done} construction site(s) completed.` : 'No construction sites to finish.';
+      }
+      case 'power': {
+        if (!this.symbiosis) return 'The power grid only exists in Symbiosis matches.';
+        const amount = Math.floor(n ?? 50);
+        if (amount < 0 || amount > 10_000) return 'Amount must be 0–10000.';
+        p.devPower = amount;
+        if (amount > 0) this.dev = true;
+        return amount > 0 ? `Grid supply +${amount}.` : 'Dev grid supply removed.';
+      }
+      case 'perfectbase':
+      case 'maxbase':
+        return this.createPerfectBase(playerId);
+      default:
+        return 'Dev commands: /perfectbase, /age [n], /res [n], /build, /power [n], /whoami';
+    }
+  }
+
+  /** Developer-only showcase city. Placement still uses normal footprint rules,
+   *  so the result is playable and pathfinding-safe rather than a visual mock. */
+  private createPerfectBase(playerId: number): string {
+    const p = this.players.get(playerId);
+    if (!p) return 'Player not found.';
+    const tc = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
+    if (!tc) return 'A Civic Hub is required before creating a perfect base.';
+    p.age = 5;
+    p.cityPath = 'command';
+    p.ageResearch = undefined;
+    p.resources = { food: 1_000_000, wood: 1_000_000, gold: 1_000_000, stone: 1_000_000 };
+    p.devPower = 500;
+    for (const tech of TECH_DEFS) p.techs.add(tech.id);
+
+    const cx = tc.tileX + BUILDING_DEFS.town_center.size / 2;
+    const cy = tc.tileY + BUILDING_DEFS.town_center.size / 2;
+    const findSite = (size: number): { x: number; y: number } | null => {
+      for (let radius = 4; radius <= 42; radius++) {
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+            const x = Math.floor(cx + dx - size / 2);
+            const y = Math.floor(cy + dy - size / 2);
+            if (this.validFootprint(x, y, size)) return { x, y };
+          }
+        }
+      }
+      return null;
+    };
+    const desired: Partial<Record<BuildingType, number>> = {
+      house: 10, data_center: 4, elon_vault: 2, army_camp: 4,
+      solar_array: 3, wind_turbine: 3, design_studio: 1, robotics_workshop: 1,
+      drone_factory: 1, mech_forge: 1, aerospace_hangar: 1, missile_foundry: 1,
+      exosuit_lab: 1, barracks: 1, blacksmith: 1, market: 1, watch_tower: 4,
+    };
+    let placed = 0;
+    for (const [type, wanted] of Object.entries(desired) as [BuildingType, number][]) {
+      let have = [...this.buildings.values()].filter((b) => b.owner === playerId && b.type === type).length;
+      while (have < wanted) {
+        const def = BUILDING_DEFS[type];
+        const site = findSite(def.size);
+        if (!site) break;
+        const b: Building = { id: this.nextId++, owner: playerId, type, tileX: site.x, tileY: site.y,
+          hp: def.hp, progress: 1, queue: [], ...(type === 'farm' ? { foodLeft: FARM_FOOD } : {}) };
+        this.buildings.set(b.id, b);
+        this.blockFootprint(site.x, site.y, def.size);
+        have++;
+        placed++;
+      }
+    }
+    p.elonBalance = this.elonCapacityOf(playerId);
+
+    const roster: Partial<Record<UnitType, number>> = {
+      villager: 6, designer: 5, robot: 4, drone: 3,
+      attack_drone: 4, siege_mech: 2, fighter: 2, stealth_bomber: 1,
+      rocket_launcher: 2, plasma_tank: 2, iron_guardian: 1,
+    };
+    let created = 0;
+    for (const [type, wanted] of Object.entries(roster) as [UnitType, number][]) {
+      let have = [...this.units.values()].filter((u) => u.owner === playerId && u.type === type).length;
+      while (have < wanted) {
+        const angle = (created * 2.399963) % (Math.PI * 2);
+        const radius = 3 + (created % 9) * .45;
+        const spot = nearestWalkableTile(this.gridForType(type as keyof RaidArmy), Math.floor(cx + Math.cos(angle) * radius), Math.floor(cy + Math.sin(angle) * radius));
+        if (!spot) break;
+        const u = createUnit(this.nextId++, playerId, type, spot.x + .5, spot.y + .5);
+        u.hp = this.unitMaxHp(u);
+        this.units.set(u.id, u);
+        have++;
+        created++;
+      }
+    }
+    this.dev = true;
+    return `Perfect base ready: level 5, ${placed} facilities, ${created} units, full ELON/resources, all upgrades.`;
   }
 
   /** One decision cycle of need: housing (people waiting for homes count as
@@ -582,7 +796,7 @@ export class Game {
     return { head: this.ledger.head, height: this.ledger.height, verified: this.ledger.verify(), ...this.ledger.export() };
   }
 
-  contributionSummary(): { tick: number; players: { id: number; name: string; elon: number; age: number; defeated: boolean; buildings: number; units: number; resources: Resources }[]; elonEvents: ElonEvent[]; standings: Standing[]; facilities: FacilityRecord[] } {
+  contributionSummary(): { tick: number; players: { id: number; name: string; elon: number; age: number; defeated: boolean; buildings: number; units: number; resources: Resources }[]; elonEvents: ElonEvent[]; standings: Standing[]; facilities: FacilityRecord[]; dev: boolean } {
     return {
       tick: this.tick,
       players: [...this.players.values()].map((p) => ({
@@ -594,6 +808,7 @@ export class Game {
       elonEvents: this.elonEvents.map((event) => ({ ...event })),
       standings: this.standings(),
       facilities: this.facilityLog.map((f) => ({ ...f })),
+      dev: this.dev,
     };
   }
 
@@ -664,6 +879,7 @@ export class Game {
     // grid advantage without granting offensive capability.
     for (const p of this.players.values()) {
       if (p.cityPath === 'space') next.get(p.id)!.supply += 10;
+      if (p.devPower) next.get(p.id)!.supply += p.devPower;
     }
     this.power = next;
   }
@@ -721,8 +937,8 @@ export class Game {
         const contributions = [...this.players.values()].map((player) => ({ playerId: player.id, name: player.name, elon: player.elon }));
         const standings = this.standings();
         this.send(p.id, winner
-          ? { type: 'gameOver', winner: winner.id, winnerName, won, contributions, standings }
-          : { type: 'gameOver', winner: -1, winnerName: '', won: false, contributions, standings });
+          ? { type: 'gameOver', winner: winner.id, winnerName, won, contributions, standings, ...(this.dev ? { dev: true } : {}) }
+          : { type: 'gameOver', winner: -1, winnerName: '', won: false, contributions, standings, ...(this.dev ? { dev: true } : {}) });
       }
       this.onGameOver(winner ? winner.id : -1, winnerName);
     }
@@ -802,7 +1018,197 @@ export class Game {
       case 'trade':
         this.cmdTrade(playerId, cmd.action, cmd.resource);
         break;
+      case 'scoutRaid':
+        this.cmdScoutRaid(playerId, cmd.defenderId);
+        break;
+      case 'setRaidArmy':
+        this.cmdSetRaidArmy(playerId, cmd.army);
+        break;
+      case 'startRaid':
+        this.cmdStartRaid(playerId);
+        break;
+      case 'deployRaid':
+        this.cmdDeployRaid(playerId, cmd.unit, cmd.x, cmd.y);
+        break;
+      case 'showRaidReplay': {
+        const raid = this.raids.get(playerId);
+        if (raid?.phase === 'result') raid.phase = 'replay';
+        break;
+      }
+      case 'closeRaid': {
+        const raid = this.raids.get(playerId);
+        if (raid?.phase === 'result' || raid?.phase === 'replay') this.raids.delete(playerId);
+        break;
+      }
     }
+  }
+
+  // ---------------- Clash-style raids ----------------
+
+  private emptyRaidArmy(): RaidArmy {
+    return { attack_drone: 0, fighter: 0, rocket_launcher: 0, siege_mech: 0,
+      stealth_bomber: 0, plasma_tank: 0, iron_guardian: 0 };
+  }
+
+  private raidSnap(r: ActiveRaid): RaidSnap {
+    return { id: r.id, phase: r.phase, attacker: r.attacker, defender: r.defender,
+      army: { ...r.army }, remaining: { ...r.remaining }, deployed: r.deployed,
+      duration: r.duration, secondsLeft: r.secondsLeft, destruction: r.destruction,
+      stars: r.stars, loot: { ...r.loot }, events: r.events.map((e) => ({ ...e })) };
+  }
+
+  private cmdScoutRaid(attacker: number, defender: number): void {
+    const a = this.players.get(attacker);
+    const d = this.players.get(defender);
+    if (!a || !d || a.defeated || d.defeated || this.allied(attacker, defender)) return;
+    if (!this.symbiosis || a.age < 5 || a.cityPath !== 'command') {
+      this.errorTo(attacker, 'err.raid_requires_command');
+      return;
+    }
+    if (d.age < 5 || d.cityPath !== 'command') {
+      this.errorTo(attacker, 'err.raid_target_protected');
+      return;
+    }
+    const buildings = [...this.buildings.values()].filter((b) => b.owner === defender && b.progress >= 1);
+    if (!buildings.length) return;
+    this.raids.set(attacker, {
+      id: this.nextRaidId++, phase: 'scouting', attacker, defender,
+      army: this.emptyRaidArmy(), remaining: this.emptyRaidArmy(), deployed: 0,
+      duration: 180, secondsLeft: 180, destruction: 0, stars: 0,
+      loot: { food: 0, wood: 0, gold: 0, stone: 0 }, events: [],
+      initialBuildings: new Set(buildings.map((b) => b.id)),
+      initialHp: buildings.reduce((n, b) => n + BUILDING_DEFS[b.type].hp, 0),
+      raidUnits: new Set(), awardedStars: new Set(), recordedDestroyed: new Set(),
+    });
+  }
+
+  private cmdSetRaidArmy(playerId: number, army: RaidArmy): void {
+    const r = this.raids.get(playerId);
+    if (!r || r.phase !== 'scouting') return;
+    const clean: RaidArmy = {
+      attack_drone: Math.max(0, Math.min(12, Math.floor(army.attack_drone || 0))),
+      fighter: Math.max(0, Math.min(8, Math.floor(army.fighter || 0))),
+      rocket_launcher: Math.max(0, Math.min(6, Math.floor(army.rocket_launcher || 0))),
+      siege_mech: Math.max(0, Math.min(6, Math.floor(army.siege_mech || 0))),
+      stealth_bomber: Math.max(0, Math.min(4, Math.floor(army.stealth_bomber || 0))),
+      plasma_tank: Math.max(0, Math.min(4, Math.floor(army.plasma_tank || 0))),
+      iron_guardian: Math.max(0, Math.min(1, Math.floor(army.iron_guardian || 0))),
+    };
+    if (Object.values(clean).reduce((a, b) => a + b, 0) > 18) return;
+    for (const [type, wanted] of Object.entries(clean) as [keyof RaidArmy, number][]) {
+      const manufactured = [...this.units.values()].filter((u) => u.owner === playerId && u.type === type).length;
+      if (wanted > manufactured) { this.errorTo(playerId, 'err.raid_not_manufactured'); return; }
+    }
+    r.army = clean;
+    r.remaining = { ...clean };
+  }
+
+  private cmdStartRaid(playerId: number): void {
+    const r = this.raids.get(playerId);
+    if (!r || r.phase !== 'scouting') return;
+    if (Object.values(r.army).reduce((a, b) => a + b, 0) < 1) return;
+    for (const [type, amount] of Object.entries(r.army) as [keyof RaidArmy, number][]) {
+      const reserve = [...this.units.values()].filter((u) => u.owner === playerId && u.type === type).slice(0, amount);
+      if (reserve.length !== amount) return;
+      for (const u of reserve) this.units.delete(u.id);
+    }
+    r.phase = 'deploying';
+    r.startedTick = this.tick;
+    r.events.push({ at: 0, kind: 'start', label: `Assault on ${this.players.get(r.defender)?.name ?? 'city'}` });
+  }
+
+  private cmdDeployRaid(playerId: number, type: keyof RaidArmy, x: number, y: number): void {
+    const r = this.raids.get(playerId);
+    if (!r || (r.phase !== 'deploying' && r.phase !== 'battle') || r.remaining[type] < 1) return;
+    const n = this.grid.size;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= n || y >= n) return;
+    const edge = Math.min(x, y, n - x, n - y);
+    if (edge > 3) { this.errorTo(playerId, 'err.raid_edge_only'); return; }
+    const spot = nearestWalkableTile(this.gridForType(type), Math.floor(x), Math.floor(y));
+    if (!spot) return;
+    const u = createUnit(this.nextId++, playerId, type, spot.x + 0.5, spot.y + 0.5);
+    this.units.set(u.id, u);
+    r.raidUnits.add(u.id);
+    r.remaining[type]--;
+    r.deployed++;
+    r.phase = 'battle';
+    const target = this.nearestRaidTarget(r.defender, u.x, u.y);
+    if (target) this.assignAttack(u, target.id);
+    r.events.push({ at: this.raidElapsed(r), kind: 'deploy', label: type.replaceAll('_', ' '), x: u.x, y: u.y });
+  }
+
+  private gridForType(type: keyof RaidArmy): Grid {
+    return isFlyingUnit(type) ? this.airGrid : this.grid;
+  }
+
+  private nearestRaidTarget(defender: number, x: number, y: number): Building | undefined {
+    let best: Building | undefined;
+    let dist = Infinity;
+    for (const b of this.buildings.values()) {
+      if (b.owner !== defender || b.progress < 1) continue;
+      const s = BUILDING_DEFS[b.type].size;
+      const d = Math.hypot(b.tileX + s / 2 - x, b.tileY + s / 2 - y);
+      if (d < dist) { dist = d; best = b; }
+    }
+    return best;
+  }
+
+  private raidElapsed(r: ActiveRaid): number {
+    return r.startedTick === undefined ? 0 : Math.round((this.tick - r.startedTick) * TICK_MS / 100) / 10;
+  }
+
+  private updateRaids(): void {
+    for (const r of this.raids.values()) {
+      if (r.phase !== 'deploying' && r.phase !== 'battle') continue;
+      r.secondsLeft = Math.max(0, r.duration - this.raidElapsed(r));
+      let hp = 0;
+      let alive = 0;
+      for (const id of r.initialBuildings) {
+        const b = this.buildings.get(id);
+        if (b) { hp += Math.max(0, b.hp); alive++; }
+        else if (!r.recordedDestroyed.has(id)) {
+          r.recordedDestroyed.add(id);
+          r.events.push({ at: this.raidElapsed(r), kind: 'destroy', label: `Facility ${id} destroyed` });
+        }
+      }
+      r.destruction = Math.min(100, Math.round((1 - hp / Math.max(1, r.initialHp)) * 100));
+      const tcGone = ![...this.buildings.values()].some((b) => b.owner === r.defender && b.type === 'town_center');
+      const earned = [r.destruction >= 50, tcGone, alive === 0];
+      r.stars = earned.filter(Boolean).length;
+      earned.forEach((yes, i) => {
+        const star = i + 1;
+        if (yes && !r.awardedStars.has(star)) {
+          r.awardedStars.add(star);
+          r.events.push({ at: this.raidElapsed(r), kind: 'star', label: `Star ${star} secured` });
+        }
+      });
+      for (const id of r.raidUnits) {
+        const u = this.units.get(id);
+        if (!u || u.state !== 'idle') continue;
+        const target = this.nearestRaidTarget(r.defender, u.x, u.y);
+        if (target) this.assignAttack(u, target.id);
+      }
+      const forceGone = r.deployed > 0 && [...r.raidUnits].every((id) => !this.units.has(id));
+      const reserves = Object.values(r.remaining).reduce((a, b) => a + b, 0);
+      if (r.secondsLeft <= 0 || alive === 0 || (forceGone && reserves === 0)) this.finishRaid(r);
+    }
+  }
+
+  private finishRaid(r: ActiveRaid): void {
+    if (r.phase === 'result') return;
+    r.phase = 'result';
+    const defender = this.players.get(r.defender);
+    const attacker = this.players.get(r.attacker);
+    if (defender && attacker) {
+      const rate = Math.min(0.3, r.destruction / 300);
+      for (const k of Object.keys(r.loot) as ResourceType[]) {
+        const amount = Math.max(0, Math.floor(defender.resources[k] * rate));
+        defender.resources[k] -= amount;
+        attacker.resources[k] += amount;
+        r.loot[k] = amount;
+      }
+    }
+    r.events.push({ at: this.raidElapsed(r), kind: 'finish', label: `${r.stars} stars · ${r.destruction}% destroyed` });
   }
 
   /** Mercado: compra/venda de 1 lote (100) de recurso por ouro. O preço é da
@@ -886,8 +1292,7 @@ export class Game {
       this.errorTo(playerId, 'err.age_researching');
       return;
     }
-    // Level 5 is a deliberate specialization, never an automatic generic age.
-    if (p.age >= MAX_AGE || (this.symbiosis && p.age >= 4)) return;
+    if (p.age >= MAX_AGE) return;
     let hasTC = false;
     for (const b of this.buildings.values()) {
       if (b.owner === playerId && b.type === 'town_center' && b.progress >= 1) { hasTC = true; break; }
@@ -919,16 +1324,9 @@ export class Game {
   }
 
   private cmdChooseCityPath(playerId: number, path: CityPath): void {
-    const p = this.players.get(playerId);
-    if (!p || p.defeated || p.age !== 4 || p.cityPath || p.ageResearch) return;
-    const hasTC = [...this.buildings.values()].some(
-      (b) => b.owner === playerId && b.type === 'town_center' && b.progress >= 1,
-    );
-    if (!hasTC) { this.errorTo(playerId, 'err.requires_tc'); return; }
-    const cost = AGE_COSTS[5] ?? {};
-    if (!this.canAfford(p, cost)) { this.errorTo(playerId, 'err.no_resources'); return; }
-    this.deduct(p, cost);
-    p.ageResearch = { target: 5, elapsed: 0, path };
+    // Backward-compatible alias for old clients. The branch was removed.
+    void path;
+    this.cmdAdvanceAge(playerId);
   }
 
   private ownedUnits(playerId: number, unitIds: number[]): Unit[] {
@@ -1422,6 +1820,11 @@ export class Game {
       this.errorTo(playerId, 'err.bad_building_type');
       return;
     }
+    const arsenal: ReadonlySet<BuildingType> = new Set(['drone_factory', 'aerospace_hangar', 'missile_foundry', 'mech_forge', 'exosuit_lab']);
+    if (arsenal.has(type) && p.cityPath !== 'command') {
+      this.errorTo(playerId, 'err.raid_requires_command');
+      return;
+    }
     if (p.age < def.ageReq) {
       this.errorTo(playerId, 'err.requires_age', { age: def.ageReq });
       return;
@@ -1594,7 +1997,6 @@ export class Game {
     const def = BUILDING_DEFS[b.type];
     if (!def.trains.includes(unit)) return;
     if ((SYMBIOSIS_UNITS.has(unit) || SYMBIOSIS_COMBAT_UNITS.has(unit)) && !this.symbiosis) return;
-    if (SYMBIOSIS_COMBAT_UNITS.has(unit) && this.players.get(playerId)?.cityPath !== 'command') return;
     if (b.queue.length >= TRAIN_QUEUE_MAX) {
       this.errorTo(playerId, 'err.queue_full');
       return;
@@ -1605,12 +2007,17 @@ export class Game {
       this.errorTo(playerId, 'err.requires_age', { age: req });
       return;
     }
-    const cost = UNIT_DEFS[unit].cost;
-    if (!this.canAfford(p, cost)) {
-      this.errorTo(playerId, 'err.no_resources');
-      return;
+    if (SYMBIOSIS_COMBAT_UNITS.has(unit)) {
+      const elonCost = ELON_UNIT_COST[unit] ?? 0;
+      if (this.armyCommittedOf(playerId) + UNIT_DEFS[unit].pop > this.armyCapacityOf(playerId)) { this.errorTo(playerId, 'err.army_full'); return; }
+      if (p.elonBalance < elonCost) { this.errorTo(playerId, 'err.no_elon'); return; }
+      p.elonBalance -= elonCost;
+      this.ledger?.record(this.tick, 'obligation', playerId, `manufacture:${unit}`, -elonCost);
+    } else {
+      const cost = UNIT_DEFS[unit].cost;
+      if (!this.canAfford(p, cost)) { this.errorTo(playerId, 'err.no_resources'); return; }
+      this.deduct(p, cost);
     }
-    this.deduct(p, cost);
     b.queue.push({ unit, progress: 0 });
   }
 
@@ -1620,7 +2027,10 @@ export class Game {
     if (index < 0 || index >= b.queue.length) return;
     const item = b.queue.splice(index, 1)[0];
     const p = this.players.get(playerId);
-    if (p) this.refund(p, UNIT_DEFS[item.unit].cost);
+    if (p) {
+      if (SYMBIOSIS_COMBAT_UNITS.has(item.unit)) p.elonBalance = Math.min(this.elonCapacityOf(playerId), p.elonBalance + (ELON_UNIT_COST[item.unit] ?? 0));
+      else this.refund(p, UNIT_DEFS[item.unit].cost);
+    }
   }
 
   private cmdSetRally(playerId: number, buildingId: number, x: number, y: number): void {
@@ -1688,7 +2098,13 @@ export class Game {
   private trainTimeFor(b: Building): number {
     // trainTime vem de BUILDING_DEFS via unit? Não — está em UNIT_DEFS? Checamos ambos.
     const head = b.queue[0];
-    return UNIT_TRAIN_TIME[head.unit];
+    const base = UNIT_TRAIN_TIME[head.unit];
+    if (!SYMBIOSIS_COMBAT_UNITS.has(head.unit)) return base;
+    // Human designers are the Laboratory layer: every active designer improves
+    // all weapon factories by 8%, capped at 40% so factories still matter.
+    let designers = 0;
+    for (const u of this.units.values()) if (u.owner === b.owner && u.type === 'designer') designers++;
+    return base * (1 - Math.min(0.4, designers * 0.08));
   }
 
   private findFreeSpotNear(bx: number, by: number, size: number, grid: Grid = this.grid): { x: number; y: number } | null {
@@ -1714,11 +2130,15 @@ export class Game {
     const isEnemyBuilding = targetBuilding && !this.allied(targetBuilding.owner, playerId);
     if (!isEnemyUnit && !isEnemyBuilding) return;
     for (const u of units) {
-      this.clearTasks(u);
-      u.attackTargetId = targetId;
-      u.state = 'movingToAttack';
-      u.repathTimer = 0;
+      this.assignAttack(u, targetId);
     }
+  }
+
+  private assignAttack(u: Unit, targetId: number): void {
+    this.clearTasks(u);
+    u.attackTargetId = targetId;
+    u.state = 'movingToAttack';
+    u.repathTimer = 0;
   }
 
   private targetPos(id: number): { x: number; y: number } | null {
@@ -2547,6 +2967,7 @@ function isWithinGrid(g: Grid, x: number, y: number): boolean {
 // Tempo de treino: vem de UNIT_DEFS (trainTime), não de BUILDING_DEFS.
 const UNIT_TRAIN_TIME: Record<UnitType, number> = {
   villager: UNIT_DEFS.villager.trainTime,
+  designer: UNIT_DEFS.designer.trainTime,
   swordsman: UNIT_DEFS.swordsman.trainTime,
   archer: UNIT_DEFS.archer.trainTime,
   knight: UNIT_DEFS.knight.trainTime,
@@ -2558,4 +2979,8 @@ const UNIT_TRAIN_TIME: Record<UnitType, number> = {
   attack_drone: UNIT_DEFS.attack_drone.trainTime,
   fighter: UNIT_DEFS.fighter.trainTime,
   rocket_launcher: UNIT_DEFS.rocket_launcher.trainTime,
+  siege_mech: UNIT_DEFS.siege_mech.trainTime,
+  stealth_bomber: UNIT_DEFS.stealth_bomber.trainTime,
+  plasma_tank: UNIT_DEFS.plasma_tank.trainTime,
+  iron_guardian: UNIT_DEFS.iron_guardian.trainTime,
 };

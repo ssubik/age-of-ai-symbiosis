@@ -15,11 +15,11 @@ export const TILE_PX = 32; // legado; mantido só por compatibilidade de imports
 export const ISO_HW = 32;
 export const ISO_HH = 16;
 
-// Zoom FIXO (como no Age of Empires 2 clássico — sem zoom por roda do mouse).
-// Manter fixo também limita a quantidade de tiles desenhados por frame
-// (sem zoom-out não existe o pior caso de milhares de tiles), o que ajuda o
-// desempenho. Ajuste este único número se quiser a câmera mais perto/longe.
+// Tactical zoom remains deliberately narrow: enough to read a battle or plan a
+// district, never far enough to turn the battlefield into a minimap.
 export const VIEW_ZOOM = 1.1;
+export const MIN_ZOOM = 0.78;
+export const MAX_ZOOM = 1.48;
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -30,8 +30,8 @@ export class Camera {
   x = 0;
   /** Alvo da câmera no mundo (tile Y). */
   y = 0;
-  /** Zoom fixo (não muda em jogo). */
-  readonly zoom = VIEW_ZOOM;
+  /** Current tactical zoom. Changed only through setZoomAt(). */
+  zoom = VIEW_ZOOM;
   /** Tamanho da viewport em pixels CSS. */
   viewW = 1;
   viewH = 1;
@@ -75,6 +75,17 @@ export class Camera {
   centerOn(wx: number, wy: number): void {
     this.x = wx;
     this.y = wy;
+    this.clampToMap();
+  }
+
+  /** Zoom around a screen-space anchor, keeping the world point under the
+   * cursor stable. */
+  setZoomAt(next: number, sx = this.viewW / 2, sy = this.viewH / 2): void {
+    const before = this.screenToWorld(sx, sy);
+    this.zoom = clamp(next, MIN_ZOOM, MAX_ZOOM);
+    const after = this.screenToWorld(sx, sy);
+    this.x += before.x - after.x;
+    this.y += before.y - after.y;
     this.clampToMap();
   }
 

@@ -1,0 +1,209 @@
+/* Age of AI — Organic Tactical Atlas
+   Presentation only: gameplay authority, balance and entity geometry remain
+   owned by shared/server and the Canvas renderer. */
+
+:root {
+  --atlas-void: #050b0d;
+  --atlas-plane: rgba(7, 17, 19, .94);
+  --atlas-raised: rgba(12, 29, 30, .94);
+  --atlas-line: rgba(137, 193, 184, .22);
+  --atlas-line-hot: rgba(126, 238, 218, .62);
+  --atlas-ink: #edf6f2;
+  --atlas-muted: #91aaa4;
+  --atlas-cyan: #7eeed9;
+  --atlas-mint: #a8e6bd;
+  --atlas-amber: #e8b45f;
+  --atlas-coral: #ef806d;
+  --atlas-radius: 10px;
+  --atlas-shadow: 0 18px 54px rgba(0, 0, 0, .44);
+}
+
+body {
+  background:
+    radial-gradient(circle at 15% 12%, rgba(66, 148, 134, .16), transparent 30%),
+    radial-gradient(circle at 82% 74%, rgba(205, 145, 72, .1), transparent 34%),
+    var(--atlas-void);
+  color: var(--atlas-ink);
+}
+
+/* One material system from onboarding through post-match. */
+.panel, .card, .entry-frame, .modal, .settings-box, .gameover-card {
+  border-color: var(--atlas-line);
+  border-radius: var(--atlas-radius);
+  background: linear-gradient(145deg, rgba(17, 38, 37, .96), rgba(6, 16, 18, .97));
+  box-shadow: var(--atlas-shadow), inset 0 1px rgba(255, 255, 255, .035);
+}
+
+button.btn, input.txt, select {
+  border-radius: 7px;
+  border-color: var(--atlas-line);
+}
+
+button.btn {
+  background: linear-gradient(180deg, rgba(25, 52, 49, .96), rgba(10, 28, 28, .96));
+  transition: transform .14s ease, border-color .14s ease, background .14s ease, box-shadow .14s ease;
+}
+
+button.btn:hover:not(:disabled) {
+  color: var(--atlas-ink);
+  border-color: var(--atlas-line-hot);
+  background: linear-gradient(180deg, rgba(35, 72, 66, .98), rgba(12, 37, 37, .98));
+  box-shadow: 0 0 0 1px rgba(126, 238, 218, .08), 0 8px 22px rgba(0, 0, 0, .25);
+  transform: translateY(-1px);
+}
+
+button.btn.primary {
+  color: #061412;
+  border-color: #b9f5d7;
+  background: linear-gradient(135deg, var(--atlas-cyan), var(--atlas-mint));
+  text-shadow: none;
+}
+
+.title, .entry-title {
+  color: var(--atlas-ink);
+  font-variant: normal;
+  letter-spacing: -.035em;
+  text-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+}
+
+/* Battlefield HUD: floating instruments instead of a heavy bottom wall. */
+.game-atlas { isolation: isolate; }
+.game-atlas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border: 1px solid rgba(140, 224, 206, .08);
+  box-shadow: inset 0 0 90px rgba(0, 0, 0, .18);
+}
+
+.game-atlas .hud-top {
+  top: 10px;
+  max-width: calc(100vw - 140px);
+  min-height: 38px;
+  gap: clamp(10px, 2vw, 28px);
+  padding: 6px 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--atlas-line);
+  border-top: 1px solid var(--atlas-line-hot);
+  border-radius: 9px;
+  background: var(--atlas-plane);
+  box-shadow: var(--atlas-shadow);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+.game-atlas .hud-top::-webkit-scrollbar { display: none; }
+.game-atlas .hud-top .res { position: relative; gap: 7px; }
+.game-atlas .hud-top .res + .res::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  height: 15px;
+  border-left: 1px solid var(--atlas-line);
+}
+.game-atlas .hud-top .res b { font-variant-numeric: tabular-nums; }
+.game-atlas .hud-top .age b { color: var(--atlas-amber); }
+
+.game-atlas .command-bar {
+  height: 172px;
+  gap: 8px;
+  padding: 8px;
+  align-items: end;
+}
+.game-atlas .command-bar > .cb-left,
+.game-atlas .command-bar > .cb-center,
+.game-atlas .minimap-wrap {
+  border: 1px solid var(--atlas-line);
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-plane);
+  box-shadow: var(--atlas-shadow);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+.game-atlas .cb-left { flex-basis: min(352px, 30vw); padding: 9px 11px; }
+.game-atlas .cb-center { max-width: min(440px, 38vw); padding: 9px 11px; }
+.game-atlas .minimap-wrap { overflow: hidden; }
+
+.game-atlas button.btn.cmd-tile,
+.game-atlas .sel-unit,
+.game-atlas .queue-item {
+  border-radius: 7px;
+  border-color: var(--atlas-line);
+  background: rgba(10, 27, 28, .92);
+}
+.game-atlas .cmd-tile:hover:not(.off),
+.game-atlas .cmd-tile.active {
+  border-color: var(--atlas-cyan);
+  background: rgba(23, 57, 54, .96);
+  box-shadow: 0 0 0 1px rgba(126, 238, 217, .08), 0 7px 20px rgba(0, 0, 0, .24);
+  transform: translateY(-1px);
+}
+.game-atlas .act-title, .game-atlas .trade-title,
+.game-atlas .chain-eyebrow, .game-atlas .elon-label { color: var(--atlas-cyan); }
+.game-atlas .hpbar .fill { background: linear-gradient(90deg, #73d49e, var(--atlas-mint)); }
+.game-atlas .prod-fill { background: linear-gradient(90deg, var(--atlas-cyan), var(--atlas-amber)); }
+
+.game-atlas .goal-panel,
+.game-atlas .council-panel,
+.game-atlas .chain-panel,
+.game-atlas .elon-panel,
+.game-atlas .raid-panel,
+.game-atlas .quick-dock,
+.game-atlas .cmd-tip {
+  border-color: var(--atlas-line);
+  border-radius: var(--atlas-radius);
+  background: var(--atlas-plane);
+  box-shadow: var(--atlas-shadow);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+.game-atlas .goal-panel { border-left: 2px solid var(--atlas-amber); }
+.game-atlas .elon-panel { border-left: 2px solid var(--atlas-cyan); }
+.game-atlas .quick-dock { bottom: 181px; border-radius: 12px; padding: 5px; }
+.game-atlas .quick-action { border-radius: 8px; }
+.game-atlas .quick-action.accent {
+  color: #071512;
+  background: linear-gradient(135deg, var(--atlas-cyan), var(--atlas-amber));
+}
+.game-atlas .raid-panel { border-top: 2px solid var(--atlas-coral); }
+.game-atlas .chat-box, .game-atlas .game-chat-input { left: 12px; bottom: 184px; }
+.game-atlas .pause-overlay {
+  background: radial-gradient(circle at center, rgba(7, 22, 22, .5), rgba(2, 8, 10, .78));
+  backdrop-filter: blur(6px);
+}
+
+:where(button, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--atlas-cyan);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(126, 238, 217, .12);
+}
+
+@media (max-width: 900px) {
+  .game-atlas .hud-top {
+    left: 8px; right: 56px; max-width: none; transform: none;
+    justify-content: flex-start;
+  }
+  .game-atlas .command-bar { height: 154px; }
+  .game-atlas .cb-left { flex-basis: 45vw; }
+  .game-atlas .cb-center { max-width: 36vw; }
+  .game-atlas .quick-dock { bottom: 162px; }
+  .game-atlas .quick-label { display: none; }
+  .game-atlas .quick-action { min-width: 45px; }
+}
+
+@media (max-width: 620px) {
+  .game-atlas .command-bar { height: 140px; padding: 5px; }
+  .game-atlas .cb-left { flex-basis: calc(100vw - 152px); }
+  .game-atlas .cb-center { display: none; }
+  .game-atlas .quick-dock { bottom: 147px; }
+  .game-atlas .goal-panel { width: min(240px, calc(100vw - 24px)); }
+  .game-atlas .sym-rail { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

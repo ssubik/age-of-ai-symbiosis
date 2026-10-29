@@ -52,6 +52,7 @@ export interface UnitDef {
 
 export const UNIT_DEFS: Record<UnitType, UnitDef> = {
   villager:  { hp: 30,  speed: 2.0, attack: 3,  range: 1,   attackCooldown: 1.5, sight: 5, cost: { food: 50 },           trainTime: 8,  pop: 1 },
+  designer:  { hp: 38, speed: 1.9, attack: 2, range: 1, attackCooldown: 1.6, sight: 6, cost: { food: 100, gold: 80 }, trainTime: 20, pop: 1 },
   swordsman: { hp: 60,  speed: 1.8, attack: 9,  range: 1,   attackCooldown: 1.2, sight: 5, cost: { food: 60, gold: 20 }, trainTime: 10, pop: 1 },
   archer:    { hp: 35,  speed: 1.9, attack: 6,  range: 4.5, attackCooldown: 1.5, sight: 6, cost: { wood: 40, gold: 30 }, trainTime: 10, pop: 1 },
   knight:    { hp: 100, speed: 2.6, attack: 14, range: 1,   attackCooldown: 1.2, sight: 6, cost: { food: 70, gold: 50 }, trainTime: 16, pop: 1 },
@@ -65,6 +66,10 @@ export const UNIT_DEFS: Record<UnitType, UnitDef> = {
   attack_drone: { hp: 55, speed: 3.4, attack: 9, range: 4.5, attackCooldown: 1.25, sight: 9, cost: { wood: 35, gold: 75 }, trainTime: 14, pop: 1 },
   fighter: { hp: 95, speed: 4.2, attack: 16, range: 5.5, attackCooldown: 1.8, sight: 10, cost: { wood: 60, gold: 130 }, trainTime: 22, pop: 2 },
   rocket_launcher: { hp: 105, speed: 1.35, attack: 24, range: 7.5, attackCooldown: 3.2, sight: 9, cost: { wood: 100, gold: 120 }, trainTime: 26, pop: 3 },
+  siege_mech: { hp: 190, speed: 1.45, attack: 28, range: 3.5, attackCooldown: 2.1, sight: 8, cost: { wood: 140, gold: 170 }, trainTime: 30, pop: 3 },
+  stealth_bomber: { hp: 120, speed: 4.6, attack: 34, range: 6.5, attackCooldown: 3.4, sight: 11, cost: { wood: 100, gold: 220 }, trainTime: 34, pop: 3 },
+  plasma_tank: { hp: 260, speed: 1.25, attack: 40, range: 6, attackCooldown: 2.8, sight: 9, cost: { wood: 180, gold: 240 }, trainTime: 38, pop: 4 },
+  iron_guardian: { hp: 340, speed: 3.1, attack: 52, range: 5.5, attackCooldown: 1.7, sight: 12, cost: { wood: 250, gold: 500 }, trainTime: 60, pop: 5 },
 };
 
 // ---------- Prédios ----------
@@ -86,6 +91,10 @@ export interface BuildingDef {
   power?: number;
   /** Only buildable in Symbiosis matches. */
   symbiosis?: boolean;
+  /** CoC-style passive ELON economy and army storage. */
+  elonPerMinute?: number;
+  elonCapacity?: number;
+  armyCapacity?: number;
 }
 
 export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
@@ -96,7 +105,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
   archery_range: { hp: 700,  size: 3, cost: { wood: 175 },             buildTime: 25, popProvided: 0, trains: ['archer'],      isDropOff: false, ageReq: 2, requires: 'barracks' },
   stable:        { hp: 700,  size: 3, cost: { wood: 175 },             buildTime: 25, popProvided: 0, trains: ['knight'],      isDropOff: false, ageReq: 3, requires: 'barracks' },
   blacksmith:    { hp: 700,  size: 2, cost: { wood: 150 },             buildTime: 25, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2, requires: 'barracks' },
-  market:        { hp: 600,  size: 2, cost: { wood: 150 },             buildTime: 25, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2, requires: 'mill' },
+  market:        { hp: 600,  size: 2, cost: { wood: 150 },             buildTime: 25, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2, requires: 'mill', elonPerMinute: 4 },
   wall:          { hp: 550,  size: 1, cost: { stone: 10 },             buildTime: 6,  popProvided: 0, trains: [],              isDropOff: false, ageReq: 1 },
   watch_tower:   { hp: 480,  size: 1, cost: { wood: 40, stone: 80 },   buildTime: 22, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2 },
   mill:          { hp: 250,  size: 2, cost: { wood: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['food'] },
@@ -105,23 +114,36 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
   // Porto: construído NA ÁGUA encostado na costa; deposita o peixe e treina barcos.
   dock:          { hp: 600,  size: 2, cost: { wood: 150 },             buildTime: 20, popProvided: 0, trains: ['fishing_boat', 'war_galley', 'transport'], isDropOff: true, ageReq: 1, accepts: ['food'] },
   // ---- Symbiosis energy grid + automation ----
-  solar_array:       { hp: 220, size: 2, cost: { wood: 80 },             buildTime: 14, popProvided: 0, trains: [],                isDropOff: false, ageReq: 1, power: 4, symbiosis: true },
-  wind_turbine:      { hp: 260, size: 1, cost: { wood: 60, stone: 40 },  buildTime: 16, popProvided: 0, trains: [],                isDropOff: false, ageReq: 2, power: 6, symbiosis: true },
-  robotics_workshop: { hp: 650, size: 3, cost: { wood: 150, gold: 50 },  buildTime: 30, popProvided: 0, trains: ['robot', 'drone', 'attack_drone', 'fighter', 'rocket_launcher'], isDropOff: false, ageReq: 1, symbiosis: true },
+  solar_array:       { hp: 220, size: 2, cost: { wood: 80 },             buildTime: 14, popProvided: 0, trains: [],                isDropOff: false, ageReq: 1, power: 4, elonPerMinute: 3, symbiosis: true },
+  wind_turbine:      { hp: 260, size: 1, cost: { wood: 60, stone: 40 },  buildTime: 16, popProvided: 0, trains: [],                isDropOff: false, ageReq: 2, power: 6, elonPerMinute: 4, symbiosis: true },
+  robotics_workshop: { hp: 650, size: 3, cost: { wood: 150, gold: 50 }, buildTime: 30, popProvided: 0, trains: ['robot', 'drone'], isDropOff: false, ageReq: 1, elonPerMinute: 5, symbiosis: true },
+  design_studio: { hp: 560, size: 2, cost: { wood: 140, gold: 100 }, buildTime: 28, popProvided: 0, trains: ['designer'], isDropOff: false, ageReq: 1, requires: 'data_center', symbiosis: true },
+  data_center: { hp: 520, size: 2, cost: { wood: 120, gold: 80 }, buildTime: 24, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, elonPerMinute: 6, symbiosis: true },
+  elon_vault: { hp: 700, size: 2, cost: { wood: 160, stone: 100 }, buildTime: 28, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, elonCapacity: 500, symbiosis: true },
+  army_camp: { hp: 600, size: 3, cost: { wood: 180, stone: 80 }, buildTime: 26, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, armyCapacity: 10, symbiosis: true },
+  drone_factory: { hp: 720, size: 3, cost: { wood: 180, gold: 120 }, buildTime: 34, popProvided: 0, trains: ['attack_drone'], isDropOff: false, ageReq: 2, requires: 'robotics_workshop', symbiosis: true },
+  mech_forge: { hp: 950, size: 3, cost: { wood: 300, gold: 260 }, buildTime: 46, popProvided: 0, trains: ['siege_mech'], isDropOff: false, ageReq: 3, requires: 'robotics_workshop', symbiosis: true },
+  aerospace_hangar: { hp: 850, size: 3, cost: { wood: 260, gold: 220 }, buildTime: 42, popProvided: 0, trains: ['fighter', 'stealth_bomber'], isDropOff: false, ageReq: 4, requires: 'drone_factory', symbiosis: true },
+  missile_foundry: { hp: 900, size: 3, cost: { wood: 280, gold: 240 }, buildTime: 44, popProvided: 0, trains: ['rocket_launcher', 'plasma_tank'], isDropOff: false, ageReq: 4, requires: 'robotics_workshop', symbiosis: true },
+  exosuit_lab: { hp: 1100, size: 3, cost: { wood: 450, gold: 600 }, buildTime: 70, popProvided: 0, trains: ['iron_guardian'], isDropOff: false, ageReq: 5, requires: 'mech_forge', symbiosis: true },
 };
 
 // ---------- Symbiosis: automated builders + power grid ----------
 /** Construction speed per builder (villager = 1). */
-export const BUILD_RATE: Partial<Record<UnitType, number>> = { villager: 1, robot: 1.8, drone: 1.25 };
+export const BUILD_RATE: Partial<Record<UnitType, number>> = { villager: 1, designer: 0.8, robot: 1.8, drone: 1.25 };
 /** Grid power each automated unit draws while it exists. */
-export const POWER_DRAW: Partial<Record<UnitType, number>> = { robot: 1, drone: 1, attack_drone: 2, fighter: 3, rocket_launcher: 2 };
+export const POWER_DRAW: Partial<Record<UnitType, number>> = { robot: 1, drone: 1, attack_drone: 2, fighter: 3, rocket_launcher: 2, siege_mech: 3, stealth_bomber: 4, plasma_tank: 4, iron_guardian: 6 };
 /** Base grid capacity of a completed Town Center in Symbiosis matches. */
 export const TOWN_CENTER_POWER = 2;
 /** Floor for automation efficiency when demand exceeds supply. */
 export const POWER_MIN_EFFICIENCY = 0.3;
 export const SYMBIOSIS_UNITS: ReadonlySet<UnitType> = new Set(['robot', 'drone']);
-export const SYMBIOSIS_COMBAT_UNITS: ReadonlySet<UnitType> = new Set(['attack_drone', 'fighter', 'rocket_launcher']);
-export const FLYING_UNITS: ReadonlySet<UnitType> = new Set(['drone', 'attack_drone', 'fighter']);
+export const SYMBIOSIS_COMBAT_UNITS: ReadonlySet<UnitType> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian']);
+export const ELON_UNIT_COST: Partial<Record<UnitType, number>> = {
+  attack_drone: 50, fighter: 180, rocket_launcher: 110, siege_mech: 140,
+  stealth_bomber: 260, plasma_tank: 220, iron_guardian: 600,
+};
+export const FLYING_UNITS: ReadonlySet<UnitType> = new Set(['drone', 'attack_drone', 'fighter', 'stealth_bomber', 'iron_guardian']);
 export const isFlyingUnit = (t: UnitType): boolean => FLYING_UNITS.has(t);
 export const isBuilderUnit = (t: UnitType): boolean => (BUILD_RATE[t] ?? 0) > 0;
 export const isSymbiosisBuilding = (t: BuildingType): boolean => !!BUILDING_DEFS[t].symbiosis;
@@ -243,6 +265,7 @@ export function buildingsToAdvance(fromAge: number): number {
 /** Era mínima para treinar cada unidade. */
 export const UNIT_AGE_REQ: Record<UnitType, number> = {
   villager: 1,
+  designer: 1,
   swordsman: 1,
   archer: 2,
   knight: 3,
@@ -251,9 +274,13 @@ export const UNIT_AGE_REQ: Record<UnitType, number> = {
   transport: 1,  // travessia cedo: o rio não pode trancar o mapa na Idade das Trevas
   robot: 1,
   drone: 2,
-  attack_drone: 5,
-  fighter: 5,
-  rocket_launcher: 5,
+  attack_drone: 2,
+  siege_mech: 3,
+  fighter: 4,
+  rocket_launcher: 4,
+  stealth_bomber: 4,
+  plasma_tank: 4,
+  iron_guardian: 5,
 };
 
 // ---------- Tecnologias / upgrades (pesquisados nos prédios) ----------

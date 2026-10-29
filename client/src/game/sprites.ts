@@ -161,7 +161,7 @@ export class ConstructionSprites {
   }
 }
 
-export type SymbiosisCombatSprite = 'attack_drone' | 'fighter' | 'rocket_launcher';
+export type SymbiosisCombatSprite = 'attack_drone' | 'fighter' | 'rocket_launcher' | 'siege_mech' | 'stealth_bomber' | 'plasma_tank' | 'iron_guardian';
 
 /** Original transparent combat-unit cutouts. Simulation and hit geometry stay
  * unit-based; these images only replace the procedural body drawing. */
@@ -169,7 +169,7 @@ export class SymbiosisCombatSprites {
   private imgs = new Map<SymbiosisCombatSprite, HTMLImageElement>();
 
   preload(base = '/sprites/'): void {
-    for (const kind of ['attack_drone', 'fighter', 'rocket_launcher'] as const) {
+    for (const kind of ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'] as const) {
       const img = new Image();
       img.onload = () => { this.imgs.set(kind, img); };
       img.onerror = () => { /* renderer uses a compact geometric fallback */ };

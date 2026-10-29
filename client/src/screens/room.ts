@@ -1,11 +1,10 @@
 // Tela 3: Sala — layout "tabuleiro" emoldurado em ouro (estilo AoE): duas colunas
 // (Jogadores | Configuração da partida), ações centrais e chat embaixo. Foco desktop.
 
-import type { BotDifficulty, ExperienceMode, GameMode, RoomPlayer, TerrainKind } from '@age/shared';
+import type { BotDifficulty, GameMode, RoomPlayer, TerrainKind } from '@age/shared';
 import { MAX_PLAYERS_PER_ROOM, MIN_PLAYERS_TO_START } from '@age/shared';
 import { el } from '../ui';
 import { t } from '../i18n';
-import { TERRAIN_THUMB_SVG } from './terrainThumbs';
 
 export interface RoomScreenDeps {
   onToggleReady: () => void;
@@ -16,7 +15,6 @@ export interface RoomScreenDeps {
   onRemoveBot: () => void;
   onSetTeam: (playerId: number, team: number) => void;
   onSetMode: (mode: GameMode) => void;
-  onSetExperience: (experience: ExperienceMode) => void;
   onSetFog: (fog: boolean) => void;
   onSetBroadcast: (on: boolean) => void;
   onSetTerrain: (terrain: TerrainKind) => void;
@@ -77,11 +75,9 @@ export class RoomScreen {
   private players: RoomPlayer[] = [];
   private myId = -1;
   private mode: GameMode = 'normal';
-  private experience: ExperienceMode = 'classic';
   private fog = false;
   private terrain: TerrainKind = 'river';
   private modeBtns: { m: GameMode; btn: HTMLButtonElement }[] = [];
-  private experienceBtns: { value: ExperienceMode; btn: HTMLButtonElement }[] = [];
   private fogBtns: { closed: boolean; btn: HTMLButtonElement }[] = [];
   private broadcast = true; // nasce transmitindo (igual ao servidor)
   private bcBtns: { on: boolean; btn: HTMLButtonElement }[] = [];
@@ -108,13 +104,12 @@ export class RoomScreen {
     this.sala = fresh;
     this.chatLog.innerHTML = chatHtml;
     this.chatInput.value = chatVal;
-    this.setState(this.roomId, this.players, this.myId, this.mode, this.fog, this.terrain, this.broadcast, this.experience);
+    this.setState(this.roomId, this.players, this.myId, this.mode, this.fog, this.terrain, this.broadcast);
   }
 
   /** Monta (ou remonta) o tabuleiro inteiro no idioma atual. */
   private build(): HTMLElement {
     this.modeBtns = [];
-    this.experienceBtns = [];
     this.fogBtns = [];
     this.bcBtns = [];
     this.terrainBtns = [];
@@ -145,7 +140,7 @@ export class RoomScreen {
 
     const signal = el('div', 'room-strategy-signal');
     signal.appendChild(el('span', '', t('room.strategy_signal')));
-    this.strategySignal = el('p', '', t('room.strategy_classic'));
+    this.strategySignal = el('p', '', t('room.strategy_symbiosis'));
     signal.appendChild(this.strategySignal);
     sala.appendChild(signal);
 
@@ -190,23 +185,6 @@ export class RoomScreen {
     modeCtl.appendChild(modeSeg);
     ccol.appendChild(modeCtl);
 
-    const experienceCtl = el('div', 'sala-ctl');
-    experienceCtl.appendChild(ctlLabel(IC_MODE, t('room.experience')));
-    const experienceSeg = el('div', 'seg');
-    const experienceOpts: { value: ExperienceMode; label: string; title: string }[] = [
-      { value: 'classic', label: t('room.experience_classic'), title: t('room.experience_classic_desc') },
-      { value: 'symbiosis', label: t('room.experience_symbiosis'), title: t('room.experience_symbiosis_desc') },
-    ];
-    for (const option of experienceOpts) {
-      const btn = el('button', 'btn seg-btn', option.label);
-      btn.title = option.title;
-      btn.addEventListener('click', () => this.deps.onSetExperience(option.value));
-      this.experienceBtns.push({ value: option.value, btn });
-      experienceSeg.appendChild(btn);
-    }
-    experienceCtl.appendChild(experienceSeg);
-    ccol.appendChild(experienceCtl);
-
     // Mapa aberto x fechado (névoa) — só host
     const mapCtl = el('div', 'sala-ctl');
     mapCtl.appendChild(ctlLabel(IC_MAP, t('room.map')));
@@ -244,29 +222,6 @@ export class RoomScreen {
     }
     bcCtl.appendChild(bcSeg);
     ccol.appendChild(bcCtl);
-
-    // Terreno (Clássico / Rio / Travessia) — só host
-    const terrCtl = el('div', 'sala-ctl terrain');
-    terrCtl.appendChild(ctlLabel(IC_TERRAIN, t('room.terrain')));
-    const terrCards = el('div', 'terrain-cards');
-    const terrOpts: { tr: TerrainKind; label: string; desc: string }[] = [
-      { tr: 'classic', label: t('room.terrain_classic'), desc: t('room.terrain_classic_desc') },
-      { tr: 'river', label: t('room.terrain_river'), desc: t('room.terrain_river_desc') },
-      { tr: 'strait', label: t('room.terrain_strait'), desc: t('room.terrain_strait_desc') },
-    ];
-    for (const o of terrOpts) {
-      const btn = el('button', 'btn terrain-card');
-      const thumb = el('span', 'terrain-thumb');
-      thumb.innerHTML = TERRAIN_THUMB_SVG[o.tr];
-      btn.appendChild(thumb);
-      btn.appendChild(el('span', 'terrain-name', o.label));
-      btn.appendChild(el('span', 'terrain-desc', o.desc));
-      btn.addEventListener('click', () => this.deps.onSetTerrain(o.tr));
-      this.terrainBtns.push({ tr: o.tr, btn });
-      terrCards.appendChild(btn);
-    }
-    terrCtl.appendChild(terrCards);
-    ccol.appendChild(terrCtl);
 
     board.appendChild(ccol);
     sala.appendChild(board);
@@ -314,21 +269,20 @@ export class RoomScreen {
     this.chatInput.value = '';
   }
 
-  setState(roomId: string, players: RoomPlayer[], myId: number, mode: GameMode = 'normal', fog = false, terrain: TerrainKind = 'river', broadcast = true, experience: ExperienceMode = 'classic'): void {
+  setState(roomId: string, players: RoomPlayer[], myId: number, mode: GameMode = 'normal', fog = false, terrain: TerrainKind = 'river', broadcast = true): void {
     this.roomId = roomId;
     this.players = Array.isArray(players) ? players : [];
     this.myId = myId;
     this.mode = mode;
-    this.experience = experience;
     this.fog = fog;
     this.terrain = terrain;
     this.broadcast = broadcast;
-    this.intelExperience.textContent = t(`room.experience_${experience}`);
+    this.intelExperience.textContent = t('room.experience_symbiosis');
     this.intelEconomy.textContent = mode === 'batalha' ? t('room.mode_battle') : t('room.mode_normal');
     this.intelVisibility.textContent = fog ? t('room.map_closed') : t('room.map_open');
     this.intelTerrain.textContent = t(`room.terrain_${terrain}`);
-    this.strategySignal.textContent = t(experience === 'symbiosis' ? 'room.strategy_symbiosis' : 'room.strategy_classic');
-    this.el.classList.toggle('is-symbiosis', experience === 'symbiosis');
+    this.strategySignal.textContent = t('room.strategy_symbiosis');
+    this.el.classList.add('is-symbiosis');
     const host = this.players.find((p) => p.isHost);
     this.roomTitle.textContent = host ? t('lobby.room_of', { host: host.name }) : t('room.room_n', { id: roomId });
     this.renderRows();
@@ -338,10 +292,6 @@ export class RoomScreen {
 
     for (const { m, btn } of this.modeBtns) {
       btn.classList.toggle('primary', m === this.mode);
-      btn.disabled = !isHost;
-    }
-    for (const { value, btn } of this.experienceBtns) {
-      btn.classList.toggle('primary', value === this.experience);
       btn.disabled = !isHost;
     }
     for (const { closed, btn } of this.fogBtns) {

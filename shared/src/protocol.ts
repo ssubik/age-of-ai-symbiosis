@@ -16,6 +16,8 @@ import type {
   UnitSnap,
   UnitType,
   CityPath,
+  RaidArmy,
+  RaidSnap,
 } from './types';
 
 // ---------- Cliente -> Servidor ----------
@@ -47,7 +49,13 @@ export type GameCommand =
   // pesquisar uma tecnologia/upgrade num prédio
   | { kind: 'research'; buildingId: number; techId: string }
   // Mercado: comprar/vender 1 lote (100) de recurso por ouro (requer mercado pronto)
-  | { kind: 'trade'; action: 'buy' | 'sell'; resource: 'food' | 'wood' | 'stone' };
+  | { kind: 'trade'; action: 'buy' | 'sell'; resource: 'food' | 'wood' | 'stone' }
+  | { kind: 'scoutRaid'; defenderId: number }
+  | { kind: 'setRaidArmy'; army: RaidArmy }
+  | { kind: 'startRaid' }
+  | { kind: 'deployRaid'; unit: keyof RaidArmy; x: number; y: number }
+  | { kind: 'showRaidReplay' }
+  | { kind: 'closeRaid' };
 
 /** Preços do mercado (ouro por lote de 100), compartilhados pela sala. */
 export type MarketPrices = Record<'food' | 'wood' | 'stone', number>;
@@ -154,6 +162,8 @@ export type ServerMessage =
       spectators?: number;
       /** Symbiosis: public match-ledger summary (hash chain head + recent activity). */
       chain?: ChainSnap;
+      /** Attacker-only asynchronous-assault lifecycle and retained replay. */
+      raid?: RaidSnap;
     }
   // Acabou o que se estava assistindo. NÃO tira o espectador da tela na força:
   // ele vê o que aconteceu e decide se continua olhando o tabuleiro final ou se
@@ -164,7 +174,7 @@ export type ServerMessage =
   //   'closed'      — o host fechou a transmissão (a partida pode seguir)
   | { type: 'spectateEnded'; reason: 'closed' | 'gameOver' | 'surrendered'; winnerName?: string; who?: string }
   // `won` (opcional) diz se VOCÊ venceu — necessário em times (vitória em dupla).
-  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean; contributions?: { playerId: number; name: string; elon: number }[]; standings?: Standing[] }
+  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean; contributions?: { playerId: number; name: string; elon: number }[]; standings?: Standing[]; /** Developer shortcuts were used: scores are not comparable. */ dev?: boolean }
   // Partida pausada/retomada (para TODOS da sala). `by` = quem mexeu (mostra na tela).
   | { type: 'gamePaused'; paused: boolean; by: string }
   // Sinalização no minimapa (só chega aos ALIADOS do autor). `color` = cor do autor.

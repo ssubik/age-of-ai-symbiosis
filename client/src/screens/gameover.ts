@@ -4,7 +4,7 @@
 import type { MatchCommitment, Standing } from '@age/shared';
 import { t } from '../i18n';
 import { L, badge, defs, code, fmt, grid, h, meter, panel, pct, shortHash } from '../shell/kit';
-import { proofTone, stewardshipTable } from '../shell/pages';
+import { devNote, proofTone, stewardshipTable } from '../shell/pages';
 import { SEAT_COLORS } from '../shell/data';
 
 export interface GameOverDeps {
@@ -25,7 +25,7 @@ export class GameOverScreen {
     this.el.append(this.card);
   }
 
-  show(youWon: boolean, winnerName: string, contributions?: { name: string; elon: number }[], awaitingProof = false, standings?: Standing[]): void {
+  show(youWon: boolean, winnerName: string, contributions?: { name: string; elon: number }[], awaitingProof = false, standings?: Standing[], dev = false): void {
     this.awaitingProof = awaitingProof;
     this.card.innerHTML = '';
     this.proofSlot = h('div', '');
@@ -33,6 +33,7 @@ export class GameOverScreen {
     const sub = h('p', 'wattResultSub', youWon ? t('over.victory_desc') : t('over.defeat_desc', { winner: winnerName }));
     this.card.append(h('div', 'waHead', h('div', 'waEyebrow', L('Match settled', 'Partida encerrada', 'Partida cerrada')), verdict, sub));
 
+    if (dev) this.card.append(devNote());
     if (standings?.length) {
       const top = standings[0];
       const ids = [...new Set(standings.map((s) => s.playerId))].sort((a, b) => a - b);

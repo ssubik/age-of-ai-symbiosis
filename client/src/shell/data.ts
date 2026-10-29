@@ -4,7 +4,7 @@ import { fetchJson } from '../net';
 export interface ProofRecord {
   matchId: string;
   archiveHash: string;
-  status: 'disabled' | 'local' | 'simulated' | 'submitted' | 'confirmed' | 'failed';
+  status: 'disabled' | 'local' | 'simulated' | 'submitted' | 'confirmed' | 'failed' | 'skipped';
   transactionHash?: string;
   ledgerHead?: string;
   ledgerHeight?: number;
@@ -23,6 +23,7 @@ export interface CampaignSummary {
   standings?: Standing[];
   ledger: { head: string; height: number; verified: boolean; txs: number } | null;
   proof: ProofRecord | null;
+  dev?: boolean;
 }
 
 export interface CampaignDetail {
