@@ -9,6 +9,9 @@ import type { GameState } from '../state';
 import type { Camera } from './camera';
 import { ISO_HH, ISO_HW } from './camera';
 import { Ambient } from './ambient';
+import { drawBuildingArt, drawUnitArt, drawVoxelBush, drawVoxelMine, drawVoxelTree, hasVoxelArt } from './voxel';
+
+const SYMBIOSIS_COMBAT: ReadonlySet<string> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian']);
 import { ConstructionSprites, Sprites, SymbiosisCombatSprites, TreeSprites, type SpriteFit } from './sprites';
 import type { UIState } from './uistate';
 import { ghostTile, wallLineTiles } from './uistate';
@@ -216,6 +219,12 @@ export class Renderer {
     // --- terreno (losangos) ---
     const tiles = this.gs.map.tiles;
     const forest = this.getForestField();
+    // Urban district anchor: the player's Hub at Home, the defended Hub in a raid.
+    const homeHub = this.gs.home
+      ? this.gs.myTownCenter() ?? null
+      : this.gs.raid?.home
+        ? [...this.gs.buildings.values()].find((b) => b.type === 'town_center') ?? null
+        : null;
     const isWater = (x: number, y: number): boolean =>
       x >= 0 && y >= 0 && x < size && y < size && tiles[y * size + x] === TILE_WATER;
     // Losango levemente expandido: as bordas se sobrepõem e escondem as
@@ -249,6 +258,40 @@ export class Renderer {
           const sn = vnoise(tx / 3.5 + 33, ty / 3.5 + 33);
           ctx.fillStyle = `hsl(184, 28%, ${48 + sn * 6}%)`;
         } else {
+          if (homeHub) {
+            const hubSize = BUILDING_DEFS.town_center.size;
+            const hx = homeHub.tileX + hubSize / 2;
+            const hy = homeHub.tileY + hubSize / 2;
+            const dx = tx + 0.5 - hx;
+            const dy = ty + 0.5 - hy;
+            const district = Math.max(Math.abs(dx), Math.abs(dy)) <= 29;
+            const originX = Math.floor(hx) - 5;
+            const originY = Math.floor(hy) - 5;
+            const laneX = ((tx - originX) % 9 + 9) % 9;
+            const laneY = ((ty - originY) % 9 + 9) % 9;
+            const road = district && (laneX < 2 || laneY < 2);
+            const blockX = Math.floor((tx - originX) / 9);
+            const blockY = Math.floor((ty - originY) / 9);
+            const park = district && !road && (blockX + blockY) % 5 === 0;
+            const n = vnoise(tx / 8 + 17, ty / 8 + 29);
+            const checker = (tx + ty) & 1;
+            // Tech-diorama ground: dark asphalt lanes, slate panel pavement,
+            // bright grass plots; open land outside is checkered voxel grass.
+            ctx.fillStyle = road
+              ? `hsl(220, 14%, ${15 + n * 2}%)`
+              : park
+                ? `hsl(92, 44%, ${40 + checker * 3 + n * 4}%)`
+                : district
+                  ? `hsl(217, 15%, ${25 + checker * 1.5 + n * 3}%)`
+                  : `hsl(94, 30%, ${31 + checker * 2 + n * 4}%)`;
+            ctx.fill();
+            if (district && !road) {
+              ctx.strokeStyle = park ? 'rgba(40,70,30,.25)' : 'rgba(150,170,195,.12)';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+            continue;
+          }
           // TERRA: sem pintar areia por tile (era o que deixava a borda "quadrada"
           // e grossa). A praia fica SÓ na franja ondulada da drawCoast, na beira
           // d'água — waterline limpa. A grama vai reto até a margem.
@@ -259,10 +302,13 @@ export class Renderer {
           const bio = vnoise(tx / 24 + 71, ty / 24 + 71);
           const dryT = clamp01((0.42 - bio) * 2.4);
           const lushT = clamp01((bio - 0.62) * 2.6);
-          ctx.fillStyle = `hsl(${137 + (n - 0.5) * 10 - dryT * 12 + lushT * 7}, ${20 - dryT * 3 + lushT * 5}%, ${23 + n * 6 + (n2 - 0.5) * 2 + dryT * 3}%)`;
+          // Voxel grass: a gentle two-tone checker keeps tiles legible as blocks.
+          const checker = (tx + ty) & 1;
+          void n2; void dryT;
+          ctx.fillStyle = `hsl(${92 + lushT * 6}, ${32 + lushT * 6}%, ${30 + checker * 2 + n * 5}%)`;
           // manchas de terra batida (noise de baixa freq., borda suave)
           const dn = vnoise(tx / 8.5 + 40, ty / 8.5 + 40);
-          if (dn > 0.66) dirtT = Math.min(0.72, ((dn - 0.66) / 0.2) * 0.72);
+          void dn;
           // chão de floresta: terra escura e folhas sob as árvores
           forestT = forest[ty * size + tx];
         }
@@ -281,10 +327,12 @@ export class Renderer {
     // --- costa: quebra a borda "quadrada" água/terra com uma franja ondulada ---
     this.drawCoast(ctx, px, py, tiles, size, tx0, tx1, ty0, ty1);
 
-    // --- terra batida ao redor dos prédios + detalhes do chão ---
-    this.drawBuildingDirt(ctx, px, py, hw, hh);
-    this.drawScatter(ctx, tx0, tx1, ty0, ty1, px, py, cam.zoom, tiles, size);
-    this.drawHimalayanRelief(ctx, tx0, tx1, ty0, ty1, px, py, hh, tiles, size);
+    // Home uses an authored urban ground language; Arena keeps its natural biome.
+    if (homeHub) this.drawUrbanInfrastructure(ctx, px, py, hh, homeHub);
+    else {
+      this.drawBuildingDirt(ctx, px, py, hw, hh);
+      this.drawScatter(ctx, tx0, tx1, ty0, ty1, px, py, cam.zoom, tiles, size);
+    }
 
     // --- vida ambiente sob a água (peixes), logo após o terreno ---
     this.ambient.drawWater(ctx, cam, now);
@@ -563,6 +611,87 @@ export class Renderer {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  /** Home-only city dressing. Roads are intentionally visual rather than a new
+   * tile type: placement, builder navigation and saved-map compatibility keep
+   * using the authoritative walkable grid. */
+  private drawUrbanInfrastructure(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+    hub: BuildingSnap,
+  ): void {
+    const hubSize = BUILDING_DEFS.town_center.size;
+    const hx = hub.tileX + hubSize / 2;
+    const hy = hub.tileY + hubSize / 2;
+    const originX = Math.floor(hx) - 5;
+    const originY = Math.floor(hy) - 5;
+    const loX = hx - 29;
+    const hiX = hx + 29;
+    const loY = hy - 29;
+    const hiY = hy + 29;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // Solid road edges, then dashed centre lines (white, like painted asphalt).
+    ctx.strokeStyle = 'rgba(236,242,248,.5)';
+    ctx.lineWidth = Math.max(0.8, hh * 0.06);
+    for (let k = -3; k <= 3; k++) {
+      for (const off of [0.08, 1.92]) {
+        const x = originX + k * 9 + off;
+        ctx.beginPath(); ctx.moveTo(px(x, loY), py(x, loY)); ctx.lineTo(px(x, hiY), py(x, hiY)); ctx.stroke();
+        const y = originY + k * 9 + off;
+        ctx.beginPath(); ctx.moveTo(px(loX, y), py(loX, y)); ctx.lineTo(px(hiX, y), py(hiX, y)); ctx.stroke();
+      }
+    }
+    ctx.setLineDash([Math.max(3, hh * 0.55), Math.max(4, hh * 0.8)]);
+    ctx.strokeStyle = 'rgba(244,247,250,.7)';
+    ctx.lineWidth = Math.max(0.8, hh * 0.07);
+    for (let k = -3; k <= 3; k++) {
+      const x = originX + k * 9 + 1;
+      ctx.beginPath();
+      ctx.moveTo(px(x, loY), py(x, loY));
+      ctx.lineTo(px(x, hiY), py(x, hiY));
+      ctx.stroke();
+      const y = originY + k * 9 + 1;
+      ctx.beginPath();
+      ctx.moveTo(px(loX, y), py(loX, y));
+      ctx.lineTo(px(hiX, y), py(hiX, y));
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Modular build-block borders make empty plots legible without blocking them.
+    ctx.strokeStyle = 'rgba(83,226,219,.16)';
+    ctx.lineWidth = Math.max(0.7, hh * 0.045);
+    for (let by = -3; by <= 3; by++) {
+      for (let bx = -3; bx <= 3; bx++) {
+        const x = originX + bx * 9 + 2.25;
+        const y = originY + by * 9 + 2.25;
+        const p0 = { x: px(x, y), y: py(x, y) };
+        const p1 = { x: px(x + 5.5, y), y: py(x + 5.5, y) };
+        const p2 = { x: px(x + 5.5, y + 5.5), y: py(x + 5.5, y + 5.5) };
+        const p3 = { x: px(x, y + 5.5), y: py(x, y + 5.5) };
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(p3.x, p3.y);
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+
+    // The Civic Hub plaza is the visual anchor and remains readable under units.
+    this.isoDiamond(ctx, px, py, hub.tileX - 1.1, hub.tileY - 1.1, hubSize + 2.2);
+    const mine = hub.owner === this.gs.you;
+    ctx.fillStyle = mine ? 'rgba(56,106,116,.22)' : 'rgba(60,70,84,.25)';
+    ctx.fill();
+    ctx.strokeStyle = mine ? 'rgba(107,235,243,.42)' : 'rgba(244,121,117,.35)';
+    ctx.lineWidth = Math.max(1.1, hh * 0.09);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** Sparse low-poly Himalayan ridges: geographic character without turning
@@ -844,14 +973,9 @@ export class Renderer {
       // sprite (se houver) ancorado com a BASE do tronco em (sx, sy); variação
       // estável sorteada pela posição. Sem sprite → árvore procedural.
       const timg = this.trees.get(n.tileX * 7 + n.tileY * 13);
+      void timg;
       const paint = (): void => {
-        if (timg) {
-          const drawW = U * 3.6;
-          const drawH = drawW * (timg.height / timg.width);
-          ctx.drawImage(timg, sx - drawW / 2, sy - drawH, drawW, drawH);
-        } else {
-          this.drawTree(ctx, sx, sy, U, n.tileX, n.tileY);
-        }
+        drawVoxelTree(ctx, { px, py, hh: U }, n.tileX, n.tileY, hash01(n.tileX * 3 + 1, n.tileY * 5 + 2));
       };
       if (chopped) {
         // balança de leve enquanto está sendo cortada (pivô na base)
@@ -866,15 +990,9 @@ export class Renderer {
         paint();
       }
     } else if (n.type === 'berry_bush') {
-      this.blob(ctx, sx - U * 0.34, sy - U * 0.4, U * 0.42, U * 0.4, '#2f6b34', '#1e4d22');
-      this.blob(ctx, sx + U * 0.34, sy - U * 0.4, U * 0.42, U * 0.4, '#2f6b34', '#1e4d22');
-      this.blob(ctx, sx, sy - U * 0.62, U * 0.5, U * 0.46, '#3a7a3e', '#245229');
-      const berry = (dx: number, dy: number): void => this.blob(ctx, sx + dx * U, sy - dy * U, U * 0.11, U * 0.11, '#d23b46', '#8f2630');
-      berry(-0.3, 0.55); berry(0.15, 0.7); berry(0.42, 0.5); berry(-0.05, 0.42); berry(0.3, 0.32);
-    } else if (n.type === 'gold_mine') {
-      this.mineCluster(ctx, sx, sy, U, n.tileX, n.tileY, 'gold');
-    } else if (n.type === 'stone_mine') {
-      this.mineCluster(ctx, sx, sy, U, n.tileX, n.tileY, 'stone');
+      drawVoxelBush(ctx, { px, py, hh: U }, n.tileX, n.tileY);
+    } else if (n.type === 'gold_mine' || n.type === 'stone_mine') {
+      drawVoxelMine(ctx, { px, py, hh: U }, n.tileX, n.tileY, n.type === 'gold_mine' ? 'gold' : 'stone', hash01(n.tileX, n.tileY));
     } else if (n.type === 'fish') {
       this.drawFishSchool(ctx, sx, sy, U, n.tileX, n.tileY, now);
     }
@@ -2152,7 +2270,7 @@ export class Renderer {
     hh: number,
     b: BuildingSnap,
   ): { cx: number; baseY: number; topY: number; drawW: number; drawH: number } | null {
-    if ((b.progress ?? 1) < 1) return null;
+    if ((b.progress ?? 1) < 1 || hasVoxelArt(b.type)) return null;
     const s = BUILDING_DEFS[b.type]?.size ?? 1;
     const age = Math.min(4, Math.max(1, this.gs.playerSnaps.get(b.owner)?.age ?? 1));
     const spr = this.sprites.get(b.type, age);
@@ -2217,13 +2335,21 @@ export class Renderer {
     // sombra no chão (fantasma não projeta sombra)
     if (alphaMul >= 1) this.poly(ctx, [T, R, B, L], 'rgba(0,0,0,0.13)');
 
-    ctx.globalAlpha = (under ? 0.6 : 1) * alphaMul;
+    const voxel = hasVoxelArt(b.type);
+    ctx.globalAlpha = (under && !voxel ? 0.6 : 1) * alphaMul;
     let topY: number;
-    // Se há um SPRITE (PNG) pra este prédio e ele está concluído, desenha a
-    // imagem no lugar da arte procedural (obra em andamento usa a procedural,
-    // pra mostrar o andaime). Ausente => cai no desenho por código.
-    const spr = under ? null : this.sprites.get(b.type, age);
-    if (spr) {
+    // Tech-diorama voxel art for every structure (construction stages come
+    // from authoritative progress inside the kit). The old PNG sprites stay
+    // only as a fallback for painters the kit does not cover.
+    const spr = under || voxel ? null : this.sprites.get(b.type, age);
+    if (voxel) {
+      const friendly = b.owner === this.gs.you || this.gs.alliedOwners.has(b.owner);
+      topY = drawBuildingArt(ctx, { px, py, hh }, {
+        type: b.type, size: s, tileX: b.tileX, tileY: b.tileY, progress: under ? prog : 1,
+        emit: friendly ? '#54dbe9' : '#f47975', team: owner, now, targetLocked: b.targetId != null,
+        level: b.type === 'town_center' ? Math.max(b.level ?? 1, age) : b.level,
+      });
+    } else if (spr) {
       topY = this.drawBuildingSprite(ctx, px, py, hh, b, s, spr.img, spr.fit);
     } else {
       const site: BSite = { px, py, T, R, B, L, hh, th, s, age, m: AGE_MATS[age], owner, under, prog, b, now };
@@ -2263,7 +2389,7 @@ export class Renderer {
 
     // City Level 2 remains recognizably the same Civic Hub, but gains a clear
     // cyan command ring and antenna instead of swapping to an unrelated asset.
-    if (!under && b.type === 'town_center' && age >= 2) {
+    if (!under && b.type === 'town_center' && age >= 2 && !voxel) {
       const lift = hh * 0.46;
       const ring = [T, R, B, L].map((p) => ({ x: p.x, y: p.y - lift }));
       ctx.save();
@@ -2304,7 +2430,7 @@ export class Renderer {
     // andaimes de madeira enquanto está em obra: postes nos cantos + travessa
     if (under) {
       const poleH = th * 0.95;
-      ctx.strokeStyle = '#8a6a3f';
+      ctx.strokeStyle = '#8c9bb0'; // steel scaffolding
       ctx.lineWidth = Math.max(1.4, hh * 0.16);
       ctx.lineCap = 'round';
       for (const c of [T, R, B, L]) {
@@ -2472,7 +2598,7 @@ export class Renderer {
         ctx.lineWidth = Math.max(1.5, hh * 0.14);
         ctx.beginPath(); ctx.ellipse(cx, cy - hh * (0.35 + i * 0.25), hh * 0.95, hh * 0.48, 0, 0, Math.PI); ctx.stroke();
       }
-    } else if (b.type === 'town_center' && level >= 3) {
+    } else if (b.type === 'town_center' && level >= 3 && !hasVoxelArt(b.type)) {
       // Higher command tiers: second ring, taller mast, side pylons, crown beacon.
       const lift = hh * 1.1;
       ctx.strokeStyle = 'rgba(84,219,233,.7)';
@@ -3649,6 +3775,7 @@ export class Renderer {
     const skin = '#e2b48a';
     const steel = '#c9ccd2';
     const age = this.ownerAge(u.owner);
+    if (u.type !== 'aegis_valkyrie' && drawUnitArt(ctx, { type: u.type, sx, sy, U, team: color, face: 1, now, id: u.id, moving: false, attacking: false })) return;
     if (u.type === 'villager' || u.type === 'designer') this.figVillager(ctx, sx, sy, U, u.type === 'designer' ? '#58c9d4' : color, dark, skin, u, now, false, 1, null, age);
     else if (u.type === 'swordsman') this.figSwordsman(ctx, sx, sy, U, color, dark, skin, steel, age);
     else if (u.type === 'archer') this.figArcher(ctx, sx, sy, U, color, dark, skin, age);
@@ -4081,8 +4208,9 @@ export class Renderer {
       tool = 'hammer';
     }
 
-    // sombra
-    this.blob(ctx, sx, sy, U * (mounted ? 1.35 : 0.85), U * 0.42, 'rgba(0,0,0,0.24)');
+    // sombra (larger under the bigger voxel machines)
+    const shadowK = SYMBIOSIS_COMBAT.has(u.type) ? 1.5 : 1;
+    this.blob(ctx, sx, sy, U * (mounted ? 1.35 : 0.85) * shadowK, U * 0.42 * shadowK, 'rgba(0,0,0,0.24)');
 
     // anel de seleção
     if (selected) {
@@ -4094,7 +4222,15 @@ export class Renderer {
     }
 
     const age = this.ownerAge(u.owner);
-    if (u.type === 'robot') {
+    // Voxel figures are drawn larger than the old painted ones so every unit
+    // class stays identifiable at gameplay zoom (spec §8.10): machines most.
+    const voxelScale = SYMBIOSIS_COMBAT.has(u.type) ? 1.55 : u.type === 'robot' || u.type === 'drone' ? 1.35 : 1.2;
+    const voxelDrawn = u.type !== 'aegis_valkyrie' && drawUnitArt(ctx, {
+      type: u.type, sx, sy, U: U * voxelScale, team: color, face: face === -1 ? -1 : 1, now, id: u.id, moving, attacking,
+    });
+    if (voxelDrawn) {
+      if (u.type === 'drone') this.drawDroneBeam(ctx, px, py, sx, sy, U, u, now);
+    } else if (u.type === 'robot') {
       this.figRobot(ctx, sx, sy, U, color, u, now, moving, face);
     } else if (u.type === 'drone') {
       this.figDrone(ctx, sx, sy, U, color, u, now);

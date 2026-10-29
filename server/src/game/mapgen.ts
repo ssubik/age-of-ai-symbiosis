@@ -94,6 +94,63 @@ export function generateMap(playerCount: number, forcedSeed?: number, terrain: T
   return forced;
 }
 
+/** Persistent Home district: a central, readable robotic-city blockout rather
+ * than an Arena wilderness. Roads remain presentation-only, so every open plot
+ * still uses the proven grass-tile placement and pathfinding rules. */
+export function generateHomeMap(forcedSeed = 0x41e0fa11): GenResult {
+  const size = MAP_SIZE;
+  const rng = mulberry32(forcedSeed);
+  const tiles = new Array<number>(size * size).fill(TILE_GRASS);
+  const blocked = new Uint8Array(size * size);
+  const grid: Grid = { size, tiles, blocked };
+  const units: Unit[] = [];
+  const buildings: Building[] = [];
+  const nodes: ResNode[] = [];
+  const sheep: Sheep[] = [];
+  let nextId = 1;
+  const center = Math.floor(size / 2);
+  const tcDef = BUILDING_DEFS.town_center;
+  const tcX = center - Math.floor(tcDef.size / 2);
+  const tcY = center - Math.floor(tcDef.size / 2);
+  buildings.push({ id: nextId++, owner: 0, type: 'town_center', tileX: tcX, tileY: tcY, hp: tcDef.hp, progress: 1, queue: [] });
+  for (let y = tcY; y < tcY + tcDef.size; y++) for (let x = tcX; x < tcX + tcDef.size; x++) blocked[idx(x, y, size)] = 1;
+
+  const adjacent = ringSpots(tcX, tcY, tcDef.size, size);
+  for (let i = 0; i < START_VILLAGERS; i++) {
+    const spot = adjacent[i];
+    units.push(createUnit(nextId++, 0, 'villager', spot.x + 0.5, spot.y + 0.5));
+  }
+
+  const placeNode = (type: NodeType, x: number, y: number): void => {
+    if (!inBounds(grid, x, y) || blocked[idx(x, y, size)]) return;
+    nodes.push({ id: nextId++, type, tileX: x, tileY: y, amount: NODE_DEFS[type].amount });
+    blocked[idx(x, y, size)] = 1;
+  };
+  const cluster = (type: NodeType, cx: number, cy: number, count: number, spread: number): void => {
+    let placed = 0;
+    for (let guard = 0; guard < count * 20 && placed < count; guard++) {
+      const x = Math.round(cx + (rng() - 0.5) * spread);
+      const y = Math.round(cy + (rng() - 0.5) * spread);
+      const before = nodes.length;
+      placeNode(type, x, y);
+      if (nodes.length > before) placed++;
+    }
+  };
+
+  // Engineered resource districts leave a broad 24×24 construction core clear.
+  cluster('berry_bush', center - 16, center + 4, 10, 7);
+  cluster('tree', center + 17, center - 11, 24, 10);
+  cluster('tree', center - 18, center - 14, 14, 8);
+  cluster('gold_mine', center + 15, center + 14, 8, 7);
+  cluster('stone_mine', center + 8, center + 19, 8, 7);
+  cluster('tree', center + 31, center + 4, 18, 10);
+  cluster('gold_mine', center - 30, center + 17, 5, 7);
+  cluster('stone_mine', center + 25, center - 27, 5, 7);
+
+  for (let i = 0; i < 3; i++) sheep.push(createSheep(nextId++, center - 10 + i * 0.8, center + 7 + (i % 2) * 0.7));
+  return { grid, units, buildings, nodes, sheep, nextId, seed: forcedSeed };
+}
+
 function tryGenerate(playerCount: number, seed: number, forceCarve = false, terrain: TerrainKind = 'classic'): GenResult | null {
   const size = MAP_SIZE;
   const rng = mulberry32(seed);

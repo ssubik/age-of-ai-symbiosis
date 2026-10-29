@@ -30,6 +30,17 @@ Phase 0 approval is conditional: sources are original/project-owned and work in 
 actual loader, but a fresh gameplay screenshot and measured native-scale comparison
 cannot be completed until a controllable browser is available.
 
+## Urban Home ground system
+
+The persistent Home now uses the approved robotic-city composition from the
+2026-10-29 reference: a centered Civic Hub landmark, a 9-tile modular street
+rhythm, dark slate roads, restrained white lane markings, cyan plot borders,
+green park blocks and engineered resource districts outside the construction
+core. Roads are renderer-authored presentation layers over walkable terrain, so
+they do not create a second placement/pathfinding system. Existing saved Homes
+receive the urban dressing around their current Hub; newly created Homes also
+receive the centered authored layout and planned starter-building plots.
+
 ## Phase 1 building family
 
 | Asset ID | Gameplay role | Footprint | Mandatory visual states | Source/owner | Status |
@@ -95,3 +106,28 @@ this Phase 1 manifest.
 - No unbounded particles, glow wash, baked collision cues or generic square shipping fallback.
 - Actual in-engine captures and frame-time numbers are attached before Phase 1 is called release-ready.
 
+
+## Tech-diorama art pass (2026-10-30)
+
+Direction requested by the project owner: match the look of the supplied
+reference screenshots (persistent robotic city; asynchronous raid). Per
+master spec §8.1 and §12.7 those images are a **style target only**. Nothing
+was traced, sampled or copied; every shape is original procedural geometry in
+`client/src/game/voxel.ts`, drawn by the existing Canvas renderer.
+
+| Element | Treatment | Status |
+|---|---|---|
+| Ground | Slate panel pavement in the district, dark asphalt lanes with white edge lines and dashed centres, bright grass plots, two-tone voxel grass outside; Himalayan relief and dirt patches removed | Done (procedural) |
+| Buildings | Modular voxel blocks on deck plates; tops lit, left faces mid, right faces dark (upper-left light); seams, lit windows, emissive strips (cyan friendly, coral hostile), maze/vent/solar/pad roofs | Done for every type except point turret, anti-air, sensor tower and dock, which keep their dedicated procedural painters |
+| Hub | Tiered command block; City Level adds taller towers (L2), a tier (L3), pylons (L4), crown beacon (L5) | Done |
+| Construction | Deck + corner lights (0–15%), amber braced framework (15–55%), solid walls rising with the frame above (55–90%), amber power-up strips (90–100%) | Done; `scripts/voxel_art_test.ts` |
+| Trees / resources | Stacked voxel leaf cubes on slim trunks; voxel gold, stone and berry blocks | Done |
+| Units | Voxel figures: operators, Builder Robot, Construction Drone, Attack Drone (X frame), Fighter (delta), Stealth Bomber (flying wing), Rocket Launcher, Siege Mech, Plasma Tank, Iron Guardian; Aegis Valkyrie keeps its procedural swept-wing art; Arena infantry/cavalry restyled as tech troops; boats unchanged | Done |
+| PNG sprites | Building, tree and combat-unit PNGs are no longer used for these types (kept on disk as fallbacks) | Superseded |
+
+Measured after the pass (headless Chrome, seeded L4 city): 60 fps, p95 16.8 ms
+at 1920×1080 and 1280×720 (vsync-capped; not a low-end hardware figure).
+
+Open: authored hero assets (e.g. low-poly exports) could replace the
+procedural kit later through the same `drawBuildingArt`/`drawUnitArt` entry
+points; audio; per-unit death and hit animations in the new style.

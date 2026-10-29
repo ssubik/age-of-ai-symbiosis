@@ -38,6 +38,7 @@ export class Minimap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D | null;
   private terrain: HTMLCanvasElement;
+  private terrainHome = false;
   private dragging = false;
   private pingMode = false;
   private pingBtn: HTMLButtonElement | null = null;
@@ -133,10 +134,23 @@ export class Minimap {
     c.height = size;
     const ctx = c.getContext('2d');
     if (!ctx) return c;
+    const hub = this.gs.home ? this.gs.myTownCenter() : null;
+    const hubSize = BUILDING_DEFS.town_center.size;
+    const hx = hub ? hub.tileX + hubSize / 2 : 0;
+    const hy = hub ? hub.tileY + hubSize / 2 : 0;
+    const originX = Math.floor(hx) - 5;
+    const originY = Math.floor(hy) - 5;
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const v = this.gs.map.tiles[y * size + x];
-        ctx.fillStyle = v === TILE_WATER ? '#2b5e8c' : v === TILE_SHALLOW ? '#c2b184' : '#3b5528';
+        if (hub && v !== TILE_WATER && v !== TILE_SHALLOW) {
+          const district = Math.max(Math.abs(x + 0.5 - hx), Math.abs(y + 0.5 - hy)) <= 29;
+          const laneX = ((x - originX) % 9 + 9) % 9;
+          const laneY = ((y - originY) % 9 + 9) % 9;
+          ctx.fillStyle = district ? (laneX < 2 || laneY < 2 ? '#26343d' : '#3b575a') : '#283f32';
+        } else {
+          ctx.fillStyle = v === TILE_WATER ? '#2b5e8c' : v === TILE_SHALLOW ? '#c2b184' : '#3b5528';
+        }
         ctx.fillRect(x, y, 1, 1);
       }
     }
@@ -176,6 +190,10 @@ export class Minimap {
   draw(now: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (this.gs.home && !this.terrainHome) {
+      this.terrain = this.buildTerrain();
+      this.terrainHome = true;
+    }
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, MINI_W, MINI_H); // fora do losango fica transparente (fundo preto do quadro)

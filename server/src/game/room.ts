@@ -118,7 +118,7 @@ import type {
   RaidReport,
 } from '@age/shared';
 import { DIFFICULTY, runBotAI } from './ai';
-import { generateMap } from './mapgen';
+import { generateHomeMap, generateMap } from './mapgen';
 import { collectSpreadTiles, findPath, idx, isWalkable, nearestWalkableTile, ringTiles, type Grid } from './path';
 import { MatchLedger } from '../chain/ledger';
 import { needElon, rankStandings, reliabilityBonus, reliabilityPpm, stewardshipValue, type NeedSample } from './stewardship';
@@ -277,7 +277,10 @@ export class Game {
     this.raidMode = options.session === 'raid';
     this.now = options.now ?? Date.now;
     this.ledger = this.homeMode || this.raidMode ? null : new MatchLedger(matchSalt);
-    const gen = generateMap(members.length, undefined, terrain);
+    const homeSeed = Number.parseInt(matchSalt.slice(0, 8), 16);
+    const gen = this.homeMode
+      ? generateHomeMap(Number.isFinite(homeSeed) ? homeSeed : undefined)
+      : generateMap(members.length, undefined, terrain);
     this.grid = gen.grid;
     this.map = { size: gen.grid.size, tiles: gen.grid.tiles };
     this.nextId = gen.nextId;
@@ -3145,9 +3148,22 @@ export class Game {
     if (starters[2]) { starters[2].type = 'drone'; starters[2].hp = UNIT_DEFS.drone.hp; }
     const hub = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
     if (hub) {
-      for (const type of ['house', 'mill', 'lumber_camp'] as BuildingType[]) {
+      const foundation: { type: BuildingType; x: number; y: number }[] = [
+        { type: 'house', x: hub.tileX - 6, y: hub.tileY - 2 },
+        { type: 'mill', x: hub.tileX - 6, y: hub.tileY + 5 },
+        { type: 'lumber_camp', x: hub.tileX + 7, y: hub.tileY - 2 },
+      ];
+      for (const planned of foundation) {
+        const type = planned.type;
         const def = BUILDING_DEFS[type];
         let placed = false;
+        if (this.validFootprint(planned.x, planned.y, def.size)) {
+          const building: Building = { id: this.nextId++, owner: playerId, type, tileX: planned.x, tileY: planned.y, hp: def.hp, progress: 1, queue: [] };
+          this.buildings.set(building.id, building);
+          this.blockFootprint(building.tileX, building.tileY, def.size);
+          this.knownCompletedBuildings.add(building.id);
+          placed = true;
+        }
         for (let radius = 5; radius < 16 && !placed; radius++) {
           for (let y = hub.tileY - radius; y <= hub.tileY + radius && !placed; y++) {
             for (let x = hub.tileX - radius; x <= hub.tileX + radius; x++) {

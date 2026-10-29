@@ -24,6 +24,10 @@ const internals = game as unknown as {
 assert.equal(game.homeMode, true);
 assert.deepEqual([...game.units.values()].map((u) => u.type).sort(), ['designer', 'drone', 'robot']);
 assert.ok([...game.buildings.values()].some((b) => b.type === 'mill' && b.progress === 1));
+const civicHub = [...game.buildings.values()].find((b) => b.type === 'town_center');
+assert.ok(civicHub);
+assert.ok(Math.abs(civicHub!.tileX + BUILDING_DEFS.town_center.size / 2 - game.grid.size / 2) <= 1, 'new Home hub is centered in the urban district');
+assert.ok([...game.nodes.values()].every((node) => Math.max(Math.abs(node.tileX - game.grid.size / 2), Math.abs(node.tileY - game.grid.size / 2)) >= 10), 'engineered resources preserve a clear construction core');
 
 function freeSite(size: number): { x: number; y: number } {
   for (let y = 2; y < game.grid.size - size - 2; y++) {
