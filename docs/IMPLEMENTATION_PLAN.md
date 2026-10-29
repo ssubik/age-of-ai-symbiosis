@@ -216,3 +216,34 @@ it is not a Phase 1 regression. An Arena smoke attempt reached all 19 passing
 assertions, but port 8080 was already owned by another server, so that run is not
 accepted as isolated evidence.
 
+
+## Phase 2 — manufacturing and camps (implemented 2026-10-29)
+
+Home-only branches in `Game`; Arena training (ELON payment, queue-time army
+check, full refunds, pop housing) is unchanged.
+
+| Rule (master spec §5) | Implementation |
+|---|---|
+| Starting a job deducts resources once | `cmdTrain` pays `UNIT_DEFS.cost` in resources and stores `paid` on the job; Home never spends ELON |
+| Finished unit occupies camp capacity or waits in the factory | `releaseFinishedUnit` checks the shared camp pool; otherwise `trainBlocked = 'no_camp' \| 'camp_full'` and the head stays at 100% |
+| Camp space separate from stats | `HOME_CAMP_SPACE` (drone 1, siege 4, rocket 3, fighter 3, bomber 5, tank 5, guardian 8); Home army does not use housing |
+| Cancel refunds 100% unstarted / 50% started / none finished | `cancelHomeJob`, clamped to storage caps so refunds cannot mint past capacity |
+| Power shortage slows factories | Job progress scales by `powerEfficiency` (30% floor) |
+| Physical departure and docking | Unit exits beside the factory and paths to a ring tile of the nearest camp, spread by occupancy |
+| Restart/offline queue work | Same 8h cap and frozen power factor as construction; finished units dock directly; a full camp blocks offline as it would live |
+| Production VFX | Chasing cyan line strip and weld sparks while working; bay door glow over the last 10%; amber outline plus a "!" chip when blocked; reduced-motion holds them still |
+| HUD | Train tooltips show resource cost and camp space; queue shows why it is blocked; cancel tooltip states the 50% refund once started |
+
+Tests: `scripts/home_phase2_test.ts` (in `npm run test:home`) covers payment,
+blocking with no camp and with a full camp, no refund for finished units,
+refund rules and storage clamp, docking, housing exclusion, same-instant restart,
+one hour offline (3 jobs → exactly 3 units, no duplicates across a second
+restart), and offline filling to capacity only.
+
+Visual check: captured in headless Chrome against the live server with a seeded
+throwaway profile. Captures show the factory production strip and sparks, the blocked
+"!" chip, and five Attack Drones docked around the camp with HUD army `5/10`.
+
+Known gaps: Attack Drones and the camp/factory still use the existing procedural
+facility art, not original sci-fi assets; docked units idle on the camp ring
+rather than on dedicated pads; no audio cues.

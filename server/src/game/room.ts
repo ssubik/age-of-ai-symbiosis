@@ -60,6 +60,8 @@ import {
   powerEfficiency,
   ELON_UNIT_COST,
   HOME_BASE_STORAGE,
+  HOME_CAMP_SPACE,
+  HOME_STARTED_JOB_REFUND,
   HOME_DEVELOPMENT,
   HOME_LEVEL_POINTS,
   HOME_OFFLINE_CAP_SECONDS,
@@ -574,8 +576,13 @@ export class Game {
 
   private armyUsedOf(playerId: number): number {
     let used = 0;
-    for (const u of this.units.values()) if (u.owner === playerId && SYMBIOSIS_COMBAT_UNITS.has(u.type)) used += UNIT_DEFS[u.type].pop;
+    for (const u of this.units.values()) if (u.owner === playerId && SYMBIOSIS_COMBAT_UNITS.has(u.type)) used += this.armySpaceOf(u.type);
     return used;
+  }
+
+  /** Home measures the army in Army Camp space (spec §5); Arena keeps unit pop. */
+  private armySpaceOf(type: UnitType): number {
+    return this.homeMode ? HOME_CAMP_SPACE[type] ?? UNIT_DEFS[type].pop : UNIT_DEFS[type].pop;
   }
 
   private armyCommittedOf(playerId: number): number {
@@ -889,6 +896,7 @@ export class Game {
     if (b.targetId !== undefined) s.targetId = b.targetId; // torre atirando
     if (b.garrison?.length) s.garrison = b.garrison.length; // unidades dentro
     if (b.upgradeTargetLevel !== undefined) s.upgradeTargetLevel = b.upgradeTargetLevel;
+    if (b.trainBlocked) s.trainBlocked = b.trainBlocked;
     const proof = this.facilityProofs.get(b.id);
     if (proof) s.proof = proof;
     return s;
@@ -932,6 +940,8 @@ export class Game {
   private popOf(playerId: number): number {
     let total = 0;
     for (const u of this.units.values()) {
+      // Home: manufactured army occupies Army Camp space, not housing.
+      if (this.homeMode && SYMBIOSIS_COMBAT_UNITS.has(u.type)) continue;
       if (u.owner === playerId) total += UNIT_DEFS[u.type].pop;
       // tropa EMBARCADA num transporte também conta (AoE2)
       if (u.cargo) for (const c of u.cargo) if (c.owner === playerId) total += UNIT_DEFS[c.type].pop;
@@ -2046,7 +2056,8 @@ export class Game {
       this.errorTo(playerId, 'err.requires_age', { age: req });
       return;
     }
-    if (SYMBIOSIS_COMBAT_UNITS.has(unit)) {
+    let paid: Partial<Resources> | undefined;
+    if (SYMBIOSIS_COMBAT_UNITS.has(unit) && !this.homeMode) {
       const elonCost = ELON_UNIT_COST[unit] ?? 0;
       if (this.armyCommittedOf(playerId) + UNIT_DEFS[unit].pop > this.armyCapacityOf(playerId)) { this.errorTo(playerId, 'err.army_full'); return; }
       if (p.elonBalance < elonCost) { this.errorTo(playerId, 'err.no_elon'); return; }
@@ -2056,14 +2067,20 @@ export class Game {
       const cost = UNIT_DEFS[unit].cost;
       if (!this.canAfford(p, cost)) { this.errorTo(playerId, 'err.no_resources'); return; }
       this.deduct(p, cost);
+      // Home: record the exact payment so a cancel refunds what was really paid.
+      if (this.homeMode) paid = { ...cost };
     }
-    b.queue.push({ unit, progress: 0 });
+    b.queue.push(paid ? { unit, progress: 0, paid } : { unit, progress: 0 });
   }
 
   private cmdCancelTrain(playerId: number, buildingId: number, index: number): void {
     const b = this.buildings.get(buildingId);
     if (!b || b.owner !== playerId) return;
     if (index < 0 || index >= b.queue.length) return;
+    if (this.homeMode) {
+      this.cancelHomeJob(playerId, b, index);
+      return;
+    }
     const item = b.queue.splice(index, 1)[0];
     const p = this.players.get(playerId);
     if (p) {
@@ -2082,6 +2099,10 @@ export class Game {
   private updateBuildingTraining(b: Building, dt: number): void {
     if (b.progress < 1 || b.queue.length === 0) return;
     const head = b.queue[0];
+    if (this.homeMode && SYMBIOSIS_COMBAT_UNITS.has(head.unit)) {
+      this.updateHomeManufacturing(b, dt);
+      return;
+    }
     const def = UNIT_DEFS[head.unit];
     if (head.progress < 1) {
       head.progress = Math.min(1, head.progress + dt / this.trainTimeFor(b));
@@ -3213,6 +3234,109 @@ export class Game {
         player.age = b.upgradeTargetLevel;
         b.upgradeTargetLevel = undefined;
       }
+    }
+    // Factory queues run on the same frozen power factor. Finished units dock
+    // directly (no offline flight); a full camp blocks the factory as it would live.
+    for (const b of [...this.buildings.values()].sort((a, z) => a.id - z.id)) {
+      if (b.owner !== playerId || b.progress < 1) continue;
+      let budget = elapsed * efficiency;
+      while (b.queue.length > 0 && SYMBIOSIS_COMBAT_UNITS.has(b.queue[0].unit)) {
+        const head = b.queue[0];
+        const remaining = (1 - head.progress) * this.trainTimeFor(b);
+        if (budget < remaining) {
+          head.progress += budget / this.trainTimeFor(b);
+          break;
+        }
+        budget -= remaining;
+        head.progress = 1;
+        if (!this.releaseFinishedUnit(b, true)) break;
+      }
+    }
+  }
+
+  // ---------------- Home manufacturing (Phase 2) ----------------
+
+  private updateHomeManufacturing(b: Building, dt: number): void {
+    const head = b.queue[0];
+    if (head.progress < 1) {
+      b.trainBlocked = undefined; // only a finished head can be blocked
+      // Power shortage slows factories down to the efficiency floor, never to zero.
+      const grid = this.powerOf(b.owner);
+      head.progress = Math.min(1, head.progress + (dt * powerEfficiency(grid.supply, grid.draw)) / this.trainTimeFor(b));
+      if (head.progress < 1) return;
+    }
+    this.releaseFinishedUnit(b, false);
+  }
+
+  /** Moves the finished queue head out of the factory into the shared camp pool.
+   *  Returns false (and marks the factory blocked) when no camp space exists. */
+  private releaseFinishedUnit(b: Building, docked: boolean): boolean {
+    const head = b.queue[0];
+    const capacity = this.armyCapacityOf(b.owner);
+    if (this.armyUsedOf(b.owner) + this.armySpaceOf(head.unit) > capacity) {
+      b.trainBlocked = capacity > 0 ? 'camp_full' : 'no_camp';
+      return false;
+    }
+    const camp = this.nearestCamp(b);
+    const dock = camp ? this.campDockSpot(camp) : null;
+    const exit = docked ? dock : this.findFreeSpotNear(b.tileX, b.tileY, BUILDING_DEFS[b.type].size);
+    if (!camp || !dock || !exit) return false; // no free tile yet; retry next tick
+    b.queue.shift();
+    b.trainBlocked = undefined;
+    const id = this.nextId++;
+    const unit = createUnit(id, b.owner, head.unit, exit.x + 0.5, exit.y + 0.5);
+    unit.hp = this.unitMaxHp(unit);
+    this.units.set(id, unit);
+    if (!docked) {
+      // Physical departure: leave the factory and fly/drive to the camp pads.
+      this.pathUnitTo(unit, dock.x + 0.5, dock.y + 0.5);
+      unit.state = unit.path.length > 0 ? 'moving' : 'idle';
+    }
+    return true;
+  }
+
+  private nearestCamp(from: Building): Building | null {
+    let best: Building | null = null;
+    let bestDist = Infinity;
+    for (const b of this.buildings.values()) {
+      if (b.owner !== from.owner || b.progress < 1 || !BUILDING_DEFS[b.type].armyCapacity) continue;
+      const d = Math.hypot(b.tileX - from.tileX, b.tileY - from.tileY);
+      if (d < bestDist || (d === bestDist && best && b.id < best.id)) { best = b; bestDist = d; }
+    }
+    return best;
+  }
+
+  /** Spreads docked units around the camp's ring instead of stacking one tile. */
+  private campDockSpot(camp: Building): { x: number; y: number } | null {
+    const size = BUILDING_DEFS[camp.type].size;
+    const ring = ringTiles(camp.tileX - 1, camp.tileY - 1, camp.tileX + size, camp.tileY + size)
+      .filter((p) => isWalkable(this.grid, p.x, p.y));
+    if (ring.length === 0) return null;
+    let docked = 0;
+    for (const u of this.units.values()) {
+      if (u.owner === camp.owner && SYMBIOSIS_COMBAT_UNITS.has(u.type)) docked++;
+    }
+    return ring[docked % ring.length];
+  }
+
+  /** Home refunds: unstarted 100%, started 50%, finished (waiting to dock) never.
+   *  Refunds respect storage caps, so cancelling can never mint past capacity. */
+  private cancelHomeJob(playerId: number, b: Building, index: number): void {
+    const item = b.queue[index];
+    const p = this.players.get(playerId);
+    if (!item || !p) return;
+    if (item.progress >= 1) {
+      this.errorTo(playerId, 'err.job_finished');
+      return;
+    }
+    b.queue.splice(index, 1);
+    if (index === 0) b.trainBlocked = undefined;
+    const paid = item.paid ?? UNIT_DEFS[item.unit].cost;
+    const share = item.progress > 0 ? HOME_STARTED_JOB_REFUND : 1;
+    const caps = this.storageCapsOf(playerId);
+    for (const key of Object.keys(paid) as ResourceType[]) {
+      const value = p.resources[key];
+      p.resources[key] = Math.max(value, Math.min(caps[key], value + Math.floor((paid[key] ?? 0) * share)));
     }
   }
 

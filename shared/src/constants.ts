@@ -157,6 +157,14 @@ export const HOME_STORAGE_PER_DEPOT: Partial<Record<BuildingType, Partial<Resour
   mill: { food: 1000 }, lumber_camp: { wood: 1000 },
   mining_camp: { gold: 750, stone: 750 },
 };
+// ---------- Persistent Home Phase 2: manufacturing and camps ----------
+/** Army Camp space per manufactured unit (master spec §5); separate from stats. */
+export const HOME_CAMP_SPACE: Partial<Record<UnitType, number>> = {
+  attack_drone: 1, siege_mech: 4, rocket_launcher: 3, fighter: 3,
+  stealth_bomber: 5, plasma_tank: 5, iron_guardian: 8,
+};
+/** Refund share when a job that already started is cancelled; unstarted jobs refund fully. */
+export const HOME_STARTED_JOB_REFUND = 0.5;
 export const SYMBIOSIS_UNITS: ReadonlySet<UnitType> = new Set(['robot', 'drone']);
 export const SYMBIOSIS_COMBAT_UNITS: ReadonlySet<UnitType> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian']);
 export const ELON_UNIT_COST: Partial<Record<UnitType, number>> = {

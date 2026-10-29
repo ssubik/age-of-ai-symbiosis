@@ -82,7 +82,12 @@ export interface UnitSnap {
 export interface TrainQueueItem {
   unit: UnitType;
   progress: number;
+  /** Home: resources actually deducted for this job, so refunds are exact. */
+  paid?: Partial<Resources>;
 }
+
+/** Home: why a finished unit is waiting inside its factory instead of docking. */
+export type TrainBlockReason = 'no_camp' | 'camp_full';
 
 export interface BuildingSnap {
   id: number;
@@ -107,6 +112,8 @@ export interface BuildingSnap {
   proof?: string;
   /** Home: Civic Hub level being physically constructed. */
   upgradeTargetLevel?: number;
+  /** Home: the finished head of the queue cannot dock; the factory is blocked. */
+  trainBlocked?: TrainBlockReason;
 }
 
 export interface NodeSnap {

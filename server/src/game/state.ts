@@ -9,6 +9,7 @@ import type {
   NodeType,
   ResourceType,
   Resources,
+  TrainBlockReason,
   TrainQueueItem,
   UnitState,
   UnitType,
@@ -74,6 +75,8 @@ export interface Building {
   garrison?: Unit[];
   /** Home-only physical Civic Hub upgrade. City level changes on completion. */
   upgradeTargetLevel?: number;
+  /** Home-only: finished queue head waiting for Army Camp space. */
+  trainBlocked?: TrainBlockReason;
 }
 
 export interface ResNode {

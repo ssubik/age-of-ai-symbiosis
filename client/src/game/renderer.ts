@@ -2280,6 +2280,8 @@ export class Renderer {
       ctx.restore();
     }
 
+    if (!under && alphaMul >= 1 && b.queue?.length) this.drawProductionFx(ctx, T, R, B, L, hh, topY, b, now);
+
     // flash de dano no prédio (losango da base pisca em vermelho, some em ~200ms)
     const hitT = this.gs.lastHit.get(b.id);
     if (hitT !== undefined) {
@@ -2326,6 +2328,83 @@ export class Renderer {
       const frac = clamp01(b.hp / def.hp);
       this.bar(ctx, topx - bw / 2, barY, bw, 5, frac, hpColor(frac));
     }
+  }
+
+  /** Factory at work: cyan line lights and weld sparks along the front faces,
+   *  the bay door glowing open as a unit is released. A finished unit that cannot
+   *  dock turns the base amber with a "!" chip — shape and motion, not just hue. */
+  private drawProductionFx(
+    ctx: CanvasRenderingContext2D, T: Pt, R: Pt, B: Pt, L: Pt, hh: number, topY: number, b: BuildingSnap, now: number,
+  ): void {
+    const still = Renderer.reducedMotion();
+    const head = b.queue[0];
+    const lift = hh * 0.35;
+    ctx.save();
+    if (b.trainBlocked) {
+      const pulse = still ? 0.8 : 0.55 + 0.45 * Math.sin(now / 220);
+      ctx.strokeStyle = `rgba(255,190,104,${pulse})`;
+      ctx.lineWidth = Math.max(1.5, hh * 0.16);
+      ctx.beginPath();
+      ctx.moveTo(T.x, T.y); ctx.lineTo(R.x, R.y); ctx.lineTo(B.x, B.y); ctx.lineTo(L.x, L.y);
+      ctx.closePath();
+      ctx.stroke();
+      const cx = (T.x + B.x) / 2;
+      const cy = topY - hh * 1.9;
+      // Large enough to read against the facility's own amber trim.
+      const r = Math.max(8, hh * 0.85);
+      this.blob(ctx, cx, cy, r, r, '#1A2831', '#FFBE68');
+      ctx.fillStyle = '#FFBE68';
+      ctx.font = `700 ${Math.round(r * 1.3)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', cx, cy + 0.5);
+      ctx.restore();
+      return;
+    }
+    // Assembly-line strip chases along the two visible front edges (L→B→R).
+    ctx.save();
+    ctx.shadowColor = 'rgba(84,219,233,.9)';
+    ctx.shadowBlur = Math.max(4, hh * 0.5);
+    ctx.strokeStyle = '#54DBE9';
+    ctx.lineWidth = Math.max(2, hh * 0.16);
+    ctx.lineCap = 'round';
+    ctx.setLineDash([hh * 0.5, hh * 0.35]);
+    ctx.lineDashOffset = still ? 0 : -now / 40;
+    ctx.beginPath();
+    ctx.moveTo(L.x, L.y - lift);
+    ctx.lineTo(B.x, B.y - lift);
+    ctx.lineTo(R.x, R.y - lift);
+    ctx.stroke();
+    ctx.restore();
+    // Weld sparks burst at the bay door (front corner).
+    if (!still && Math.sin(now / 90) > -0.3) {
+      ctx.strokeStyle = 'rgba(255,236,180,.95)';
+      ctx.lineWidth = Math.max(1.4, hh * 0.1);
+      for (let i = 0; i < 6; i++) {
+        const a = -Math.PI / 2 + Math.sin(now / 37 + i * 1.7) * 1.3;
+        const len = hh * (0.5 + 0.35 * Math.abs(Math.sin(now / 53 + i)));
+        ctx.beginPath();
+        ctx.moveTo(B.x, B.y - hh * 0.9);
+        ctx.lineTo(B.x + Math.cos(a) * len, B.y - hh * 0.9 + Math.sin(a) * len);
+        ctx.stroke();
+      }
+      this.blob(ctx, B.x, B.y - hh * 0.9, hh * 0.18, hh * 0.18, 'rgba(255,250,225,.95)');
+    }
+    // Bay door opens over the last 10% of a job.
+    const open = clamp01((head.progress - 0.9) / 0.1);
+    if (open > 0) {
+      const w = hh * 0.8;
+      const h = hh * 1.1 * open;
+      ctx.fillStyle = `rgba(142,242,255,${0.25 + 0.5 * open})`;
+      ctx.fillRect(B.x - w / 2, B.y - hh * 0.25 - h, w, h);
+    }
+    ctx.restore();
+  }
+
+  private static reducedMotionQuery: MediaQueryList | null = null;
+  private static reducedMotion(): boolean {
+    Renderer.reducedMotionQuery ??= typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+    return Renderer.reducedMotionQuery?.matches ?? false;
   }
 
   /** Grid power lines: each own completed generator links to its nearest hub

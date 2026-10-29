@@ -31,6 +31,7 @@ import {
   isBuilderUnit,
   powerEfficiency,
   ELON_UNIT_COST,
+  HOME_CAMP_SPACE,
   techBonus,
   tradeBuyCost,
   tradeSellGain,
@@ -851,7 +852,8 @@ export class Hud {
         const udef = UNIT_DEFS[unit];
         const req = UNIT_AGE_REQ[unit] ?? 1;
         const locked = myAge < req;
-        const elonCost = ELON_UNIT_COST[unit];
+        // Home pays for the army in resources; a full camp blocks the factory, not the order.
+        const elonCost = this.gs.home ? undefined : ELON_UNIT_COST[unit];
         const canPay = elonCost !== undefined ? (me?.elonBalance ?? 0) >= elonCost : this.canAfford(udef.cost);
         const armyFull = elonCost !== undefined && (me?.armyUsed ?? 0) + udef.pop > (me?.armyCapacity ?? 0);
         btn.classList.toggle('off', !udef || locked || !canPay || armyFull || queue.length >= TRAIN_QUEUE_MAX);
@@ -861,7 +863,8 @@ export class Hud {
             ? t('hud.unit_age_locked', { unit: UNIT_NAMES[unit], age: AGE_NAMES[req] })
             : elonCost !== undefined
               ? `${UNIT_NAMES[unit]} · ${elonCost} ELON · ${udef.trainTime}s`
-              : t('hud.unit_cost', { unit: UNIT_NAMES[unit], cost: costLongText(udef.cost), time: udef.trainTime });
+              : t('hud.unit_cost', { unit: UNIT_NAMES[unit], cost: costLongText(udef.cost), time: udef.trainTime })
+                + (this.gs.home && HOME_CAMP_SPACE[unit] ? ` · ${t('hud.camp_space', { n: HOME_CAMP_SPACE[unit]! })}` : '');
         }
       }
       // botão de avançar de era (só existe no Centro da Cidade)
@@ -972,14 +975,17 @@ export class Hud {
           this.prodResRow.classList.add('hidden');
         }
       }
-      const sig = queue.map((q) => q.unit).join(',');
+      // Head's started flag is in the signature so its refund tooltip updates.
+      const sig = queue.map((q) => q.unit).join(',') + (queue[0]?.progress ? '*' : '');
       if (sig !== this.queueSig && this.queueEl) {
         this.queueSig = sig;
         this.queueEl.innerHTML = '';
         this.headFill = null;
         queue.forEach((item, index) => {
           const q = el('div', 'queue-item', UNIT_ICONS[item.unit] ?? '❔');
-          q.title = t('hud.queue_cancel', { unit: UNIT_NAMES[item.unit] ?? item.unit });
+          q.title = this.gs.home
+            ? t(item.progress > 0 ? 'hud.queue_cancel_started' : 'hud.queue_cancel', { unit: UNIT_NAMES[item.unit] ?? item.unit })
+            : t('hud.queue_cancel', { unit: UNIT_NAMES[item.unit] ?? item.unit });
           q.addEventListener('click', () => this.deps.onCancelTrain(this.trainBuildingId, index));
           if (index === 0) {
             const fill = el('div', 'qfill');
@@ -994,7 +1000,11 @@ export class Hud {
         this.headFill.style.height = `${Math.max(0, Math.min(1, head.progress)) * 100}%`;
       }
       if (this.prodTxt && this.prodFill) {
-        if (head) {
+        if (head && b.trainBlocked) {
+          // State why the queue is stuck, not just that it is (spec §8.9).
+          this.prodTxt.textContent = t(b.trainBlocked === 'no_camp' ? 'hud.queue_blocked_no_camp' : 'hud.queue_blocked_camp_full', { unit: UNIT_NAMES[head.unit] ?? head.unit });
+          this.prodFill.style.width = '100%';
+        } else if (head) {
           const pct = Math.round(Math.max(0, Math.min(1, head.progress)) * 100);
           this.prodTxt.textContent = t('hud.creating', { unit: UNIT_NAMES[head.unit] ?? head.unit, pct });
           this.prodFill.style.width = `${pct}%`;
