@@ -32,6 +32,18 @@ import {
   powerEfficiency,
   ELON_UNIT_COST,
   HOME_CAMP_SPACE,
+  buildingMaxHp,
+  HOME_BUILDING_CITY_LEVEL,
+  HOME_CITY_LEVELS,
+  HOME_LEVEL_POINTS,
+  HOME_MAX_LEVEL,
+  HOME_RESEARCH_MAX,
+  HOME_UNIT_RESEARCH,
+  HOME_UNIT_UNLOCK,
+  homeResearchCost,
+  homeUpgradeCost,
+  homeUpgradeTime,
+  SYMBIOSIS_COMBAT_UNITS,
   techBonus,
   tradeBuyCost,
   tradeSellGain,
@@ -70,13 +82,24 @@ export interface HudDeps {
   /** Desembarcar o transporte selecionado (id do barco). */
   onUnload: (id: number) => void; // id do PRÉDIO guarnecido ou do barco de transporte
   getPlacement: () => BuildingType | null;
+  /** Home: physical one-level upgrade of a building. */
+  onUpgrade?: (buildingId: number) => void;
+  /** Home: next research level for a unit family. */
+  onUnitResearch?: (unit: UnitType) => void;
+}
+
+/** Units a Home factory builds (from the unlock table, not Arena trains lists). */
+function homeFactoryUnits(type: BuildingType): UnitType[] {
+  return (Object.entries(HOME_UNIT_UNLOCK) as [UnitType, { factory: BuildingType }][])
+    .filter(([, unlock]) => unlock.factory === type)
+    .map(([unit]) => unit);
 }
 
 const BUILD_GROUPS: { label: string; types: BuildingType[] }[] = [
   { label: 'CITY', types: ['house', 'town_center', 'elon_vault', 'army_camp'] },
   { label: 'ECONOMY', types: ['data_center', 'solar_array', 'wind_turbine', 'farm', 'mill', 'lumber_camp', 'mining_camp', 'market'] },
   { label: 'PRODUCTION', types: ['design_studio', 'robotics_workshop', 'drone_factory', 'mech_forge', 'aerospace_hangar', 'missile_foundry', 'exosuit_lab', 'barracks'] },
-  { label: 'DEFENSE', types: ['blacksmith', 'watch_tower', 'wall'] },
+  { label: 'DEFENSE', types: ['blacksmith', 'watch_tower', 'point_turret', 'anti_air', 'sensor_tower', 'wall'] },
 ];
 const RES_ORDER: ResourceType[] = ['food', 'wood', 'gold', 'stone'];
 
@@ -164,6 +187,8 @@ export class Hud {
   private prodAgeTxt: HTMLElement | null = null;
   private prodAgeFill: HTMLElement | null = null;
   private researchBtns = new Map<string, HTMLButtonElement>();
+  private upgradeBtn: HTMLButtonElement | null = null;
+  private unitResearchBtns = new Map<UnitType, HTMLButtonElement>();
   private prodResRow: HTMLElement | null = null;
   private prodResTxt: HTMLElement | null = null;
   private prodResFill: HTMLElement | null = null;
@@ -386,7 +411,7 @@ export class Hud {
       // `garrison` entra na assinatura: sem isso o "N dentro" e o botão de ejetar
       // não redesenhavam quando alguém entrava/saía (o painel ficava congelado
       // mostrando gente dentro de um prédio já vazio).
-      sig = `b:${building.id}:${building.hp}:${building.progress}:${building.foodLeft ?? -1}:${building.garrison ?? 0}`;
+      sig = `b:${building.id}:${building.hp}:${building.progress}:${building.foodLeft ?? -1}:${building.garrison ?? 0}:${building.level ?? 1}`;
     } else if (node) {
       sig = `n:${node.id}:${node.amount}`;
     } else if (sheep) {
@@ -502,7 +527,7 @@ export class Hud {
 
   private renderBuildingDetail(b: BuildingSnap): void {
     const def = BUILDING_DEFS[b.type];
-    const maxHp = def?.hp ?? b.hp;
+    const maxHp = def ? buildingMaxHp(b.type, b.level) : b.hp;
     this.selPanel.appendChild(
       this.titleRow(BUILDING_ICONS[b.type] ?? '❔', this.buildingName(b.type), this.gs.colorOf(b.owner)),
     );
@@ -582,7 +607,8 @@ export class Hud {
     if (b && b.owner === gs.you) {
       const def = BUILDING_DEFS[b.type];
       const hasTechs = TECH_DEFS.some((t) => t.building === b.type);
-      if (def && (b.progress ?? 1) >= 1 && (def.trains.length > 0 || hasTechs)) {
+      const homeExtras = !!this.gs.home && (!!HOME_MAX_LEVEL[b.type] || homeFactoryUnits(b.type).length > 0);
+      if (def && (b.progress ?? 1) >= 1 && (def.trains.length > 0 || hasTechs || homeExtras)) {
         // O N entra na chave pro painel reconstruir quando a multi-seleção
         // muda de tamanho (senão o "×N" do título ficaria desatualizado).
         const n = gs.selectedOwnBuildings().filter((x) => x.type === b.type && (x.progress ?? 1) >= 1).length;
@@ -625,6 +651,8 @@ export class Hud {
     this.prodTxt = null;
     this.prodFill = null;
     this.ageBtn = null;
+    this.upgradeBtn = null;
+    this.unitResearchBtns.clear();
     this.pathBtns.clear();
     this.prodAgeRow = null;
     this.prodAgeTxt = null;
@@ -674,7 +702,10 @@ export class Hud {
     if (ctx.key.startsWith('train:') && ctx.building) {
       const b = ctx.building;
       const def = BUILDING_DEFS[b.type];
-      const trains = def?.trains ?? [];
+      // Home factories list their family from the unlock table (e.g. Exosuit Lab L2 → Valkyrie).
+      const trains = this.gs.home
+        ? [...(def?.trains ?? []).filter((u) => !SYMBIOSIS_COMBAT_UNITS.has(u)), ...homeFactoryUnits(b.type)]
+        : def?.trains ?? [];
       const techs = TECH_DEFS.filter((t) => t.building === b.type);
       this.trainBuildingId = b.id;
       // Multi-seleção (duplo-clique): todos os prédios próprios PRONTOS do
@@ -720,7 +751,25 @@ export class Hud {
         this.researchBtns.set(tech.id, btn);
         grid.appendChild(btn);
       }
+      // Home: unit research lives at the Robotics Workshop (spec §5).
+      if (this.gs.home && b.type === 'robotics_workshop') {
+        for (const unit of Object.keys(HOME_UNIT_RESEARCH) as UnitType[]) {
+          const btn = el('button', 'btn cmd-tile research-tile');
+          btn.appendChild(el('span', 'ico', UNIT_ICONS[unit]));
+          btn.appendChild(el('span', 'lvl', '0'));
+          btn.addEventListener('click', () => { if (!btn.classList.contains('off')) this.deps.onUnitResearch?.(unit); });
+          this.unitResearchBtns.set(unit, btn);
+          grid.appendChild(btn);
+        }
+      }
       this.actPanel.appendChild(grid);
+      // Home: physical building upgrade (the Hub uses the City Level button below).
+      if (this.gs.home && HOME_MAX_LEVEL[b.type] && b.type !== 'town_center') {
+        const up = el('button', 'btn cmd-btn age-btn upgrade-btn');
+        up.addEventListener('click', () => { if (!up.disabled) this.deps.onUpgrade?.(b.id); });
+        this.upgradeBtn = up;
+        this.actPanel.appendChild(up);
+      }
       // Mercado: comprar/vender recursos por ouro (preços movem com as trocas)
       if (b.type === 'market') {
         this.actPanel.appendChild(el('div', 'act-title trade-title', t('hud.trade_title')));
@@ -818,7 +867,8 @@ export class Hud {
       const popMaxed = myPopProvided >= POP_CAP_MAX;
       const isAvailable = (type: BuildingType): boolean => {
         const def = BUILDING_DEFS[type];
-        return !!def && (!def.symbiosis || this.symbiosis) && myAge >= def.ageReq && (!def.requires || done.has(def.requires));
+        const minLevel = this.gs.home ? HOME_BUILDING_CITY_LEVEL[type] ?? def?.ageReq ?? 1 : def?.ageReq ?? 1;
+        return !!def && (!def.symbiosis || this.symbiosis) && myAge >= minLevel && (!def.requires || done.has(def.requires));
       };
       BUILD_GROUPS.forEach((group, i) => {
         const n = group.types.filter(isAvailable).length;
@@ -848,18 +898,26 @@ export class Hud {
       const me = this.gs.me();
       const myAge = me?.age ?? 1;
       const queue = Array.isArray(b.queue) ? b.queue : [];
+      const homeUnlockOf = (unit: UnitType) => (this.gs.home ? HOME_UNIT_UNLOCK[unit] : undefined);
+      const slots = this.gs.home ? TRAIN_QUEUE_MAX + 2 * ((b.level ?? 1) - 1) : TRAIN_QUEUE_MAX;
       for (const [unit, btn] of this.trainBtns) {
         const udef = UNIT_DEFS[unit];
-        const req = UNIT_AGE_REQ[unit] ?? 1;
-        const locked = myAge < req;
+        const unlock = homeUnlockOf(unit);
+        const req = unlock ? unlock.cityLevel : UNIT_AGE_REQ[unit] ?? 1;
+        const factoryLocked = !!unlock && (b.level ?? 1) < unlock.factoryLevel;
+        const locked = myAge < req || factoryLocked;
         // Home pays for the army in resources; a full camp blocks the factory, not the order.
         const elonCost = this.gs.home ? undefined : ELON_UNIT_COST[unit];
         const canPay = elonCost !== undefined ? (me?.elonBalance ?? 0) >= elonCost : this.canAfford(udef.cost);
         const armyFull = elonCost !== undefined && (me?.armyUsed ?? 0) + udef.pop > (me?.armyCapacity ?? 0);
-        btn.classList.toggle('off', !udef || locked || !canPay || armyFull || queue.length >= TRAIN_QUEUE_MAX);
+        btn.classList.toggle('off', !udef || locked || !canPay || armyFull || queue.length >= slots);
         btn.classList.toggle('locked', locked);
         if (udef) {
-          btn.dataset.tipTitle = locked
+          btn.dataset.tipTitle = factoryLocked
+            ? `${UNIT_NAMES[unit]} · needs ${BUILDING_NAMES[b.type]} level ${unlock!.factoryLevel}`
+            : locked && unlock
+              ? `${UNIT_NAMES[unit]} · needs City Level ${req}`
+            : locked
             ? t('hud.unit_age_locked', { unit: UNIT_NAMES[unit], age: AGE_NAMES[req] })
             : elonCost !== undefined
               ? `${UNIT_NAMES[unit]} · ${elonCost} ELON · ${udef.trainTime}s`
@@ -876,25 +934,14 @@ export class Hud {
         } else if (myAge >= MAX_AGE) {
           this.ageBtn.textContent = t('hud.age_max', { age: AGE_NAMES[MAX_AGE] });
           this.ageBtn.disabled = true;
-        } else if (this.gs.home && myAge >= 2) {
-          this.ageBtn.textContent = 'City Level 2 · Phase 1 maximum';
-          this.ageBtn.disabled = true;
+        } else if (this.gs.home) {
+          this.updateHubButton(this.ageBtn, b, myAge);
         } else if (me.ageProgress !== undefined) {
           this.ageBtn.textContent = t('hud.age_researching', { age: AGE_NAMES[myAge + 1] });
           this.ageBtn.disabled = true;
         } else {
           const cost = AGE_COSTS[myAge + 1] ?? {};
-          if (this.gs.home && myAge === 1) {
-            const hasWorkshop = [...this.gs.buildings.values()].some((b) => b.owner === this.gs.you && b.type === 'robotics_workshop' && b.progress >= 1);
-            const hasPower = [...this.gs.buildings.values()].some((b) => b.owner === this.gs.you && (b.type === 'solar_array' || b.type === 'wind_turbine') && b.progress >= 1);
-            const stableGrid = (me.power?.supply ?? 0) >= (me.power?.draw ?? 0);
-            const enoughDevelopment = this.gs.home.developmentPoints >= this.gs.home.nextLevelPoints;
-            const ready = hasWorkshop && hasPower && stableGrid && enoughDevelopment;
-            this.ageBtn.textContent = ready
-              ? `Upgrade Civic Hub · ${costText(cost)}`
-              : `Hub L2 · Workshop ${hasWorkshop ? '✓' : '○'} · Power ${hasPower && stableGrid ? '✓' : '○'} · Development ${this.gs.home.developmentPoints}/${this.gs.home.nextLevelPoints}`;
-            this.ageBtn.disabled = !ready || !this.canAfford(cost);
-          } else {
+          {
             // regra do AoE2: N prédios DIFERENTES da era atual (casa/fazenda/muralha não contam)
             const needB = buildingsToAdvance(myAge);
             const have = new Set<BuildingType>();
@@ -912,6 +959,8 @@ export class Hud {
           }
         }
       }
+      if (this.upgradeBtn) this.updateUpgradeButton(this.upgradeBtn, b, myAge);
+      if (this.unitResearchBtns.size) this.updateUnitResearch(myAge);
       // linha central de pesquisa de era
       if (this.prodAgeRow && this.prodAgeTxt && this.prodAgeFill && me) {
         if (me.ageProgress !== undefined) {
@@ -1013,6 +1062,86 @@ export class Hud {
           this.prodFill.style.width = '0%';
         }
       }
+    }
+  }
+
+  /** Client mirror of the server's Hub requirement check, so the button says *why*. */
+  private cityLevelBlockers(target: number): string[] {
+    const req = HOME_CITY_LEVELS[target];
+    const home = this.gs.home;
+    const me = this.gs.me();
+    if (!req || !home || !me) return ['max level'];
+    const out: string[] = [];
+    for (const need of req.buildings) {
+      const ok = [...this.gs.buildings.values()].some((x) => x.owner === this.gs.you && (x.progress ?? 1) >= 1 && need.types.includes(x.type) && (x.level ?? 1) >= need.level);
+      if (!ok) out.push(`${need.types.map((t) => BUILDING_NAMES[t]).join('/')} L${need.level}`);
+    }
+    const supply = me.power?.supply ?? 0;
+    if (supply < req.minSupply || (me.power?.draw ?? 0) > supply) out.push(`grid ${req.minSupply}+ supply`);
+    if (req.research && (home.research[req.research.unit] ?? 0) < req.research.level) out.push(`${UNIT_NAMES[req.research.unit]} research L${req.research.level}`);
+    const points = HOME_LEVEL_POINTS[target] ?? 0;
+    if (home.developmentPoints < points) out.push(`development ${home.developmentPoints}/${points}`);
+    return out;
+  }
+
+  private updateHubButton(btn: HTMLButtonElement, hub: BuildingSnap, level: number): void {
+    const target = level + 1;
+    if (level >= 5) { btn.textContent = 'City Level 5 · Specialized City'; btn.disabled = true; return; }
+    if (hub.upgradeProgress !== undefined) {
+      btn.textContent = `Building City Level ${target} · ${Math.round(hub.upgradeProgress * 100)}%`;
+      btn.disabled = true;
+      return;
+    }
+    const cost = homeUpgradeCost('town_center', target);
+    const missing = this.cityLevelBlockers(target);
+    btn.textContent = missing.length
+      ? `City Level ${target} needs: ${missing.join(' · ')}`
+      : `Upgrade to City Level ${target} · ${costText(cost)} · ${homeUpgradeTime('town_center', target)}s`;
+    btn.disabled = missing.length > 0 || !this.canAfford(cost);
+  }
+
+  private updateUpgradeButton(btn: HTMLButtonElement, b: BuildingSnap, cityLevel: number): void {
+    const level = b.level ?? 1;
+    const max = HOME_MAX_LEVEL[b.type] ?? 1;
+    const target = level + 1;
+    if (b.upgradeProgress !== undefined) {
+      btn.textContent = `Upgrading to level ${target} · ${Math.round(b.upgradeProgress * 100)}%`;
+      btn.disabled = true;
+    } else if (level >= max) {
+      btn.textContent = `Level ${level} · maximum`;
+      btn.disabled = true;
+    } else if (target > cityLevel) {
+      btn.textContent = `Level ${level} · level ${target} needs City Level ${target}`;
+      btn.disabled = true;
+    } else {
+      const cost = homeUpgradeCost(b.type, target);
+      btn.textContent = `Upgrade to level ${target} · ${costText(cost)} · ${homeUpgradeTime(b.type, target)}s`;
+      btn.disabled = !this.canAfford(cost);
+    }
+  }
+
+  private updateUnitResearch(cityLevel: number): void {
+    const home = this.gs.home;
+    if (!home) return;
+    for (const [unit, btn] of this.unitResearchBtns) {
+      const def = HOME_UNIT_RESEARCH[unit]!;
+      const level = home.research[unit] ?? 0;
+      const active = home.researching?.unit === unit ? home.researching : undefined;
+      const unlockLevel = HOME_UNIT_UNLOCK[unit]?.cityLevel ?? 99;
+      const locked = cityLevel < unlockLevel;
+      const done = level >= HOME_RESEARCH_MAX;
+      const cost = homeResearchCost(unit, level + 1);
+      const lvl = btn.querySelector('.lvl');
+      if (lvl) lvl.textContent = active ? `${Math.round(active.progress * 100)}%` : String(level);
+      btn.classList.toggle('active', !!active);
+      btn.classList.toggle('locked', locked);
+      btn.classList.toggle('off', locked || done || !!home.researching || !this.canAfford(cost));
+      btn.dataset.tipTitle = locked
+        ? `${UNIT_NAMES[unit]} research · needs City Level ${unlockLevel}`
+        : done
+          ? `${UNIT_NAMES[unit]} research · level ${level} (max)`
+          : `${UNIT_NAMES[unit]} research L${level + 1} · ${costLongText(cost)} · ${def.time * (level + 1)}s`;
+      btn.dataset.tipDesc = `+${Math.round(def.perLevel * 100)}% ${def.effect} per level. ${home.researching && !active ? 'The lab is busy.' : ''}`;
     }
   }
 

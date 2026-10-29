@@ -77,6 +77,11 @@ export interface Building {
   upgradeTargetLevel?: number;
   /** Home-only: finished queue head waiting for Army Camp space. */
   trainBlocked?: TrainBlockReason;
+  /** Home-only building level (absent = 1). */
+  level?: number;
+  /** Home-only: progress (0..1) of the upgrade to upgradeTargetLevel. The
+   *  building keeps working at its current level until it reaches 1. */
+  upgradeProgress?: number;
 }
 
 export interface ResNode {

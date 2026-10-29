@@ -1,7 +1,7 @@
 // Constantes de rede, simulação e balanceamento — fonte única da verdade
 // para servidor (validação/simulação) e cliente (UI, custos, pré-validação).
 
-import type { BuildingType, NodeType, Resources, ResourceType, UnitType } from './types';
+import type { BuildingType, NodeType, RaidSessionState, Resources, ResourceType, UnitType } from './types';
 
 // ---------- Rede ----------
 export const GAME_PORT = 8080;
@@ -70,6 +70,7 @@ export const UNIT_DEFS: Record<UnitType, UnitDef> = {
   stealth_bomber: { hp: 120, speed: 4.6, attack: 34, range: 6.5, attackCooldown: 3.4, sight: 11, cost: { wood: 100, gold: 220 }, trainTime: 34, pop: 3 },
   plasma_tank: { hp: 260, speed: 1.25, attack: 40, range: 6, attackCooldown: 2.8, sight: 9, cost: { wood: 180, gold: 240 }, trainTime: 38, pop: 4 },
   iron_guardian: { hp: 340, speed: 3.1, attack: 52, range: 5.5, attackCooldown: 1.7, sight: 12, cost: { wood: 250, gold: 500 }, trainTime: 60, pop: 5 },
+  aegis_valkyrie: { hp: 250, speed: 4.4, attack: 30, range: 5, attackCooldown: 1.4, sight: 11, cost: { wood: 220, gold: 460 }, trainTime: 52, pop: 5 },
 };
 
 // ---------- Prédios ----------
@@ -125,14 +126,17 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
   mech_forge: { hp: 950, size: 3, cost: { wood: 300, gold: 260 }, buildTime: 46, popProvided: 0, trains: ['siege_mech'], isDropOff: false, ageReq: 3, requires: 'robotics_workshop', symbiosis: true },
   aerospace_hangar: { hp: 850, size: 3, cost: { wood: 260, gold: 220 }, buildTime: 42, popProvided: 0, trains: ['fighter', 'stealth_bomber'], isDropOff: false, ageReq: 4, requires: 'drone_factory', symbiosis: true },
   missile_foundry: { hp: 900, size: 3, cost: { wood: 280, gold: 240 }, buildTime: 44, popProvided: 0, trains: ['rocket_launcher', 'plasma_tank'], isDropOff: false, ageReq: 4, requires: 'robotics_workshop', symbiosis: true },
+  point_turret: { hp: 760, size: 1, cost: { wood: 60, stone: 120 }, buildTime: 30, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
+  anti_air: { hp: 820, size: 2, cost: { wood: 90, gold: 110 }, buildTime: 34, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
   exosuit_lab: { hp: 1100, size: 3, cost: { wood: 450, gold: 600 }, buildTime: 70, popProvided: 0, trains: ['iron_guardian'], isDropOff: false, ageReq: 5, requires: 'mech_forge', symbiosis: true },
+  sensor_tower: { hp: 420, size: 1, cost: { wood: 80, gold: 90 }, buildTime: 26, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
 };
 
 // ---------- Symbiosis: automated builders + power grid ----------
 /** Construction speed per builder (villager = 1). */
 export const BUILD_RATE: Partial<Record<UnitType, number>> = { villager: 1, designer: 1, robot: 1.8, drone: 1.25 };
 /** Grid power each automated unit draws while it exists. */
-export const POWER_DRAW: Partial<Record<UnitType, number>> = { robot: 1, drone: 1, attack_drone: 2, fighter: 3, rocket_launcher: 2, siege_mech: 3, stealth_bomber: 4, plasma_tank: 4, iron_guardian: 6 };
+export const POWER_DRAW: Partial<Record<UnitType, number>> = { robot: 1, drone: 1, attack_drone: 2, fighter: 3, rocket_launcher: 2, siege_mech: 3, stealth_bomber: 4, plasma_tank: 4, iron_guardian: 6, aegis_valkyrie: 5 };
 /** Base grid capacity of a completed Town Center in Symbiosis matches. */
 export const TOWN_CENTER_POWER = 2;
 /** Floor for automation efficiency when demand exceeds supply. */
@@ -145,7 +149,8 @@ export const HOME_DEVELOPMENT: Partial<Record<BuildingType, number>> = {
   town_center: 100, house: 30, farm: 25, mill: 50, lumber_camp: 50,
   mining_camp: 50, solar_array: 50, wind_turbine: 50,
   robotics_workshop: 100, data_center: 70, army_camp: 80,
-  drone_factory: 80, watch_tower: 35, wall: 2,
+  drone_factory: 80, watch_tower: 35, wall: 2, point_turret: 35, anti_air: 35,
+  sensor_tower: 45, mech_forge: 90, missile_foundry: 90, aerospace_hangar: 100, exosuit_lab: 120,
 };
 /** Passive Home production per completed facility, per wall-clock hour. */
 export const HOME_PRODUCTION_PER_HOUR: Partial<Record<BuildingType, Partial<Resources>>> = {
@@ -161,17 +166,181 @@ export const HOME_STORAGE_PER_DEPOT: Partial<Record<BuildingType, Partial<Resour
 /** Army Camp space per manufactured unit (master spec §5); separate from stats. */
 export const HOME_CAMP_SPACE: Partial<Record<UnitType, number>> = {
   attack_drone: 1, siege_mech: 4, rocket_launcher: 3, fighter: 3,
-  stealth_bomber: 5, plasma_tank: 5, iron_guardian: 8,
+  stealth_bomber: 5, plasma_tank: 5, iron_guardian: 8, aegis_valkyrie: 7,
 };
 /** Refund share when a job that already started is cancelled; unstarted jobs refund fully. */
 export const HOME_STARTED_JOB_REFUND = 0.5;
+// ---------- Persistent Home Phase 3: asynchronous raids ----------
+export const RAID_RULES_VERSION = 1;
+export const RAID_DURATION_SECONDS = 180;
+export const RAID_SCOUT_TTL_SECONDS = 60;
+/** First scout is free; each "Next" costs this much Gold. */
+export const RAID_NEXT_SCOUT_GOLD = 30;
+export const RAID_MAX_REPORTS = 20;
+export const RAID_MAX_SETTLED_KEYS = 100;
+/** Pinned, system-funded reward ceiling by defender City Level (index = level). */
+export const RAID_REWARD_BY_LEVEL: readonly Resources[] = [
+  { food: 0, wood: 0, gold: 0, stone: 0 },
+  { food: 260, wood: 260, gold: 160, stone: 120 },
+  { food: 420, wood: 420, gold: 280, stone: 200 },
+  { food: 640, wood: 640, gold: 420, stone: 320 },
+  { food: 900, wood: 900, gold: 620, stone: 460 },
+  { food: 1200, wood: 1200, gold: 850, stone: 640 },
+];
+/** A raid with zero stars still pays this share of the destruction-scaled offer. */
+export const RAID_LOSS_REWARD_SHARE = 0.5;
+export const RAID_TROPHIES = { win: 24, loss: 12 } as const;
+/** Every legal session move; anything else is a stale or duplicate transition. */
+export const RAID_TRANSITIONS: Readonly<Record<RaidSessionState, readonly RaidSessionState[]>> = {
+  SCOUTING: ['SCOUTING', 'ARMY_RESERVED', 'SCOUT_EXPIRED', 'CANCELLED_BEFORE_DEPLOY'],
+  ARMY_RESERVED: ['IN_PROGRESS', 'CANCELLED_BEFORE_DEPLOY'],
+  IN_PROGRESS: ['SETTLING', 'EXPIRED_DURING_RAID', 'RECOVERY_REQUIRED'],
+  EXPIRED_DURING_RAID: ['SETTLING'],
+  RECOVERY_REQUIRED: ['SETTLING'],
+  SETTLING: ['SETTLED'],
+  SETTLED: [],
+  SCOUT_EXPIRED: [],
+  CANCELLED_BEFORE_DEPLOY: [],
+};
+export function canRaidTransition(from: RaidSessionState, to: RaidSessionState): boolean {
+  return RAID_TRANSITIONS[from].includes(to);
+}
+
+// ---------- Persistent Home Phase 4: progression breadth ----------
+// Versioned balance (master spec §4, §5). Initial targets, not final balance.
+export const HOME_BALANCE_VERSION = 4;
+
+/** Highest level each Home building can reach. Absent = not upgradable. */
+export const HOME_MAX_LEVEL: Partial<Record<BuildingType, number>> = {
+  town_center: 5, army_camp: 4, drone_factory: 4, mech_forge: 3, missile_foundry: 3,
+  aerospace_hangar: 3, exosuit_lab: 2, robotics_workshop: 3,
+  farm: 3, mill: 3, lumber_camp: 3, mining_camp: 3, solar_array: 3, wind_turbine: 3,
+  watch_tower: 3, point_turret: 3, anti_air: 3, sensor_tower: 2,
+};
+
+/** City Level needed to place a building at Home (overrides Arena ageReq). */
+export const HOME_BUILDING_CITY_LEVEL: Partial<Record<BuildingType, number>> = {
+  // Anything a City Level requires must be placeable one level earlier
+  // (sensor_tower gates L3, anti_air gates L4), or progression deadlocks.
+  drone_factory: 2, wind_turbine: 2, watch_tower: 2, point_turret: 2, sensor_tower: 2,
+  mech_forge: 3, missile_foundry: 3, anti_air: 3,
+  aerospace_hangar: 4, exosuit_lab: 5,
+};
+
+/** Which factory (and factory level) manufactures each unit at Home, and from which City Level. */
+export const HOME_UNIT_UNLOCK: Partial<Record<UnitType, { factory: BuildingType; factoryLevel: number; cityLevel: number }>> = {
+  attack_drone: { factory: 'drone_factory', factoryLevel: 1, cityLevel: 2 },
+  siege_mech: { factory: 'mech_forge', factoryLevel: 1, cityLevel: 3 },
+  rocket_launcher: { factory: 'missile_foundry', factoryLevel: 1, cityLevel: 3 },
+  fighter: { factory: 'aerospace_hangar', factoryLevel: 1, cityLevel: 4 },
+  stealth_bomber: { factory: 'aerospace_hangar', factoryLevel: 2, cityLevel: 4 },
+  plasma_tank: { factory: 'missile_foundry', factoryLevel: 2, cityLevel: 4 },
+  iron_guardian: { factory: 'exosuit_lab', factoryLevel: 1, cityLevel: 5 },
+  aegis_valkyrie: { factory: 'exosuit_lab', factoryLevel: 2, cityLevel: 5 },
+};
+
+export interface CityLevelRequirement {
+  cost: Partial<Resources>;
+  /** Each entry: a completed building of one of `types` at `level` or higher. */
+  buildings: { types: BuildingType[]; level: number }[];
+  /** Grid supply must reach this and cover draw. */
+  minSupply: number;
+  /** Technology milestone: a unit research level. */
+  research?: { unit: UnitType; level: number };
+}
+
+/** Hub upgrade to each City Level (spec §4 table). */
+export const HOME_CITY_LEVELS: Readonly<Record<number, CityLevelRequirement>> = {
+  2: { cost: { food: 400 }, buildings: [{ types: ['robotics_workshop'], level: 1 }, { types: ['solar_array', 'wind_turbine'], level: 1 }], minSupply: 0 },
+  3: {
+    cost: { food: 800, wood: 600, gold: 500 },
+    buildings: [{ types: ['lumber_camp'], level: 2 }, { types: ['mill'], level: 2 }, { types: ['army_camp'], level: 2 }, { types: ['sensor_tower'], level: 1 }],
+    minSupply: 12, research: { unit: 'attack_drone', level: 1 },
+  },
+  4: {
+    cost: { food: 1200, wood: 1000, gold: 900, stone: 400 },
+    buildings: [{ types: ['solar_array', 'wind_turbine'], level: 2 }, { types: ['mining_camp'], level: 2 }, { types: ['point_turret'], level: 2 }, { types: ['anti_air'], level: 1 }],
+    minSupply: 30,
+  },
+  5: {
+    cost: { food: 1800, wood: 1600, gold: 1500, stone: 800 },
+    buildings: [{ types: ['drone_factory'], level: 4 }, { types: ['army_camp'], level: 4 }, { types: ['robotics_workshop'], level: 3 }],
+    minSupply: 45,
+  },
+};
+
+/** Hub upgrade construction time (seconds of one 1.0x builder) per target level. */
+export const HOME_HUB_UPGRADE_TIME: readonly number[] = [0, 0, 60, 120, 180, 260];
+
+/** Multiplier for a level-scaled stat: +`perLevel` per level above 1. */
+export function levelScale(level: number | undefined, perLevel: number): number {
+  return 1 + Math.max(0, (level ?? 1) - 1) * perLevel;
+}
+
+/** Upgrade cost: the building's own cost scaled by the target level. */
+export function homeUpgradeCost(type: BuildingType, toLevel: number): Partial<Resources> {
+  if (type === 'town_center') return { ...(HOME_CITY_LEVELS[toLevel]?.cost ?? {}) };
+  const out: Partial<Resources> = {};
+  for (const [k, v] of Object.entries(BUILDING_DEFS[type].cost) as [ResourceType, number][]) {
+    out[k] = Math.round((v * 0.75 * toLevel) / 5) * 5;
+  }
+  return out;
+}
+
+export function homeUpgradeTime(type: BuildingType, toLevel: number): number {
+  if (type === 'town_center') return HOME_HUB_UPGRADE_TIME[toLevel] ?? 300;
+  return Math.round(BUILDING_DEFS[type].buildTime * (0.5 + 0.5 * toLevel));
+}
+
+/** Building HP at a level (Home and raid snapshots). */
+export function buildingMaxHp(type: BuildingType, level?: number): number {
+  return Math.round(BUILDING_DEFS[type].hp * levelScale(level, 0.25));
+}
+
+export interface UnitResearchDef {
+  /** Short description of the single attribute it improves. */
+  effect: string;
+  /** Fractional gain per level (0.05 = +5%). */
+  perLevel: number;
+  cost: Partial<Resources>;
+  /** Seconds per level, multiplied by the target level. */
+  time: number;
+}
+
+/** Five research levels per unit, one primary attribute each (spec §5). */
+export const HOME_RESEARCH_MAX = 5;
+export const HOME_UNIT_RESEARCH: Partial<Record<UnitType, UnitResearchDef>> = {
+  attack_drone: { effect: 'damage', perLevel: 0.05, cost: { gold: 120, wood: 60 }, time: 40 },
+  siege_mech: { effect: 'hit points', perLevel: 0.06, cost: { gold: 160, wood: 120 }, time: 50 },
+  rocket_launcher: { effect: 'range', perLevel: 0.04, cost: { gold: 160, wood: 100 }, time: 50 },
+  fighter: { effect: 'damage vs defenses', perLevel: 0.04, cost: { gold: 200, wood: 100 }, time: 60 },
+  stealth_bomber: { effect: 'blast radius', perLevel: 0.05, cost: { gold: 240, wood: 120 }, time: 70 },
+  plasma_tank: { effect: 'hit points', perLevel: 0.05, cost: { gold: 240, wood: 160 }, time: 70 },
+  iron_guardian: { effect: 'field radius and duration', perLevel: 0.05, cost: { gold: 320, wood: 200 }, time: 90 },
+  aegis_valkyrie: { effect: 'arc damage; extra arc at L3 and L5', perLevel: 0.05, cost: { gold: 320, wood: 200 }, time: 90 },
+};
+
+export function homeResearchCost(unit: UnitType, toLevel: number): Partial<Resources> {
+  const def = HOME_UNIT_RESEARCH[unit];
+  const out: Partial<Resources> = {};
+  for (const [k, v] of Object.entries(def?.cost ?? {}) as [ResourceType, number][]) out[k] = v * toLevel;
+  return out;
+}
+
+/** Shield granted to a defender per stars lost (index = stars). */
+export const HOME_SHIELD_HOURS: readonly number[] = [0, 4, 8, 12];
+/** Matchmaking widens trophy tolerance through these steps (spec §6.1). */
+export const RAID_TROPHY_TOLERANCES: readonly number[] = [100, 300, Number.POSITIVE_INFINITY];
+/** Grid shortage weakens defenses but never below this (spec §6.6). */
+export const DEFENSE_POWER_FLOOR = 0.5;
+
 export const SYMBIOSIS_UNITS: ReadonlySet<UnitType> = new Set(['robot', 'drone']);
-export const SYMBIOSIS_COMBAT_UNITS: ReadonlySet<UnitType> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian']);
+export const SYMBIOSIS_COMBAT_UNITS: ReadonlySet<UnitType> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie']);
 export const ELON_UNIT_COST: Partial<Record<UnitType, number>> = {
   attack_drone: 50, fighter: 180, rocket_launcher: 110, siege_mech: 140,
-  stealth_bomber: 260, plasma_tank: 220, iron_guardian: 600,
+  stealth_bomber: 260, plasma_tank: 220, iron_guardian: 600, aegis_valkyrie: 520,
 };
-export const FLYING_UNITS: ReadonlySet<UnitType> = new Set(['drone', 'attack_drone', 'fighter', 'stealth_bomber', 'iron_guardian']);
+export const FLYING_UNITS: ReadonlySet<UnitType> = new Set(['drone', 'attack_drone', 'fighter', 'stealth_bomber', 'iron_guardian', 'aegis_valkyrie']);
 export const isFlyingUnit = (t: UnitType): boolean => FLYING_UNITS.has(t);
 export const isBuilderUnit = (t: UnitType): boolean => (BUILD_RATE[t] ?? 0) > 0;
 export const isSymbiosisBuilding = (t: BuildingType): boolean => !!BUILDING_DEFS[t].symbiosis;
@@ -230,12 +399,16 @@ export interface DefenseDef {
   range: number;    // alcance base em tiles (na era mínima do prédio)
   cooldown: number; // segundos entre flechas
   attack: number;   // dano base por flecha
+  /** Restricts what the defense can hit; omitted = ground and air. */
+  targets?: 'ground' | 'air';
 }
 /** Prédios que atiram flechas nos inimigos próximos. Alcance e dano crescem com
  *  a era do dono e com as pesquisas de defesa — ver buildingRange/buildingAttack. */
 export const DEFENSE_DEFS: Partial<Record<BuildingType, DefenseDef>> = {
   watch_tower: { range: 6.5, cooldown: 1.5, attack: 5 },
   town_center: { range: 6,   cooldown: 2.0, attack: 4 },
+  point_turret: { range: 7,   cooldown: 1.0, attack: 16, targets: 'ground' },
+  anti_air:     { range: 8.5, cooldown: 0.9, attack: 24, targets: 'air' },
 };
 /** Ganho por era acima da 1ª: a cada avanço, a flecha vai mais longe e bate mais. */
 export const DEFENSE_RANGE_PER_AGE = 0.5;
@@ -309,6 +482,7 @@ export const UNIT_AGE_REQ: Record<UnitType, number> = {
   stealth_bomber: 4,
   plasma_tank: 4,
   iron_guardian: 5,
+  aegis_valkyrie: 5,
 };
 
 // ---------- Tecnologias / upgrades (pesquisados nos prédios) ----------

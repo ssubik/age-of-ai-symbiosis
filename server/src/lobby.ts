@@ -212,6 +212,11 @@ export class Lobby {
       case 'enterArena':
         void this.enterArena(conn);
         break;
+      case 'raid':
+        if (this.homes.has(conn.id)) {
+          void this.homes.raid(conn.id, msg.action).catch((error) => console.error('[home] raid action failed', error));
+        }
+        break;
       case 'createRoom':
         this.createRoom(conn);
         break;

@@ -1,6 +1,6 @@
 // Tela 4: Jogo — canvas fullscreen + HUD, câmera, input e renderização.
 
-import type { BuildingType, ExperienceMode, GameCommand, MapData, PlayerInfo, ResourceType, UnitType } from '@age/shared';
+import type { BuildingType, ExperienceMode, GameCommand, MapData, PlayerInfo, RaidAction, RaidArmy, ResourceType, UnitType } from '@age/shared';
 import { AGE_COSTS, AGE_NAMES, BUILDING_DEFS, MAX_AGE, SYMBIOSIS_COMBAT_UNITS, buildingsToAdvance, countsForAgeUp, isBuilderUnit } from '@age/shared';
 import { GameState } from '../state';
 import { el } from '../ui';
@@ -17,12 +17,16 @@ import { createUIState } from '../game/uistate';
 import { ConnLostOverlay } from './connlost';
 import { recommend } from '../game/advisor';
 
+const RAID_UNIT_TYPES: readonly (keyof RaidArmy)[] = ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'];
+
 export interface GameScreenDeps {
   onCommand: (cmd: GameCommand) => void;
   onChat: (text: string) => void;
   onTogglePause: () => void;
   onPing: (x: number, y: number) => void;
   onBackToLobby: () => void;
+  /** Persistent-Home raid requests (Home and raid sessions only). */
+  onRaid?: (action: RaidAction) => void;
 }
 
 export class GameScreen {
@@ -58,8 +62,9 @@ export class GameScreen {
   private raidPanel: HTMLElement | null = null;
   private raidSig = '';
   private raidDeploy: keyof import('@age/shared').RaidArmy | null = null;
-  private raidDraft: import('@age/shared').RaidArmy = { attack_drone: 0, fighter: 0, rocket_launcher: 0, siege_mech: 0, stealth_bomber: 0, plasma_tank: 0, iron_guardian: 0 };
+  private raidDraft: import('@age/shared').RaidArmy = { attack_drone: 0, fighter: 0, rocket_launcher: 0, siege_mech: 0, stealth_bomber: 0, plasma_tank: 0, iron_guardian: 0, aegis_valkyrie: 0 };
   private raidOpen = false;
+  private raidDraftKey = '';
   private attackBtn: HTMLButtonElement | null = null;
   private goalPanel: HTMLElement | null = null;
   private homeBadge: HTMLElement | null = null;
@@ -90,7 +95,7 @@ export class GameScreen {
    *  nunca esteve jogando.) */
   get isSpectating(): boolean { return this.spectating; }
 
-  constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false, private experience: ExperienceMode = 'symbiosis', private session: 'arena' | 'home' = 'arena') {
+  constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false, private experience: ExperienceMode = 'symbiosis', private session: 'arena' | 'home' | 'raid' = 'arena') {
     this.spectating = spectating;
     // Espectador vê o mapa todo (é o ponto de assistir) — a névoa é desligada.
     this.state = new GameState(map, players, you, spectating ? false : fogEnabled);
@@ -102,6 +107,10 @@ export class GameScreen {
     const root = el('div', 'game-atlas');
     root.id = 'game-root';
 
+    if (session === 'raid') {
+      this.el.classList.add('raid-mode');
+      this.raidOpen = true;
+    }
     if (session === 'home') {
       this.el.classList.add('home-mode');
       this.homeBadge = el('button', 'home-status', 'HOME · CITY LEVEL 1');
@@ -129,6 +138,8 @@ export class GameScreen {
       onIdleVillager: () => this.selectNextIdleVillager(),
       onUnload: (id) => this.deps.onCommand({ kind: 'unload', buildingId: id }),
       getPlacement: () => this.input.ui.placement,
+      onUpgrade: (buildingId) => this.deps.onCommand({ kind: 'upgradeBuilding', buildingId }),
+      onUnitResearch: (unit) => this.deps.onCommand({ kind: 'unitResearch', unit }),
     };
     this.createHud();
     root.appendChild(this.hud.el);
@@ -338,7 +349,10 @@ export class GameScreen {
   private onWindowResize: (() => void) | null = null;
 
   private centerOnHome(): void {
-    const tc = this.state.myTownCenter();
+    // In a raid, "home" for the camera is the enemy Hub at the centre of the snapshot.
+    const tc = this.session === 'raid'
+      ? [...this.state.buildings.values()].find((b) => b.type === 'town_center')
+      : this.state.myTownCenter();
     if (!tc) return;
     const size = BUILDING_DEFS.town_center.size;
     this.cam.centerOn(tc.tileX + size / 2, tc.tileY + size / 2);
@@ -611,7 +625,7 @@ export class GameScreen {
   private startLoop(): void {
     const frame = (now: number): void => {
       // Centraliza na base assim que o primeiro snapshot com o Centro da Cidade chega.
-      if (!this.didCenter && this.state.myTownCenter()) {
+      if (!this.didCenter && (this.session === 'raid' ? this.state.buildings.size > 0 : this.state.myTownCenter())) {
         this.centerOnHome();
         this.didCenter = true;
       }
@@ -652,7 +666,8 @@ export class GameScreen {
     if (!this.raidDeploy || event.button !== 0) return;
     const rect = this.canvas.getBoundingClientRect();
     const world = this.cam.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
-    this.deps.onCommand({ kind: 'deployRaid', unit: this.raidDeploy, x: world.x, y: world.y });
+    if (this.session === 'raid') this.deps.onRaid?.({ kind: 'deploy', unit: this.raidDeploy, x: world.x, y: world.y });
+    else this.deps.onCommand({ kind: 'deployRaid', unit: this.raidDeploy, x: world.x, y: world.y });
     event.preventDefault();
     event.stopImmediatePropagation();
   };
@@ -660,6 +675,8 @@ export class GameScreen {
   private updateRaidPanel(): void {
     const panel = this.raidPanel;
     if (!panel) return;
+    if (this.session === 'home') { this.updateHomeRaidPanel(panel); return; }
+    if (this.session === 'raid') { this.updateRaidSessionPanel(panel); return; }
     const r = this.state.raid;
     const me = this.state.me();
     const sig = r
@@ -694,7 +711,7 @@ export class GameScreen {
     panel.appendChild(el('h3', '', `${this.state.nameOf(r.defender)} · ${r.phase.toUpperCase()}`));
     if (r.phase === 'scouting') {
       panel.appendChild(el('p', 'raid-muted', 'City scouted. Assemble up to 18 strike units.'));
-      for (const type of ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'] as const) {
+      for (const type of ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'] as const) {
         const row = el('div', 'raid-army-row');
         row.appendChild(el('span', '', UNIT_NAMES[type] ?? type));
         const minus = el('button', '', '−');
@@ -720,7 +737,7 @@ export class GameScreen {
     if (r.phase === 'deploying' || r.phase === 'battle') {
       panel.appendChild(el('div', 'raid-score', `${r.stars ? '★'.repeat(r.stars) : '☆ ☆ ☆'}  ${r.destruction}%  ·  ${Math.ceil(r.secondsLeft)}s`));
       panel.appendChild(el('p', 'raid-muted', 'Select a unit, then click the outer edge of the map. Units choose targets automatically.'));
-      for (const type of ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'] as const) {
+      for (const type of ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'] as const) {
         const b = el('button', `raid-unit ${this.raidDeploy === type ? 'active' : ''}`, `${UNIT_NAMES[type] ?? type} × ${r.remaining[type]}`);
         b.toggleAttribute('disabled', r.remaining[type] < 1);
         b.addEventListener('click', () => { this.raidDeploy = type; this.raidSig = ''; });
@@ -743,6 +760,124 @@ export class GameScreen {
     const close = el('button', 'raid-target', 'Close report');
     close.addEventListener('click', () => { this.raidDeploy = null; this.deps.onCommand({ kind: 'closeRaid' }); });
     panel.appendChild(close);
+  }
+
+  /** Home: trophies, last report and the entry to scouting (spec §2.2). */
+  private updateHomeRaidPanel(panel: HTMLElement): void {
+    const home = this.state.home;
+    const me = this.state.me();
+    const armySize = [...this.state.units.values()].filter((u) => u.owner === this.state.you && RAID_UNIT_TYPES.includes(u.type as keyof RaidArmy)).length;
+    const report = home?.lastReport;
+    const defense = home?.defenseReports ?? [];
+    const shieldMin = Math.ceil((home?.shieldSeconds ?? 0) / 60);
+    const sig = `home:${this.raidOpen}:${home?.trophies}:${report?.raidId}:${armySize}:${me?.resources?.gold}:${shieldMin}:${defense[0]?.raidId}`;
+    this.attackBtn?.classList.toggle('accent', armySize > 0);
+    this.attackBtn?.classList.toggle('locked', false);
+    if (this.attackBtn) this.attackBtn.title = 'Scout a base and raid it with your manufactured army';
+    if (sig === this.raidSig) return;
+    this.raidSig = sig;
+    panel.innerHTML = '';
+    panel.classList.toggle('hidden', !this.raidOpen);
+    if (!this.raidOpen) return;
+    panel.appendChild(el('div', 'raid-kicker', `STRIKE COMMAND · 🏆 ${home?.trophies ?? 0}${shieldMin > 0 ? ` · 🛡 ${shieldMin >= 60 ? `${Math.floor(shieldMin / 60)}h ${shieldMin % 60}m` : `${shieldMin}m`}` : ''}`));
+    panel.appendChild(el('h3', '', 'Raid a base'));
+    if (shieldMin > 0) panel.appendChild(el('p', 'raid-muted', 'Your city is shielded from raids. Deploying in a raid of your own breaks the shield.'));
+    // Defense log: what attackers were paid by the system; nothing was taken from you.
+    for (const d of defense.slice(0, 3)) {
+      panel.appendChild(el('p', 'raid-loot', `🛡 ${d.attacker} raided you · ${d.stars ? '★'.repeat(d.stars) : 'no stars'} · ${d.destruction}% · they earned ${d.attackerReward.gold} gold (system-funded)`));
+    }
+    if (report) {
+      panel.appendChild(el('p', 'raid-loot', `Last: ${report.label} · ${report.stars ? '★'.repeat(report.stars) : 'no stars'} · ${report.destruction}% · ${report.trophiesDelta >= 0 ? '+' : ''}${report.trophiesDelta} 🏆`));
+    }
+    panel.appendChild(el('p', 'raid-muted', armySize > 0
+      ? `${armySize} manufactured unit${armySize === 1 ? '' : 's'} ready in your camps.`
+      : 'Manufacture Attack Drones at a Drone Factory first. You can still scout.'));
+    const scout = el('button', 'raid-primary', 'Scout a base · free');
+    scout.addEventListener('click', () => this.deps.onRaid?.({ kind: 'scout' }));
+    panel.appendChild(scout);
+    panel.appendChild(el('p', 'raid-muted', 'Rewards are system-funded; defenders never lose stored resources.'));
+  }
+
+  /** Raid view: scout offer → reservation → deployment → report. */
+  private updateRaidSessionPanel(panel: HTMLElement): void {
+    const r = this.state.raid;
+    const v = r?.home;
+    if (!r || !v) return;
+    if (this.raidDraftKey !== v.label + v.cityLevel) {
+      this.raidDraftKey = v.label + v.cityLevel;
+      this.raidDraft = { attack_drone: 0, fighter: 0, rocket_launcher: 0, siege_mech: 0, stealth_bomber: 0, plasma_tank: 0, iron_guardian: 0, aegis_valkyrie: 0 };
+      this.raidDeploy = null;
+    }
+    const sig = `raid:${v.state}:${r.phase}:${Math.ceil(r.secondsLeft)}:${v.expiresIn}:${r.destruction}:${r.stars}:${JSON.stringify(r.remaining)}:${JSON.stringify(this.raidDraft)}:${this.raidDeploy}:${v.report?.raidId}`;
+    if (sig === this.raidSig) return;
+    this.raidSig = sig;
+    panel.innerHTML = '';
+    panel.classList.remove('hidden');
+    panel.appendChild(el('div', 'raid-kicker', `STRIKE COMMAND · ${v.opponent === 'player' ? 'PLAYER CITY' : 'BOT OUTPOST'} · CITY LEVEL ${v.cityLevel}`));
+    panel.appendChild(el('h3', '', v.label));
+    const button = (cls: string, text: string, action: RaidAction, disabled = false): void => {
+      const b = el('button', cls, text);
+      b.toggleAttribute('disabled', disabled);
+      b.addEventListener('click', () => { this.raidDeploy = null; this.deps.onRaid?.(action); });
+      panel.appendChild(b);
+    };
+    const res = (x: { food: number; wood: number; gold: number; stone: number }) => `${x.food} food · ${x.wood} wood · ${x.gold} gold · ${x.stone} stone`;
+
+    if (v.report || r.phase === 'result') {
+      const rep = v.report;
+      panel.appendChild(el('div', 'raid-result-stars', (rep?.stars ?? r.stars) ? '★'.repeat(rep?.stars ?? r.stars) : 'NO STARS'));
+      panel.appendChild(el('div', 'raid-result-destruction', `${rep?.destruction ?? r.destruction}% destroyed`));
+      if (rep) {
+        const why = { timer: 'Time ran out', destroyed: 'Base destroyed', eliminated: 'Strike force lost', surrender: 'Surrendered' }[rep.reason];
+        panel.appendChild(el('p', 'raid-muted', why));
+        panel.appendChild(el('p', 'raid-loot', `Reward ${res(rep.reward)}`));
+        const lost = (['food', 'wood', 'gold', 'stone'] as const).filter((k) => (rep.earned?.[k] ?? 0) > rep.reward[k]);
+        if (lost.length) panel.appendChild(el('p', 'raid-muted', `Storage full: ${lost.map((k) => `${(rep.earned[k] ?? 0) - rep.reward[k]} ${k}`).join(' · ')} could not be stored. Upgrade depots to hold more.`));
+        panel.appendChild(el('p', 'raid-loot', `${rep.trophiesDelta >= 0 ? '+' : ''}${rep.trophiesDelta} 🏆 · ${rep.deployed} deployed · ${rep.returned} returned to camp`));
+      }
+      button('raid-primary', 'Return home', { kind: 'return' }, !rep);
+      return;
+    }
+
+    if (v.state === 'SCOUTING') {
+      panel.appendChild(el('p', 'raid-muted', `Offer expires in ${v.expiresIn ?? 0}s · up to ${res(v.reward)} · +${v.trophies.win}/−${v.trophies.loss} 🏆`));
+      let any = false;
+      for (const type of RAID_UNIT_TYPES) {
+        const have = v.available[type];
+        if (have < 1) continue;
+        any = true;
+        const row = el('div', 'raid-army-row');
+        row.appendChild(el('span', '', `${UNIT_NAMES[type] ?? type} (${have})`));
+        const minus = el('button', '', '−');
+        const count = el('strong', '', String(this.raidDraft[type]));
+        const plus = el('button', '', '+');
+        minus.addEventListener('click', () => { this.raidDraft[type] = Math.max(0, this.raidDraft[type] - 1); this.raidSig = ''; });
+        plus.addEventListener('click', () => { this.raidDraft[type] = Math.min(have, this.raidDraft[type] + 1); this.raidSig = ''; });
+        row.append(minus, count, plus);
+        panel.appendChild(row);
+      }
+      if (!any) panel.appendChild(el('p', 'raid-muted', 'No manufactured units at Home. Build a Drone Factory and an Army Camp.'));
+      const chosen = Object.values(this.raidDraft).reduce((a, b) => a + b, 0);
+      button('raid-primary', `Reserve ${chosen} unit${chosen === 1 ? '' : 's'}`, { kind: 'reserve', army: { ...this.raidDraft } }, chosen < 1);
+      button('raid-target', `Next base · ${v.nextScoutGold} gold`, { kind: 'next' }, (this.state.me()?.resources?.gold ?? 0) < v.nextScoutGold);
+      button('raid-target', 'Back home', { kind: 'cancel' });
+      return;
+    }
+
+    // ARMY_RESERVED / IN_PROGRESS
+    panel.appendChild(el('div', 'raid-score', `${r.stars ? '★'.repeat(r.stars) : '☆ ☆ ☆'}  ${r.destruction}%  ·  ${Math.ceil(r.secondsLeft)}s`));
+    panel.appendChild(el('p', 'raid-muted', this.raidDeploy
+      ? `Click inside the cyan band to place a ${UNIT_NAMES[this.raidDeploy] ?? this.raidDeploy}.`
+      : 'Pick a unit, then click inside the cyan band. Units choose targets on their own.'));
+    for (const type of RAID_UNIT_TYPES) {
+      if (r.army[type] < 1) continue;
+      const b = el('button', `raid-unit ${this.raidDeploy === type ? 'active' : ''}`, `${UNIT_NAMES[type] ?? type} × ${r.remaining[type]}`);
+      b.toggleAttribute('disabled', r.remaining[type] < 1);
+      b.addEventListener('click', () => { this.raidDeploy = type; this.raidSig = ''; });
+      panel.appendChild(b);
+    }
+    if (v.state === 'ARMY_RESERVED') button('raid-target', 'Cancel · units return to camp', { kind: 'cancel' });
+    else button('raid-target', 'Surrender', { kind: 'surrender' });
   }
 
   private updateCouncil(): void {

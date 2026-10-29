@@ -247,3 +247,123 @@ throwaway profile. Captures show the factory production strip and sparks, the bl
 Known gaps: Attack Drones and the camp/factory still use the existing procedural
 facility art, not original sci-fi assets; docked units idle on the camp ring
 rather than on dedicated pads; no audio cues.
+
+## Phase 3 — first complete raid loop (implemented 2026-10-29)
+
+`Home → Produce → Scout → Reserve → Deploy → Combat → Settle → Home`, against
+deterministic bot snapshots. Arena and the older room-scoped raid prototype are
+unchanged.
+
+### Architecture
+
+| Concern | Implementation |
+|---|---|
+| Isolation (§2.3, §9.1) | Each raid is its own `Game` (`session: 'raid'`) built from a pinned `DefenseSnapshot`; it never touches Home entity maps. The connection sees either Home or the raid; the other is silent. Home keeps simulating. |
+| Snapshots (§6.1, §6.6) | `server/src/raid/snapshot.ts`: seeded, legal bot bases (one Hub, no overlaps, 1-tile path margin) at the player's level ±1; sha256 checksum over canonical JSON. The record pins the full snapshot, so Home edits never change a scouted base. |
+| State machine (§6.2) | `RaidSessionState` + `RAID_TRANSITIONS` in shared constants; `transition()` rejects stale/duplicate moves (client sees `err.raid_stale`). |
+| Determinism (§6.3) | The engine has no `Math.random` in simulation. The raid does not tick until the first deploy (tick 0); deploys apply between ticks and are logged with their tick; direct unit commands are dropped. `simulateRaid()` re-runs snapshot + reservation + deploys + surrender tick and must reproduce the live outcome checksum. |
+| Troop policy (§6.2) | Reserve moves unit records out of Home into the session (all-or-nothing); each deploy consumes exactly one, logged in the same record; undeployed units return on settle/cancel/expiry. |
+| Exactly-once (§6.5, §9.3) | The session, reserved units, rewards, trophies and reports live in the Home save (schema v2, ordered v1→v2 migration), written atomically. Settlement keys are deduplicated; a retried settlement returns the stored report. |
+| Interruption | Disconnect → `EXPIRED_DURING_RAID`; restart → `RECOVERY_REQUIRED`. Both finish by deterministic re-simulation of the recorded deploys, then settle once. Unstarted scouts/reservations cancel and return units. An unverifiable snapshot settles as zero destruction (nothing minted). |
+| Rewards (§6.5) | System-funded: pinned per-level offer × destruction %, halved with zero stars, clamped to storage. Defenders (bots) lose nothing. Trophies +24×stars/3 or −12. |
+| Stars (§6.5) | Independent milestones: ≥50% (walls excluded from %), Hub destroyed, 100%. |
+| Targeting (§6.4) | Drones (and other units): nearest structure. Siege Mech: defenses/walls first. |
+| Defenses | New `point_turret` (ground only) and `anti_air` (air only) with `DefenseDef.targets`; `watch_tower` hits both. Player-buildable from City Level 3 (Phase 4). |
+
+### Client
+
+Home "Attack" opens a strike panel (trophies, last report, free scout). Raid
+view: scout offer with expiry, pinned reward and army draft; reserve; unit cards
+plus click-to-place inside a cyan band (coral inner edge = no placement);
+surrender/cancel; report with reason, credited reward, trophies and
+deployed/returned counts; Return home. Point turret (squat dome, tracking barrel)
+and anti-air (tall racks + sweeping radar) have distinct silhouettes; their
+shots show muzzle flash → tracer/missile → impact ring. Raid view hides the
+meaningless attacker economy HUD.
+
+### Verification
+
+- `scripts/home_phase3_test.ts` (in `npm run test:home`): snapshot legality,
+  determinism and tamper detection for levels 1–5; illegal transitions;
+  defense target classes; live-vs-replay checksum with interleaved deploys and
+  undeployed reserve; the full manager loop (free scout, paid Next, pinned
+  snapshot, dropped Home commands, all-or-nothing reserve, duplicate reserve,
+  perimeter rejection, unit identity, bounded single credit, replay of the real
+  raid, idempotent retry, cancel, 60 s expiry, surrender replay, disconnect
+  settlement, reload without re-settlement, crash recovery from a mid-raid
+  save); v1→v2 migration.
+- Browser walkthrough (headless Chrome, real UI, isolated server and save dir):
+  two consecutive full loops; results persisted (2★/92% then 2★/76%,
+  trophies 0→16→32, rewards exactly destruction × offer).
+- Balance probe (10 drones): L1 easy, L2 ≈2★ with heavy losses (3★ with two
+  Siege Mechs), L3 lost.
+
+### Known gaps
+
+- Siege Mech is raid-capable and tested, but players can only manufacture it at
+  City Level 3 (Mech Forge), which is Phase 4; the shipped player loop is drone-only.
+- Player-published defense snapshots, defender reports and shields are Phase 4;
+  only bot snapshots exist.
+- Destroyed structures disappear instead of leaving persistent ruins (§8.8);
+  no audio cues for the new defenses.
+- Replays are re-simulations for verification/recovery; there is no visual
+  replay player yet.
+- Pre-existing copy names the top unit "IRON MAN Guardian", which conflicts
+  with §8.6 (avoid resembling copyrighted heroes); not changed here.
+
+## Phase 4 — progression breadth (implemented 2026-10-30)
+
+Home-only rules; Arena tables (ages, `trains`, techs) are unchanged.
+
+| Spec item | Implementation |
+|---|---|
+| City Levels 3–5 (§4) | `HOME_CITY_LEVELS`: per-level cost, required buildings at levels, minimum grid supply, technology milestone (L3: Attack Drone research L1). The Hub upgrades through the same physical path as any building; City Level changes only when builders finish. L5 sets the command path. A static test proves every level is reachable from the previous one (it caught a Sensor Tower deadlock). |
+| Building levels | `Building.level` + `upgradeTargetLevel/upgradeProgress`. The building keeps working at its old level while builders upgrade it (no capacity dip below stored units). A building may not exceed City Level. Effects: camp +50%/level, factory +15% throughput and +2 queue slots/level, generator +50% supply, depot storage and production, defense HP +25% and damage +20%/level in raids. |
+| Development points | Completed buildings only; +50% per level; each extra copy of a type is worth 80% of the previous; walls capped at 50. |
+| Unit families (§5) | `HOME_UNIT_UNLOCK` maps every unit to factory, factory level and City Level: Drone Factory (Attack Drone), Mech Forge (Siege Mech), Missile Foundry (Rocket Launcher; L2 Plasma Tank), Hangar (Fighter; L2 Stealth Bomber), Exosuit Lab (Iron Guardian; L2 new Aegis Valkyrie). Camp space per spec table. |
+| Raid behaviours (§6.4) | Rocket: defenses first from standoff (+range research). Fighter: anti-air first. Bomber: densest cluster + 50% blast to footprints within 2.5 tiles. Plasma Tank: high-HP structure. Iron Guardian: the defense shooting allies; pulses a −30% damage field (radius/duration +5%/research). Valkyrie: exposed high-value defense; chain arcs to 2 (3 at R3, 4 at R5) nearby structures. All deterministic. |
+| Research (§5) | Five levels per unit at the Robotics Workshop, one attribute each (spec examples). One job at a time, paid once, runs under the grid factor (faster with workshop level) and offline. Levels are pinned at reservation and stored in the replay. |
+| Power (§3.1, §6.6) | Generator levels; L4/L5 need 30/45 supply without shortage. Published snapshots carry the defender's grid factor; defense damage scales with it, floored at 50%. Sensor Tower: +15% range to defenses within 6 tiles. |
+| Player snapshots (§6.1, §6.6) | On every save, a changed defensible layout (completed buildings + levels) publishes a new immutable snapshot to the registry (`server/profiles/snapshots/registry.json`). Scouting picks a player base at City Level ±1, unshielded, trophy tolerance 100 → 300 → any, else a bot. The raid pins its own copy. |
+| Defender side + shields | Settlement writes a defender delivery into the attacker's save (same atomic write). The outbox is flushed outside the per-profile locks (no cross-raid deadlock), applied idempotently by raid id to the defender (online in memory, or offline via its save), then removed. Defender reports show the system-funded attacker reward; the defender stockpile is never touched. Shields: 4/8/12 h for 1/2/3 stars; deploying in your own raid breaks it; matchmaking skips shielded cities. |
+| Save schema | v3 (`progression`, `raid.outbox`), ordered v1→v2→v3 migrations; a Phase 1 in-flight Hub upgrade is converted. City Level stays the source of truth for the Hub level. |
+| Visuals (§8.5) | Upgrade layers per family (roof stacks + annex, docking pads, energy rings, silos, armor collars, Hub rings/pylons/beacon) and level pips; amber gantry + bar while upgrading; Sensor Tower (mast + sweeping dish); procedural Aegis Valkyrie (swept wings, wingtip nodes); Valkyrie chain arcs and bomber blast rings. |
+| UI | Factories list their family with lock reasons (city/factory level); Upgrade button with cost, cap or progress; workshop research tiles with level/progress and lock reasons; Hub button lists exactly what is missing; strike panel shows shield and defense log; scout panel says PLAYER CITY vs BOT OUTPOST; report shows reward lost to full storage. |
+
+### Fixes found while building Phase 4
+
+- Home production clamped stock above capacity *down* every tick (e.g. after
+  a depot was removed); production now just stops at capacity.
+- Area effects measured centre-to-centre could never reach neighbours across
+  the 1-tile footprint margin; they now measure to footprint edges.
+- Unit names/descriptions referencing a trademarked hero replaced with original
+  copy ("Iron Guardian", §8.6).
+
+### Verification
+
+- `scripts/home_phase4_test.ts` (in `npm run test:home`): requirement-table
+  reachability; L2→L5 with physical Hub upgrades and readable blockers;
+  upgrade payment/duplicate/working-while-upgrading/level-cap; camp capacity;
+  diminishing development; research (lock, paid once, completion, offline);
+  stock above capacity preserved; factory-level unit gating, queue slots,
+  Valkyrie; level HP, grid-factor floor, Guardian field pulse, Sensor range;
+  fighter/rocket targeting, Valkyrie arcs, bomber blast; research changes the
+  outcome and replays deterministically; matchmaking tolerance/shield/self;
+  publish → match → pinned copy → republish; settlement → outbox → online
+  delivery, defender economy unchanged, shield in registry, shielded base not
+  offered, idempotent and offline delivery, attacking breaks your shield.
+- Phases 1–3 suites and 15 regression scripts pass.
+- Browser walkthrough (isolated server on 8091, seeded L4 city and a published
+  rival): Hub blockers, research panel, upgrading forge, shield/defense log,
+  PLAYER CITY scout, six unit families as deploy cards, combat and report.
+
+### Known gaps
+
+- Building art is still the existing procedural/PNG set with added level
+  layers; original sci-fi assets per `ART_ASSET_MANIFEST.md` remain open.
+- Doctrines (§7) are optional and not implemented.
+- Layout mode (move completed buildings, §2.1) is not implemented; snapshots
+  republish on build/upgrade/delete only.
+- Defense delivery is idempotent against the last 20 reports per defender.
+- The registry is a single local JSON file; production needs a database
+  behind the same interface.

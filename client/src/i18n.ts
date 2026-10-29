@@ -239,6 +239,17 @@ const PT: Dict = {
   'err.no_elon': 'ELON insuficiente. Construa ou melhore geradores.',
   'err.army_full': 'Hangar do Exército cheio. Construa outro para aumentar a capacidade.',
   'err.raid_not_manufactured': 'Fabrique essas unidades antes de adicioná-las ao ataque.',
+  'err.raid_over': 'Este ataque já terminou.',
+  'err.raid_no_reserve': 'Não há mais unidades desse tipo na reserva.',
+  'err.raid_stale': 'Essa ação não vale mais para este ataque.',
+  'err.raid_busy': 'Termine o ataque atual primeiro.',
+  'err.raid_scout_expired': 'A oferta de reconhecimento expirou. Procure outra base.',
+  'err.raid_perimeter': 'Implante na faixa destacada ao redor da base.',
+  'err.factory_level': 'Melhore esta fábrica para o nível {level} primeiro.',
+  'err.upgrade_in_progress': 'Este prédio já está sendo melhorado.',
+  'err.max_level': 'Nível máximo atingido.',
+  'err.city_requirements': 'Falta para o próximo nível da cidade: {missing}.',
+  'err.research_busy': 'O laboratório já está pesquisando.',
   'err.requires_buildings': 'Requer {n} prédio(s) diferente(s) da {age} — casa/fazenda/muralha não contam (tem {have}).',
   'err.bad_gather_target': 'Alvo de coleta inválido.',
   'err.bad_building_type': 'Tipo de construção inválido.',
@@ -539,6 +550,17 @@ const EN: Dict = {
   'err.no_elon': 'Not enough ELON. Build or upgrade generators.',
   'err.army_full': 'Army Hangar is full. Build another to increase capacity.',
   'err.raid_not_manufactured': 'Manufacture these units before adding them to the attack.',
+  'err.raid_over': 'This raid has already ended.',
+  'err.raid_no_reserve': 'No more units of that type in reserve.',
+  'err.raid_stale': 'That action no longer applies to this raid.',
+  'err.raid_busy': 'Finish the current raid first.',
+  'err.raid_scout_expired': 'The scout offer expired. Find another base.',
+  'err.raid_perimeter': 'Deploy inside the highlighted band around the base.',
+  'err.factory_level': 'Upgrade this factory to level {level} first.',
+  'err.upgrade_in_progress': 'This building is already being upgraded.',
+  'err.max_level': 'Maximum level reached.',
+  'err.city_requirements': 'Next City Level still needs: {missing}.',
+  'err.research_busy': 'The lab is already researching.',
   'err.requires_buildings': "Requires {n} different building(s) from the {age} — house/farm/wall don't count (you have {have}).",
   'err.bad_gather_target': 'Invalid gather target.',
   'err.bad_building_type': 'Invalid building type.',
@@ -835,6 +857,17 @@ const ES: Dict = {
   'err.no_elon': 'No tienes suficiente ELON. Construye o mejora generadores.',
   'err.army_full': 'El Hangar está lleno. Construye otro para aumentar la capacidad.',
   'err.raid_not_manufactured': 'Fabrica estas unidades antes de añadirlas al ataque.',
+  'err.raid_over': 'Este ataque ya terminó.',
+  'err.raid_no_reserve': 'No quedan unidades de ese tipo en reserva.',
+  'err.raid_stale': 'Esa acción ya no aplica a este ataque.',
+  'err.raid_busy': 'Termina primero el ataque actual.',
+  'err.raid_scout_expired': 'La oferta de reconocimiento expiró. Busca otra base.',
+  'err.raid_perimeter': 'Despliega dentro de la franja resaltada alrededor de la base.',
+  'err.factory_level': 'Mejora esta fábrica al nivel {level} primero.',
+  'err.upgrade_in_progress': 'Este edificio ya se está mejorando.',
+  'err.max_level': 'Nivel máximo alcanzado.',
+  'err.city_requirements': 'Al siguiente nivel de ciudad le falta: {missing}.',
+  'err.research_busy': 'El laboratorio ya está investigando.',
   'err.requires_buildings': 'Requiere {n} edificio(s) diferente(s) de la {age} — casa/granja/muralla no cuentan (tienes {have}).',
   'err.bad_gather_target': 'Objetivo de recolección inválido.',
   'err.bad_building_type': 'Tipo de construcción inválido.',
@@ -936,9 +969,9 @@ export function t(key: string, params?: Record<string, string | number>): string
 // ---------------------------------------------------------- conteúdo (nomes)
 
 const UNIT_NAMES_ALL: Record<Lang, Record<UnitType, string>> = {
-  pt: { villager: 'Construtor Humano', designer: 'Designer Humano', swordsman: 'Espadachim', archer: 'Arqueiro', knight: 'Cavaleiro', fishing_boat: 'Barco de Pesca', war_galley: 'Galé de Guerra', transport: 'Transporte', robot: 'Robô Construtor', drone: 'Drone de Obra', attack_drone: 'Drone de Ataque', fighter: 'Caça Autônomo', rocket_launcher: 'Lançador de Foguetes', siege_mech: 'Mecha de Cerco', stealth_bomber: 'Bombardeiro Furtivo', plasma_tank: 'Tanque de Plasma', iron_guardian: 'IRON MAN Guardião' },
-  en: { villager: 'Human Builder', designer: 'Human Designer', swordsman: 'Swordsman', archer: 'Archer', knight: 'Knight', fishing_boat: 'Fishing Boat', war_galley: 'War Galley', transport: 'Transport Ship', robot: 'Builder Robot', drone: 'Construction Drone', attack_drone: 'Attack Drone', fighter: 'Autonomous Fighter', rocket_launcher: 'Rocket Launcher', siege_mech: 'Siege Mech', stealth_bomber: 'Stealth Bomber', plasma_tank: 'Plasma Tank', iron_guardian: 'IRON MAN Guardian' },
-  es: { villager: 'Constructor Humano', designer: 'Diseñador Humano', swordsman: 'Espadachín', archer: 'Arquero', knight: 'Caballero', fishing_boat: 'Barco Pesquero', war_galley: 'Galera de Guerra', transport: 'Transporte', robot: 'Robot Constructor', drone: 'Dron de Obra', attack_drone: 'Dron de Ataque', fighter: 'Caza Autónomo', rocket_launcher: 'Lanzacohetes', siege_mech: 'Meca de Asedio', stealth_bomber: 'Bombardero Furtivo', plasma_tank: 'Tanque de Plasma', iron_guardian: 'IRON MAN Guardián' },
+  pt: { villager: 'Construtor Humano', designer: 'Designer Humano', swordsman: 'Espadachim', archer: 'Arqueiro', knight: 'Cavaleiro', fishing_boat: 'Barco de Pesca', war_galley: 'Galé de Guerra', transport: 'Transporte', robot: 'Robô Construtor', drone: 'Drone de Obra', attack_drone: 'Drone de Ataque', fighter: 'Caça Autônomo', rocket_launcher: 'Lançador de Foguetes', siege_mech: 'Mecha de Cerco', stealth_bomber: 'Bombardeiro Furtivo', plasma_tank: 'Tanque de Plasma', iron_guardian: 'Guardião de Ferro', aegis_valkyrie: 'Valquíria Égide' },
+  en: { villager: 'Human Builder', designer: 'Human Designer', swordsman: 'Swordsman', archer: 'Archer', knight: 'Knight', fishing_boat: 'Fishing Boat', war_galley: 'War Galley', transport: 'Transport Ship', robot: 'Builder Robot', drone: 'Construction Drone', attack_drone: 'Attack Drone', fighter: 'Autonomous Fighter', rocket_launcher: 'Rocket Launcher', siege_mech: 'Siege Mech', stealth_bomber: 'Stealth Bomber', plasma_tank: 'Plasma Tank', iron_guardian: 'Iron Guardian', aegis_valkyrie: 'Aegis Valkyrie' },
+  es: { villager: 'Constructor Humano', designer: 'Diseñador Humano', swordsman: 'Espadachín', archer: 'Arquero', knight: 'Caballero', fishing_boat: 'Barco Pesquero', war_galley: 'Galera de Guerra', transport: 'Transporte', robot: 'Robot Constructor', drone: 'Dron de Obra', attack_drone: 'Dron de Ataque', fighter: 'Caza Autónomo', rocket_launcher: 'Lanzacohetes', siege_mech: 'Meca de Asedio', stealth_bomber: 'Bombardero Furtivo', plasma_tank: 'Tanque de Plasma', iron_guardian: 'Guardián de Hierro', aegis_valkyrie: 'Valquiria Égida' },
 };
 
 const BUILDING_NAMES_ALL: Record<Lang, Record<BuildingType, string>> = {
@@ -948,7 +981,7 @@ const BUILDING_NAMES_ALL: Record<Lang, Record<BuildingType, string>> = {
     wall: 'Muro Modular de Proteção', watch_tower: 'Torre de Sensores', mill: 'Centro de Tecnologia Alimentar', lumber_camp: 'Depósito de Materiais',
     mining_camp: 'Centro de Processamento Mineral', dock: 'Terminal Logístico Fluvial',
     design_studio: 'Estúdio de Design Humano',
-    solar_array: 'Campo Solar', wind_turbine: 'Turbina Eólica', robotics_workshop: 'Laboratório de Sistemas Autônomos', data_center: 'Centro de Dados ELON', elon_vault: 'Cofre ELON', army_camp: 'Hangar do Exército', drone_factory: 'Fábrica de Drones', aerospace_hangar: 'Hangar Aeroespacial', missile_foundry: 'Fundição de Mísseis', mech_forge: 'Forja de Mechas', exosuit_lab: 'Laboratório de Exotrajes',
+    solar_array: 'Campo Solar', wind_turbine: 'Turbina Eólica', robotics_workshop: 'Laboratório de Sistemas Autônomos', data_center: 'Centro de Dados ELON', elon_vault: 'Cofre ELON', army_camp: 'Hangar do Exército', drone_factory: 'Fábrica de Drones', aerospace_hangar: 'Hangar Aeroespacial', missile_foundry: 'Fundição de Mísseis', mech_forge: 'Forja de Mechas', exosuit_lab: 'Laboratório de Exotrajes', point_turret: 'Torreta de Ponto', anti_air: 'Bateria Antiaérea', sensor_tower: 'Torre de Sensores',
   },
   en: {
     town_center: 'Civic Operations Hub', house: 'Modular Residence', barracks: 'Army Basecamp', farm: 'Hydroponic Farm',
@@ -956,7 +989,7 @@ const BUILDING_NAMES_ALL: Record<Lang, Record<BuildingType, string>> = {
     wall: 'Modular Protection Wall', watch_tower: 'Sensor Defense Tower', mill: 'Food Technology Center', lumber_camp: 'Materials Depot',
     mining_camp: 'Mineral Processing Center', dock: 'River Logistics Terminal',
     design_studio: 'Human Design Studio',
-    solar_array: 'Solar Field', wind_turbine: 'Wind Turbine', robotics_workshop: 'Autonomous Systems Lab', data_center: 'ELON Data Center', elon_vault: 'ELON Vault', army_camp: 'Army Hangar', drone_factory: 'Drone Factory', aerospace_hangar: 'Aerospace Hangar', missile_foundry: 'Missile Foundry', mech_forge: 'Mech Forge', exosuit_lab: 'Exosuit Laboratory',
+    solar_array: 'Solar Field', wind_turbine: 'Wind Turbine', robotics_workshop: 'Autonomous Systems Lab', data_center: 'ELON Data Center', elon_vault: 'ELON Vault', army_camp: 'Army Hangar', drone_factory: 'Drone Factory', aerospace_hangar: 'Aerospace Hangar', missile_foundry: 'Missile Foundry', mech_forge: 'Mech Forge', exosuit_lab: 'Exosuit Laboratory', point_turret: 'Point Turret', anti_air: 'Anti-Air Battery', sensor_tower: 'Sensor Tower',
   },
   es: {
     town_center: 'Centro de Operaciones Cívicas', house: 'Residencia Modular', barracks: 'Base de Operaciones Militares', farm: 'Granja Hidropónica',
@@ -964,7 +997,7 @@ const BUILDING_NAMES_ALL: Record<Lang, Record<BuildingType, string>> = {
     wall: 'Muro Modular de Protección', watch_tower: 'Torre de Sensores', mill: 'Centro de Tecnología Alimentaria', lumber_camp: 'Depósito de Materiales',
     mining_camp: 'Centro de Procesamiento Mineral', dock: 'Terminal Logística Fluvial',
     design_studio: 'Estudio de Diseño Humano',
-    solar_array: 'Campo Solar', wind_turbine: 'Turbina Eólica', robotics_workshop: 'Laboratorio de Sistemas Autónomos', data_center: 'Centro de Datos ELON', elon_vault: 'Bóveda ELON', army_camp: 'Hangar del Ejército', drone_factory: 'Fábrica de Drones', aerospace_hangar: 'Hangar Aeroespacial', missile_foundry: 'Fundición de Misiles', mech_forge: 'Forja de Mecas', exosuit_lab: 'Laboratorio de Exotrajes',
+    solar_array: 'Campo Solar', wind_turbine: 'Turbina Eólica', robotics_workshop: 'Laboratorio de Sistemas Autónomos', data_center: 'Centro de Datos ELON', elon_vault: 'Bóveda ELON', army_camp: 'Hangar del Ejército', drone_factory: 'Fábrica de Drones', aerospace_hangar: 'Hangar Aeroespacial', missile_foundry: 'Fundición de Misiles', mech_forge: 'Forja de Mecas', exosuit_lab: 'Laboratorio de Exotrajes', point_turret: 'Torreta de Punto', anti_air: 'Batería Antiaérea', sensor_tower: 'Torre de Sensores',
   },
 };
 
@@ -1001,7 +1034,7 @@ const BUILDING_DESCS_ALL: Record<Lang, Record<BuildingType, string>> = {
     robotics_workshop: 'Produz humanoides, drones e sistemas autônomos; todos consomem energia da rede.',
     design_studio: 'Forma Designers Humanos. Cada designer acelera todas as fábricas militares em 8%, até 40%.',
     data_center: 'Gera 6 ELON por minuto para fabricação.', elon_vault: 'Armazena +500 ELON.', army_camp: 'Adiciona 10 espaços à capacidade do exército.',
-    drone_factory: 'Produz exclusivamente drones de ataque para a força de invasão.', aerospace_hangar: 'Produz caças e bombardeiros furtivos.', missile_foundry: 'Produz lançadores de foguetes e tanques de plasma.', mech_forge: 'Monta mechas pesados de cerco.', exosuit_lab: 'Instalação final que fabrica o IRON MAN Guardião.',
+    drone_factory: 'Produz exclusivamente drones de ataque para a força de invasão.', aerospace_hangar: 'Produz caças e bombardeiros furtivos.', missile_foundry: 'Produz lançadores de foguetes e tanques de plasma.', mech_forge: 'Monta mechas pesados de cerco.', exosuit_lab: 'Instalação final: Guardião de Ferro; no nível 2, a Valquíria Égide.', point_turret: 'Domo blindado de cano longo; acerta só alvos terrestres.', anti_air: 'Lançador de mísseis com radar; acerta só alvos aéreos.', sensor_tower: 'Mastro de varredura; defesas próximas alcançam mais longe.',
   },
   en: {
     town_center: 'The city core: trains citizens, receives resources, and coordinates the next urban level.',
@@ -1023,7 +1056,7 @@ const BUILDING_DESCS_ALL: Record<Lang, Record<BuildingType, string>> = {
     robotics_workshop: 'Produces humanoids, drones, and autonomous systems that draw grid power.',
     design_studio: 'Trains Human Designers. Each designer accelerates every weapon factory by 8%, up to 40%.',
     data_center: 'Generates 6 ELON per minute for manufacturing.', elon_vault: 'Stores +500 ELON.', army_camp: 'Adds 10 manufactured-army capacity.',
-    drone_factory: 'Exclusively manufactures attack drones for an assault force.', aerospace_hangar: 'Manufactures fighters and stealth bombers.', missile_foundry: 'Builds rocket launchers and plasma tanks.', mech_forge: 'Assembles heavy siege mechs.', exosuit_lab: 'Final-tier facility that builds the IRON MAN Guardian.',
+    drone_factory: 'Exclusively manufactures attack drones for an assault force.', aerospace_hangar: 'Manufactures fighters and stealth bombers.', missile_foundry: 'Builds rocket launchers and plasma tanks.', mech_forge: 'Assembles heavy siege mechs.', exosuit_lab: 'Final-tier facility: Iron Guardian; at level 2, the Aegis Valkyrie.', point_turret: 'Armored long-barrel dome; hits ground targets only.', anti_air: 'Radar-guided missile launcher; hits air targets only.', sensor_tower: 'Scanning mast; nearby defenses reach further.',
   },
   es: {
     town_center: 'El corazón de tu aldea: entrena aldeanos, recibe los recursos recolectados e investiga el avance de edad.',
@@ -1045,7 +1078,7 @@ const BUILDING_DESCS_ALL: Record<Lang, Record<BuildingType, string>> = {
     robotics_workshop: 'Entrena Robots Constructores y Drones de Obra. Construyen rápido pero consumen energía de la red.',
     design_studio: 'Forma Diseñadores Humanos. Cada uno acelera todas las fábricas militares un 8%, hasta 40%.',
     data_center: 'Genera 6 ELON por minuto para fabricar unidades.', elon_vault: 'Almacena +500 ELON.', army_camp: 'Añade 10 espacios de capacidad militar.',
-    drone_factory: 'Fabrica exclusivamente drones de ataque.', aerospace_hangar: 'Fabrica cazas y bombarderos furtivos.', missile_foundry: 'Produce lanzacohetes y tanques de plasma.', mech_forge: 'Monta mecas pesados de asedio.', exosuit_lab: 'Instalación final que fabrica el IRON MAN Guardián.',
+    drone_factory: 'Fabrica exclusivamente drones de ataque.', aerospace_hangar: 'Fabrica cazas y bombarderos furtivos.', missile_foundry: 'Produce lanzacohetes y tanques de plasma.', mech_forge: 'Monta mecas pesados de asedio.', exosuit_lab: 'Instalación final: Guardián de Hierro; en el nivel 2, la Valquiria Égida.', point_turret: 'Domo blindado de cañón largo; solo impacta objetivos terrestres.', anti_air: 'Lanzamisiles con radar; solo impacta objetivos aéreos.', sensor_tower: 'Mástil de escaneo; las defensas cercanas llegan más lejos.',
   },
 };
 
@@ -1064,7 +1097,7 @@ const UNIT_DESCS_ALL: Record<Lang, Record<UnitType, string>> = {
     attack_drone: 'Unidade aérea veloz de assédio. Ataca à distância e consome 2 de energia.',
     fighter: 'Caça aéreo pesado, rápido e resistente. Consome 3 de energia.',
     rocket_launcher: 'Artilharia terrestre de longo alcance; poderosa, lenta e vulnerável de perto. Consome 2 de energia.',
-    siege_mech: 'Mecha blindado de cerco para romper o núcleo defensivo.', stealth_bomber: 'Aeronave veloz com grande dano por ataque.', plasma_tank: 'Blindado pesado de plasma, lento e devastador.', iron_guardian: 'Exotraje voador final inspirado no Iron Man; raro, caro e extremamente poderoso.',
+    siege_mech: 'Mecha blindado de cerco para romper o núcleo defensivo.', stealth_bomber: 'Aeronave veloz com grande dano por ataque.', plasma_tank: 'Blindado pesado de plasma, lento e devastador.', iron_guardian: 'Grande protetor aéreo blindado; pulsa um campo que reduz o dano nos aliados.', aegis_valkyrie: 'Chassi de elite com asas enflechadas; arcos elétricos saltam entre alvos próximos.',
   },
   en: {
     villager: 'Gathers resources, builds, and repairs — the backbone of your economy.',
@@ -1080,7 +1113,7 @@ const UNIT_DESCS_ALL: Record<Lang, Record<UnitType, string>> = {
     attack_drone: 'Fast aerial raider with a ranged strike. Draws 2 power.',
     fighter: 'Fast, durable heavy air-strike unit. Draws 3 power.',
     rocket_launcher: 'Long-range ground artillery: powerful, slow, and vulnerable up close. Draws 2 power.',
-    siege_mech: 'Armored siege walker built to break defensive cores.', stealth_bomber: 'Fast aircraft delivering high-damage strike passes.', plasma_tank: 'Slow, devastating heavy plasma armor.', iron_guardian: 'Final flying powered suit inspired by Iron Man; rare, expensive, and extremely powerful.',
+    siege_mech: 'Armored siege walker built to break defensive cores.', stealth_bomber: 'Fast aircraft delivering high-damage strike passes.', plasma_tank: 'Slow, devastating heavy plasma armor.', iron_guardian: 'Large armored aerial protector; pulses a field that reduces damage to nearby allies.', aegis_valkyrie: 'Slim swept-wing elite frame; electric arcs chain between nearby targets.',
   },
   es: {
     villager: 'Recolecta recursos, construye y repara — la base de tu economía.',
@@ -1096,7 +1129,7 @@ const UNIT_DESCS_ALL: Record<Lang, Record<UnitType, string>> = {
     attack_drone: 'Hostigador aéreo veloz con ataque a distancia. Consume 2 de energía.',
     fighter: 'Caza aéreo pesado, rápido y resistente. Consume 3 de energía.',
     rocket_launcher: 'Artillería terrestre de largo alcance; potente, lenta y vulnerable de cerca. Consume 2 de energía.',
-    siege_mech: 'Meca blindado para romper núcleos defensivos.', stealth_bomber: 'Aeronave veloz con ataques de gran daño.', plasma_tank: 'Blindado pesado de plasma, lento y devastador.', iron_guardian: 'Exotraje volador final inspirado en Iron Man; raro, caro y extremadamente poderoso.',
+    siege_mech: 'Meca blindado para romper núcleos defensivos.', stealth_bomber: 'Aeronave veloz con ataques de gran daño.', plasma_tank: 'Blindado pesado de plasma, lento y devastador.', iron_guardian: 'Gran protector aéreo blindado; emite un campo que reduce el daño a los aliados.', aegis_valkyrie: 'Chasis de élite con alas en flecha; arcos eléctricos saltan entre objetivos cercanos.',
   },
 };
 
@@ -1195,6 +1228,7 @@ export const UNIT_ICONS: Record<UnitType, string> = {
   stealth_bomber: '◆',
   plasma_tank: '▰',
   iron_guardian: '✦',
+  aegis_valkyrie: 'ᛉ',
 };
 
 export const BUILDING_ICONS: Record<BuildingType, string> = {
@@ -1224,6 +1258,9 @@ export const BUILDING_ICONS: Record<BuildingType, string> = {
   missile_foundry: '🚀',
   mech_forge: '⬢',
   exosuit_lab: '✦',
+  point_turret: '⊙',
+  anti_air: '⇈',
+  sensor_tower: '⌖',
 };
 
 export const NODE_ICONS: Record<NodeType, string> = {

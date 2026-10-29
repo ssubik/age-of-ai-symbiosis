@@ -4,7 +4,7 @@
 // substituídos por arte dedicada nas próximas etapas.
 
 import type { BuildingSnap, BuildingType, NodeSnap, NodeType, ResourceType, SheepSnap, UnitSnap } from '@age/shared';
-import { BUILDING_DEFS, DEFENSE_DEFS, SHEEP_FOOD, TILE_GRASS, TILE_SHALLOW, TILE_WATER, UNIT_DEFS, isNavalUnit, techBonus } from '@age/shared';
+import { BUILDING_DEFS, buildingMaxHp, DEFENSE_DEFS, SHEEP_FOOD, TILE_GRASS, TILE_SHALLOW, TILE_WATER, UNIT_DEFS, isNavalUnit, techBonus } from '@age/shared';
 import type { GameState } from '../state';
 import type { Camera } from './camera';
 import { ISO_HH, ISO_HW } from './camera';
@@ -291,6 +291,9 @@ export class Renderer {
 
     // --- Symbiosis grid: animated energy flow from generators to hubs ---
     this.drawPowerLines(ctx, px, py, hh, now);
+
+    // --- Home raid: the legal deployment band, under every entity ---
+    this.drawRaidZone(ctx, px, py, now);
 
     // --- entidades ordenadas por profundidade (x+y crescente) ---
     interface Item {
@@ -2241,6 +2244,9 @@ export class Renderer {
         case 'solar_array': topY = this.drawSolarArray(ctx, site); break;
         case 'wind_turbine': topY = this.drawWindTurbine(ctx, site); break;
         case 'robotics_workshop': topY = this.drawWorkshopFrame(ctx, site); break;
+        case 'point_turret': topY = this.drawPointTurret(ctx, site); break;
+        case 'anti_air': topY = this.drawAntiAir(ctx, site); break;
+        case 'sensor_tower': topY = this.drawSensorTower(ctx, site); break;
         case 'design_studio':
         case 'data_center':
         case 'elon_vault':
@@ -2280,6 +2286,8 @@ export class Renderer {
       ctx.restore();
     }
 
+    if (!under && alphaMul >= 1 && (b.level ?? 1) > 1) topY = this.drawUpgradeLayers(ctx, T, R, B, L, hh, topY, b, now);
+    if (!under && alphaMul >= 1 && b.upgradeProgress !== undefined) this.drawUpgradeWork(ctx, T, R, B, L, hh, topY, b);
     if (!under && alphaMul >= 1 && b.queue?.length) this.drawProductionFx(ctx, T, R, B, L, hh, topY, b, now);
 
     // flash de dano no prédio (losango da base pisca em vermelho, some em ~200ms)
@@ -2324,8 +2332,8 @@ export class Renderer {
     const bw = Math.max(20, s * hh * 1.6);
     if (under) {
       this.bar(ctx, topx - bw / 2, barY, bw, 5, prog, '#e8c95d');
-    } else if (selected || b.hp < def.hp) {
-      const frac = clamp01(b.hp / def.hp);
+    } else if (selected || b.hp < buildingMaxHp(b.type, b.level)) {
+      const frac = clamp01(b.hp / buildingMaxHp(b.type, b.level));
       this.bar(ctx, topx - bw / 2, barY, bw, 5, frac, hpColor(frac));
     }
   }
@@ -2401,10 +2409,255 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** Each level adds a visible layer, by family (spec §8.5): factories grow roof
+   *  stacks and an annex pad, camps gain docking pads, generators gain energy
+   *  rings, depots gain silos, defenses gain armor collars. Level pips under the
+   *  footprint keep it readable without colour. Returns the new top. */
+  private drawUpgradeLayers(
+    ctx: CanvasRenderingContext2D, T: Pt, R: Pt, B: Pt, L: Pt, hh: number, topY: number, b: BuildingSnap, now: number,
+  ): number {
+    const level = b.level ?? 1;
+    const extra = level - 1;
+    const cx = (T.x + B.x) / 2;
+    const cy = (T.y + B.y) / 2;
+    const lerp = (a: Pt, z: Pt, t: number): Pt => ({ x: a.x + (z.x - a.x) * t, y: a.y + (z.y - a.y) * t });
+    let top = topY;
+    ctx.save();
+    const factories: BuildingType[] = ['drone_factory', 'mech_forge', 'missile_foundry', 'aerospace_hangar', 'exosuit_lab', 'robotics_workshop'];
+    const depots: BuildingType[] = ['mill', 'lumber_camp', 'mining_camp', 'farm'];
+    const defenses: BuildingType[] = ['watch_tower', 'point_turret', 'anti_air', 'sensor_tower'];
+    if (factories.includes(b.type)) {
+      for (let i = 0; i < extra; i++) {
+        const p = lerp(T, R, 0.3 + i * 0.22);
+        const baseY = p.y + (topY - T.y) * 0.85;
+        const h = hh * 1.1;
+        ctx.fillStyle = '#344854';
+        ctx.fillRect(p.x - hh * 0.22, baseY - h, hh * 0.44, h);
+        this.blob(ctx, p.x, baseY - h, hh * 0.22, hh * 0.1, '#7D9097', '#1A2831');
+        this.blob(ctx, p.x, baseY - h * 0.55, hh * 0.08, hh * 0.08, '#54DBE9');
+        top = Math.min(top, baseY - h - hh * 0.2);
+      }
+      if (level >= 3) this.poly(ctx, [lerp(L, B, 0.15), lerp(L, B, 0.55), { x: lerp(L, B, 0.55).x - hh * 0.9, y: lerp(L, B, 0.55).y + hh * 0.45 }, { x: lerp(L, B, 0.15).x - hh * 0.9, y: lerp(L, B, 0.15).y + hh * 0.45 }], 'rgba(52,72,84,.9)', '#54DBE9');
+    } else if (b.type === 'army_camp') {
+      for (let i = 0; i < extra; i++) {
+        const p = lerp(L, R, 0.2 + i * 0.3);
+        const q = { x: p.x, y: p.y + hh * 0.9 };
+        this.blob(ctx, q.x, q.y, hh * 0.55, hh * 0.28, 'rgba(26,40,49,.85)', '#FFBE68');
+        ctx.strokeStyle = 'rgba(84,219,233,.8)';
+        ctx.lineWidth = Math.max(1, hh * 0.07);
+        ctx.beginPath(); ctx.ellipse(q.x, q.y, hh * 0.36, hh * 0.18, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else if (b.type === 'solar_array' || b.type === 'wind_turbine') {
+      for (let i = 0; i < extra; i++) {
+        const k = Renderer.reducedMotion() ? 0.5 : 0.5 + 0.5 * Math.sin(now / 300 + i);
+        ctx.strokeStyle = `rgba(84,219,233,${0.45 + 0.4 * k})`;
+        ctx.lineWidth = Math.max(1.2, hh * 0.1);
+        ctx.beginPath(); ctx.ellipse(cx, cy - hh * (0.5 + i * 0.45), hh * (1.3 - i * 0.2), hh * (0.65 - i * 0.1), 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else if (depots.includes(b.type)) {
+      for (let i = 0; i < extra; i++) {
+        const p = lerp(L, B, 0.3 + i * 0.35);
+        const x = p.x - hh * 0.4;
+        const h = hh * 1.3;
+        ctx.fillStyle = '#7D9097';
+        ctx.fillRect(x - hh * 0.3, p.y - h, hh * 0.6, h);
+        this.blob(ctx, x, p.y - h, hh * 0.3, hh * 0.13, '#C9D7D9', '#1A2831');
+        this.blob(ctx, x, p.y, hh * 0.3, hh * 0.13, '#344854');
+        ctx.fillStyle = '#FFBE68';
+        ctx.fillRect(x - hh * 0.3, p.y - h * 0.45, hh * 0.6, hh * 0.08);
+      }
+    } else if (defenses.includes(b.type)) {
+      for (let i = 0; i < extra; i++) {
+        ctx.strokeStyle = i === 0 ? '#C9D7D9' : '#FFBE68';
+        ctx.lineWidth = Math.max(1.5, hh * 0.14);
+        ctx.beginPath(); ctx.ellipse(cx, cy - hh * (0.35 + i * 0.25), hh * 0.95, hh * 0.48, 0, 0, Math.PI); ctx.stroke();
+      }
+    } else if (b.type === 'town_center' && level >= 3) {
+      // Higher command tiers: second ring, taller mast, side pylons, crown beacon.
+      const lift = hh * 1.1;
+      ctx.strokeStyle = 'rgba(84,219,233,.7)';
+      ctx.lineWidth = Math.max(1.2, hh * 0.1);
+      ctx.beginPath();
+      [T, R, B, L].forEach((p, i) => (i ? ctx.lineTo(p.x, p.y - lift) : ctx.moveTo(p.x, p.y - lift)));
+      ctx.closePath(); ctx.stroke();
+      const mastTop = topY - hh * (0.8 + level * 0.3);
+      ctx.strokeStyle = '#C9D7D9';
+      ctx.beginPath(); ctx.moveTo(cx, topY + hh * 0.4); ctx.lineTo(cx, mastTop); ctx.stroke();
+      if (level >= 4) for (const p of [L, R]) { ctx.fillStyle = '#344854'; ctx.fillRect(p.x - hh * 0.15, p.y - hh * 1.6, hh * 0.3, hh * 1.6); this.blob(ctx, p.x, p.y - hh * 1.6, hh * 0.12, hh * 0.12, '#54DBE9'); }
+      if (level >= 5) {
+        const k = Renderer.reducedMotion() ? 1 : 0.6 + 0.4 * Math.sin(now / 250);
+        this.blob(ctx, cx, mastTop, hh * 0.3 * k + hh * 0.1, hh * 0.3 * k + hh * 0.1, 'rgba(142,242,255,.85)');
+      }
+      top = Math.min(top, mastTop - hh * 0.3);
+    }
+    // Level pips: one diamond per level along the front edge.
+    for (let i = 0; i < level; i++) {
+      const p = lerp(L, B, 0.25 + i * 0.12);
+      const x = p.x; const y = p.y + hh * 0.35;
+      ctx.fillStyle = i < level ? '#54DBE9' : '#344854';
+      ctx.beginPath(); ctx.moveTo(x, y - hh * 0.14); ctx.lineTo(x + hh * 0.12, y); ctx.lineTo(x, y + hh * 0.14); ctx.lineTo(x - hh * 0.12, y); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    return top;
+  }
+
+  /** Upgrade under way: amber gantry frame over a working building plus its own
+   *  progress bar (the building still functions at its current level). */
+  private drawUpgradeWork(ctx: CanvasRenderingContext2D, T: Pt, R: Pt, B: Pt, L: Pt, hh: number, topY: number, b: BuildingSnap): void {
+    const progress = clamp01(b.upgradeProgress ?? 0);
+    const poleH = Math.max(hh * 1.2, T.y - topY + hh * 0.4);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,190,104,.85)';
+    ctx.lineWidth = Math.max(1.4, hh * 0.12);
+    ctx.setLineDash([hh * 0.35, hh * 0.25]);
+    for (const c of [T, R, B, L]) { ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x, c.y - poleH); ctx.stroke(); }
+    ctx.beginPath();
+    [T, R, B, L].forEach((p, i) => (i ? ctx.lineTo(p.x, p.y - poleH) : ctx.moveTo(p.x, p.y - poleH)));
+    ctx.closePath(); ctx.stroke();
+    ctx.restore();
+    const bw = Math.max(24, (R.x - L.x) * 0.7);
+    this.bar(ctx, (T.x + B.x) / 2 - bw / 2, topY - 18, bw, 5, progress, '#FFBE68');
+  }
+
+  /** Sensor tower: tall slim mast with a sweeping dish (spec §8.5). */
+  private drawSensorTower(ctx: CanvasRenderingContext2D, st: BSite): number {
+    const { T, R, B, L, hh, now } = st;
+    const cx = (T.x + B.x) / 2;
+    const cy = (T.y + B.y) / 2;
+    this.poly(ctx, [T, R, B, L].map((p) => ({ x: p.x, y: p.y - hh * 0.25 })), '#344854', '#1A2831');
+    const top = cy - hh * 3.4;
+    ctx.save();
+    ctx.strokeStyle = '#7D9097';
+    ctx.lineWidth = Math.max(2, hh * 0.18);
+    ctx.beginPath(); ctx.moveTo(cx - hh * 0.25, cy - hh * 0.2); ctx.lineTo(cx, top); ctx.lineTo(cx + hh * 0.25, cy - hh * 0.2); ctx.stroke();
+    const sweep = Renderer.reducedMotion() ? 0.6 : now / 700;
+    const w = hh * 0.85 * Math.abs(Math.cos(sweep));
+    this.blob(ctx, cx, top, Math.max(hh * 0.12, w), hh * 0.32, '#C9D7D9', '#1A2831');
+    if (!Renderer.reducedMotion()) {
+      ctx.strokeStyle = 'rgba(84,219,233,.35)';
+      ctx.lineWidth = Math.max(1, hh * 0.08);
+      ctx.beginPath(); ctx.moveTo(cx, top); ctx.lineTo(cx + Math.cos(sweep) * hh * 3, top + Math.sin(sweep) * hh * 1.5 + hh * 1.2); ctx.stroke();
+    }
+    ctx.restore();
+    this.blob(ctx, cx, top - hh * 0.05, hh * 0.1, hh * 0.1, '#54DBE9');
+    return top - hh * 0.4;
+  }
+
   private static reducedMotionQuery: MediaQueryList | null = null;
   private static reducedMotion(): boolean {
     Renderer.reducedMotionQuery ??= typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
     return Renderer.reducedMotionQuery?.matches ?? false;
+  }
+
+  /** Raid deployment band: cyan dashed outer and inner borders with a faint
+   *  fill between them, so legal placement reads before the first click. */
+  private drawRaidZone(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    now: number,
+  ): void {
+    const view = this.gs.raid?.home;
+    if (!view || this.gs.raid?.phase === 'result') return;
+    const z = view.zone;
+    const quad = (x0: number, y0: number, x1: number, y1: number): void => {
+      ctx.moveTo(px(x0, y0), py(x0, y0));
+      ctx.lineTo(px(x1, y0), py(x1, y0));
+      ctx.lineTo(px(x1, y1), py(x1, y1));
+      ctx.lineTo(px(x0, y1), py(x0, y1));
+      ctx.closePath();
+    };
+    const active = view.state === 'ARMY_RESERVED' || view.state === 'IN_PROGRESS';
+    ctx.save();
+    ctx.beginPath();
+    quad(z.x0, z.y0, z.x1, z.y1);
+    quad(z.ix0, z.iy1, z.ix1, z.iy0); // reversed winding cuts the base out
+    ctx.fillStyle = active ? 'rgba(84,219,233,0.13)' : 'rgba(84,219,233,0.06)';
+    ctx.fill('evenodd');
+    ctx.setLineDash([10, 7]);
+    ctx.lineDashOffset = Renderer.reducedMotion() ? 0 : -now / 60;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = active ? 'rgba(84,219,233,0.85)' : 'rgba(84,219,233,0.45)';
+    ctx.beginPath(); quad(z.x0, z.y0, z.x1, z.y1); ctx.stroke();
+    ctx.strokeStyle = 'rgba(244,121,117,0.6)'; // inner edge: enemy ground, no placement
+    ctx.beginPath(); quad(z.ix0, z.iy0, z.ix1, z.iy1); ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Point turret: low armored dome on a hex plinth with one long barrel that
+   *  tracks its target. Ground-only, so the silhouette stays squat. */
+  private drawPointTurret(ctx: CanvasRenderingContext2D, st: BSite): number {
+    const { T, R, B, L, hh, b, now } = st;
+    const cx = (T.x + B.x) / 2;
+    const cy = (T.y + B.y) / 2;
+    const plinth = hh * 0.5;
+    this.poly(ctx, [L, B, { x: B.x, y: B.y - plinth }, { x: L.x, y: L.y - plinth }], '#344854');
+    this.poly(ctx, [B, R, { x: R.x, y: R.y - plinth }, { x: B.x, y: B.y - plinth }], '#2a3a44');
+    this.poly(ctx, [T, R, B, L].map((p) => ({ x: p.x, y: p.y - plinth })), '#7D9097');
+    const domeY = cy - plinth - hh * 0.25;
+    this.blob(ctx, cx, domeY, hh * 0.78, hh * 0.55, '#C9D7D9', '#1A2831');
+    this.blob(ctx, cx, domeY - hh * 0.12, hh * 0.5, hh * 0.32, '#7D9097');
+    const target = b.targetId != null ? this.gs.units.get(b.targetId) : undefined;
+    const angle = target ? Math.atan2(target.y - (b.tileY + 0.5), target.x - (b.tileX + 0.5)) + Math.PI / 4 : now / 2400;
+    const len = hh * 1.5;
+    ctx.save();
+    ctx.strokeStyle = '#1A2831';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(2.5, hh * 0.26);
+    ctx.beginPath();
+    ctx.moveTo(cx, domeY);
+    ctx.lineTo(cx + Math.cos(angle) * len, domeY + Math.sin(angle) * len * 0.5);
+    ctx.stroke();
+    ctx.restore();
+    this.blob(ctx, cx, domeY - hh * 0.05, hh * 0.13, hh * 0.1, target ? '#F47975' : '#72CFA4'); // sensor
+    return domeY - hh * 0.6;
+  }
+
+  /** Anti-air battery: tall radar crown over twin vertical missile racks, a
+   *  silhouette deliberately higher than the point turret's dome. */
+  private drawAntiAir(ctx: CanvasRenderingContext2D, st: BSite): number {
+    const { T, R, B, L, hh, b, now } = st;
+    const cx = (T.x + B.x) / 2;
+    const cy = (T.y + B.y) / 2;
+    const base = hh * 0.45;
+    this.poly(ctx, [L, B, { x: B.x, y: B.y - base }, { x: L.x, y: L.y - base }], '#344854');
+    this.poly(ctx, [B, R, { x: R.x, y: R.y - base }, { x: B.x, y: B.y - base }], '#2a3a44');
+    this.poly(ctx, [T, R, B, L].map((p) => ({ x: p.x, y: p.y - base })), '#7D9097');
+    const rackH = hh * 1.9;
+    for (const side of [-1, 1]) {
+      const x = cx + side * hh * 0.55;
+      const y = cy - base;
+      ctx.fillStyle = '#C9D7D9';
+      ctx.fillRect(x - hh * 0.22, y - rackH, hh * 0.44, rackH);
+      ctx.fillStyle = '#1A2831';
+      for (let i = 0; i < 3; i++) ctx.fillRect(x - hh * 0.14, y - rackH + hh * (0.15 + i * 0.5), hh * 0.28, hh * 0.32);
+      ctx.fillStyle = '#F47975';
+      ctx.beginPath(); // missile noses
+      ctx.moveTo(x - hh * 0.18, y - rackH);
+      ctx.lineTo(x, y - rackH - hh * 0.3);
+      ctx.lineTo(x + hh * 0.18, y - rackH);
+      ctx.fill();
+    }
+    // Radar crown: sweeps slowly, pulses on lock.
+    const mastTop = cy - base - rackH - hh * 0.55;
+    ctx.save();
+    ctx.strokeStyle = '#1A2831';
+    ctx.lineWidth = Math.max(1.5, hh * 0.12);
+    ctx.beginPath(); ctx.moveTo(cx, cy - base); ctx.lineTo(cx, mastTop); ctx.stroke();
+    const sweep = Renderer.reducedMotion() ? 0 : now / 600;
+    const w = hh * 0.9 * Math.abs(Math.cos(sweep));
+    this.blob(ctx, cx, mastTop, Math.max(hh * 0.12, w), hh * 0.28, '#C9D7D9', '#1A2831');
+    const locked = b.targetId != null;
+    if (locked && !Renderer.reducedMotion()) {
+      const k = (now % 700) / 700;
+      ctx.strokeStyle = `rgba(244,121,117,${0.8 * (1 - k)})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, mastTop, hh * (0.4 + k), hh * (0.25 + k * 0.6), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+    this.blob(ctx, cx, mastTop, hh * 0.1, hh * 0.08, locked ? '#F47975' : '#54DBE9');
+    return mastTop - hh * 0.4;
   }
 
   /** Grid power lines: each own completed generator links to its nearest hub
@@ -3161,7 +3414,7 @@ export class Renderer {
 
     // Ranged units show deterministic in-flight projectiles between snapshots.
     for (const u of this.gs.units.values()) {
-      const tech = ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type);
+      const tech = ['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'].includes(u.type);
       if (u.state !== 'attacking' || (u.type !== 'archer' && !tech) || u.targetId == null) continue;
       const tgt = this.gs.units.get(u.targetId) ?? this.gs.buildings.get(u.targetId);
       if (!tgt) continue;
@@ -3186,6 +3439,38 @@ export class Renderer {
       const bx = px(txw, tyw), by = py(txw, tyw) - hh * 0.7;
       if (tech) drawTechShot(ax, ay, bx, by, phase / flight, u.type === 'rocket_launcher');
       else drawArrow(ax, ay, bx, by, phase / flight);
+      const landing = phase / flight > 0.8;
+      if (landing && u.type === 'aegis_valkyrie' && 'tileX' in tgt) {
+        // Chain arcs: segmented jumps to the nearest structures of the same owner.
+        const near = [...this.gs.buildings.values()]
+          .filter((o) => o.owner === tgt.owner && o.id !== tgt.id)
+          .map((o) => { const os = BUILDING_DEFS[o.type]?.size ?? 1; return { o, x: o.tileX + os / 2, y: o.tileY + os / 2 }; })
+          .map((o) => ({ ...o, d: Math.hypot(o.x - txw, o.y - tyw) }))
+          .filter((o) => o.d <= 5)
+          .sort((a, z) => a.d - z.d)
+          .slice(0, 2);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(160,240,255,.95)';
+        ctx.shadowColor = 'rgba(84,219,233,.9)';
+        ctx.shadowBlur = Math.max(4, hh * 0.4);
+        ctx.lineWidth = Math.max(1.2, hh * 0.09);
+        for (const n of near) {
+          const ex = px(n.x, n.y); const ey = py(n.x, n.y) - hh * 0.7;
+          ctx.beginPath(); ctx.moveTo(bx, by);
+          for (let k = 1; k < 5; k++) {
+            const t2 = k / 5;
+            ctx.lineTo(bx + (ex - bx) * t2 + Math.sin(now / 23 + k * 2.1) * hh * 0.35, by + (ey - by) * t2 + Math.cos(now / 29 + k) * hh * 0.25);
+          }
+          ctx.lineTo(ex, ey); ctx.stroke();
+        }
+        ctx.restore();
+      } else if (landing && u.type === 'stealth_bomber') {
+        // Area blast: wide ring at the impact point.
+        const k = (phase / flight - 0.8) / 0.2;
+        ctx.strokeStyle = `rgba(255,150,90,${0.9 * (1 - k)})`;
+        ctx.lineWidth = Math.max(2, hh * 0.18);
+        ctx.beginPath(); ctx.ellipse(bx, by + hh * 0.5, hh * (0.6 + 2.2 * k), hh * (0.3 + 1.1 * k), 0, 0, Math.PI * 2); ctx.stroke();
+      }
     }
 
     // prédios de defesa atirando (torre de vigia + Centro da Cidade; alvo vem no
@@ -3214,7 +3499,25 @@ export class Renderer {
       for (let k = 0; k < arrows; k++) {
         const phase = (now + b.id * 137 + k * 90) % cd; // defasa a salva
         if (phase >= flight) continue;
-        drawArrow(ax, ay, px(tp.x, tp.y), py(tp.x, tp.y) - hh * 0.7, phase / flight);
+        const tx = px(tp.x, tp.y);
+        const ty = py(tp.x, tp.y) - hh * 0.7;
+        if (b.type === 'point_turret' || b.type === 'anti_air') {
+          const t = phase / flight;
+          // Launch: a short muzzle flash at the barrel for the first part of the flight.
+          if (t < 0.18) this.blob(ctx, ax, ay, hh * 0.32, hh * 0.22, 'rgba(255,214,140,.9)');
+          drawTechShot(ax, ay, tx, ty, t, b.type === 'anti_air');
+          // Impact: localized flash and ring at the target as the shot lands.
+          if (t > 0.86) {
+            const k = (t - 0.86) / 0.14;
+            ctx.strokeStyle = `rgba(255,190,104,${0.9 * (1 - k)})`;
+            ctx.lineWidth = Math.max(1.2, hh * 0.1);
+            ctx.beginPath();
+            ctx.ellipse(tx, ty, hh * (0.25 + 0.6 * k), hh * (0.15 + 0.35 * k), 0, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else {
+          drawArrow(ax, ay, tx, ty, phase / flight);
+        }
       }
     }
 
@@ -3279,10 +3582,11 @@ export class Renderer {
   }
 
   private figSymbiosisCombat(ctx: CanvasRenderingContext2D, u: UnitSnap, sx: number, sy: number, U: number, now: number): void {
-    if (!['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type)) return;
+    if (!['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'].includes(u.type)) return;
     const img = this.combatSprites.get(u.type as import('./sprites').SymbiosisCombatSprite);
-    const airborne = u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'stealth_bomber' || u.type === 'iron_guardian';
+    const airborne = u.type === 'attack_drone' || u.type === 'fighter' || u.type === 'stealth_bomber' || u.type === 'iron_guardian' || u.type === 'aegis_valkyrie';
     const bob = airborne ? Math.sin(now * 0.004 + u.id) * U * 0.12 : 0;
+    if (u.type === 'aegis_valkyrie') { this.figValkyrie(ctx, u, sx, sy + bob, U, now); return; }
     const width = U * (u.type === 'fighter' || u.type === 'stealth_bomber' ? 4.4 : u.type === 'iron_guardian' ? 2.4 : u.type === 'plasma_tank' || u.type === 'siege_mech' ? 3.8 : u.type === 'attack_drone' ? 3.5 : 3.15);
     if (img) {
       const height = width * img.naturalHeight / img.naturalWidth;
@@ -3303,6 +3607,41 @@ export class Renderer {
     this.blob(ctx, sx + width * 0.08, sy - U * 0.82 + bob, U * 0.16, U * 0.1, '#41d8e5');
   }
 
+  /** Aegis Valkyrie: slim swept-wing elite frame with a forward spine and two
+   *  luminous wingtip nodes; reads as narrower and sharper than the fighter. */
+  private figValkyrie(ctx: CanvasRenderingContext2D, u: UnitSnap, sx: number, sy: number, U: number, now: number): void {
+    const team = this.gs.colorOf(u.owner);
+    const y = sy - U * 1.05;
+    const wing = U * 1.55;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1A2831';
+    ctx.lineWidth = Math.max(1, U * 0.07);
+    // Swept wings (back-swept chevron).
+    ctx.fillStyle = '#C9D7D9';
+    ctx.beginPath();
+    ctx.moveTo(sx + U * 0.55, y);
+    ctx.lineTo(sx - wing * 0.55, y - wing * 0.45);
+    ctx.lineTo(sx - U * 0.2, y);
+    ctx.lineTo(sx - wing * 0.55, y + wing * 0.45);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Spine and canopy.
+    ctx.fillStyle = '#7D9097';
+    ctx.beginPath();
+    ctx.moveTo(sx + U * 0.95, y);
+    ctx.lineTo(sx - U * 0.6, y - U * 0.12);
+    ctx.lineTo(sx - U * 0.6, y + U * 0.12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    this.blob(ctx, sx + U * 0.3, y, U * 0.16, U * 0.08, team);
+    const pulse = 0.6 + 0.4 * Math.sin(now / 160 + u.id);
+    for (const side of [-1, 1]) this.blob(ctx, sx - wing * 0.52, y + side * wing * 0.43, U * 0.11, U * 0.11, `rgba(142,242,255,${pulse})`);
+    ctx.restore();
+  }
+
   /** Só o "corpo" da unidade (sem sombra/seleção/vida), reusado na morte. */
   private drawUnitBody(ctx: CanvasRenderingContext2D, u: UnitSnap, sx: number, sy: number, U: number, now: number): void {
     const color = this.gs.colorOf(u.owner);
@@ -3316,7 +3655,7 @@ export class Renderer {
     else if (u.type === 'knight') this.figKnight(ctx, sx, sy, U, color, dark, skin, steel, age);
     else if (u.type === 'robot') this.figRobot(ctx, sx, sy, U, color, u, now, false, 1);
     else if (u.type === 'drone') this.figDrone(ctx, sx, sy, U, color, u, now);
-    else if (['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type)) this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
+    else if (['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'].includes(u.type)) this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
   }
 
   // ---------- unidades (figuras isométricas) ----------
@@ -3760,7 +4099,7 @@ export class Renderer {
     } else if (u.type === 'drone') {
       this.figDrone(ctx, sx, sy, U, color, u, now);
       this.drawDroneBeam(ctx, px, py, sx, sy, U, u, now);
-    } else if (['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian'].includes(u.type)) {
+    } else if (['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'].includes(u.type)) {
       this.figSymbiosisCombat(ctx, u, sx, sy, U, now);
     } else if (u.type === 'villager' || u.type === 'designer') {
       this.figVillager(ctx, sx, sy, U, u.type === 'designer' ? '#58c9d4' : color, dark, skin, u, now, moving, face, tool, age);

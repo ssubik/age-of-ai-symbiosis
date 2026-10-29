@@ -234,3 +234,24 @@ button.btn.primary {
 @media (max-width: 600px) {
   .home-status { top: 88px; padding: 6px 12px; font-size: 10px; letter-spacing: .06em; }
 }
+
+/* Raid view: the enemy snapshot is not yours to build on or direct. */
+/* The raid simulation's attacker has no economy: its resource bar, pop, grid and
+   Impact score would be meaningless numbers, so the raid panel carries the HUD. */
+.raid-mode .quick-dock,
+.raid-mode .goal-panel,
+.raid-mode .hud-top,
+.raid-mode .elon-panel,
+.raid-mode .sym-rail { display: none; }
+.raid-mode .raid-panel { max-height: calc(100% - 120px); overflow-y: auto; }
+.raid-panel button[disabled] { opacity: .45; cursor: not-allowed; }
+
+@media (max-width: 600px) {
+  .game-atlas .raid-panel { left: 16px; right: 16px; width: auto; top: auto; bottom: 16px; max-height: 46vh; }
+}
+
+/* Home research tiles: level badge, active pulse. */
+.research-tile { position: relative; }
+.research-tile .lvl { position: absolute; right: 3px; bottom: 2px; font: 700 10px/1 var(--font-ui, system-ui); color: #54dbe9; }
+.research-tile.active { outline: 1px solid #54dbe9; }
+.upgrade-btn { white-space: normal; text-align: left; }

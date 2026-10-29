@@ -45,7 +45,7 @@ let signedIn = false;
 
 let gameScreen: GameScreen | null = null;
 let gamePaused = false; // partida pausada (autoritativo do servidor); tecla P alterna
-let gameSession: 'arena' | 'home' = 'arena';
+let gameSession: 'arena' | 'home' | 'raid' = 'arena';
 // Ao cair em jogo, espera uns segundos antes de mostrar "conexão perdida" — um
 // soluço rápido de rede reconecta sozinho e o jogador nem percebe. O gameStart
 // da retomada limpa este timer.
@@ -100,7 +100,7 @@ const settingsOverlay = new SettingsOverlay({
     settingsOverlay.hide();
     const eraPartida = current === 'game';
     const soAssistindo = gameScreen?.isSpectating ?? false;
-    net.send(gameSession === 'home' ? { type: 'enterArena' } : { type: 'leaveRoom' });
+    net.send(gameSession === 'arena' ? { type: 'leaveRoom' } : { type: 'enterArena' });
     gameOverScreen.hide();
     teardownGame();
     showScreen('lobby');
@@ -303,7 +303,7 @@ function dispatch(msg: ServerMessage): void {
       signedIn = true;
       // Also after a reconnect mid-Home: Home sessions aren't rooms, so the
       // server's resumeGame path can't bring them back — re-enter explicitly.
-      if (current === 'name' || (current === 'game' && gameSession === 'home')) {
+      if (current === 'name' || (current === 'game' && gameSession !== 'arena')) {
         net.send({ type: 'enterHome' });
       }
       break;
@@ -371,9 +371,10 @@ function dispatch(msg: ServerMessage): void {
         onChat: (text) => net.send({ type: 'chat', text }),
         onTogglePause: () => net.send({ type: 'setPause', paused: !gamePaused }),
         onPing: (x, y) => net.send({ type: 'ping', x, y }),
+        onRaid: (action) => net.send({ type: 'raid', action }),
         onBackToLobby: () => {
           teardownGame();
-          net.send(gameSession === 'home' ? { type: 'enterArena' } : { type: 'leaveRoom' });
+          net.send(gameSession === 'arena' ? { type: 'leaveRoom' } : { type: 'enterArena' });
           showScreen('lobby');
           net.send({ type: 'listRooms' });
         },

@@ -18,7 +18,9 @@ export type UnitType =
   | 'drone'        // flying builder: crosses water and terrain
   // Symbiosis aerial/strategic attack wing:
   | 'attack_drone' | 'fighter' | 'rocket_launcher'
-  | 'siege_mech' | 'stealth_bomber' | 'plasma_tank' | 'iron_guardian';
+  | 'siege_mech' | 'stealth_bomber' | 'plasma_tank' | 'iron_guardian'
+  // Exosuit Lab L2 elite (Home Phase 4):
+  | 'aegis_valkyrie';
 export type BuildingType =
   | 'town_center'
   | 'house'
@@ -46,7 +48,12 @@ export type BuildingType =
   | 'aerospace_hangar'
   | 'missile_foundry'
   | 'mech_forge'
-  | 'exosuit_lab';
+  | 'exosuit_lab'
+  // Home raid defenses (Phase 3): ground-only turret and air-only launcher.
+  | 'point_turret'
+  | 'anti_air'
+  // Phase 4: tall scanning mast; extends nearby defense range in raids.
+  | 'sensor_tower';
 export type NodeType = 'tree' | 'berry_bush' | 'gold_mine' | 'stone_mine' | 'fish';
 
 export type Resources = Record<ResourceType, number>;
@@ -114,6 +121,10 @@ export interface BuildingSnap {
   upgradeTargetLevel?: number;
   /** Home: the finished head of the queue cannot dock; the factory is blocked. */
   trainBlocked?: TrainBlockReason;
+  /** Home: building level (absent = 1). */
+  level?: number;
+  /** Home: level being physically built while the building keeps working. */
+  upgradeProgress?: number;
 }
 
 export interface NodeSnap {
@@ -179,6 +190,27 @@ export interface HomeStatusSnap {
   nextLevelPoints: number;
   offlineAppliedSeconds: number;
   session: 'home';
+  trophies: number;
+  lastReport?: RaidReport;
+  /** Unit research levels (0-5) and the one in progress. */
+  research: Partial<Record<UnitType, number>>;
+  researching?: { unit: UnitType; level: number; progress: number };
+  /** Seconds of shield left; matchmaking skips shielded cities. */
+  shieldSeconds: number;
+  /** Raids against this city's published snapshot, newest first. */
+  defenseReports: DefenseReport[];
+}
+
+/** What a defender sees: attackers were paid by the system, nothing was taken. */
+export interface DefenseReport {
+  raidId: string;
+  attacker: string;
+  stars: number;
+  destruction: number;
+  /** System-funded reward the attacker received (not a loss for the defender). */
+  attackerReward: Resources;
+  shieldSeconds: number;
+  at: number;
 }
 
 export type RaidPhase = 'idle' | 'scouting' | 'deploying' | 'battle' | 'result' | 'replay';
@@ -191,6 +223,7 @@ export interface RaidArmy {
   stealth_bomber: number;
   plasma_tank: number;
   iron_guardian: number;
+  aegis_valkyrie: number;
 }
 
 export interface RaidEvent {
@@ -199,6 +232,116 @@ export interface RaidEvent {
   label: string;
   x?: number;
   y?: number;
+}
+
+// ---------- Home asynchronous raids (master spec §6) ----------
+
+/** Raid session lifecycle. Legal moves live in RAID_TRANSITIONS (constants). */
+export type RaidSessionState =
+  | 'SCOUTING'
+  | 'ARMY_RESERVED'
+  | 'IN_PROGRESS'
+  | 'SETTLING'
+  | 'SETTLED'
+  | 'SCOUT_EXPIRED'
+  | 'CANCELLED_BEFORE_DEPLOY'
+  | 'EXPIRED_DURING_RAID'
+  | 'RECOVERY_REQUIRED';
+
+/** Immutable published defense. A scouted/raided base is pinned to one of these. */
+export interface DefenseSnapshot {
+  id: string;
+  version: number;
+  kind: 'bot' | 'player';
+  label: string;
+  cityLevel: number;
+  seed: number;
+  buildings: { id: number; type: BuildingType; tileX: number; tileY: number; level?: number }[];
+  /** Grid efficiency of the defender when published; scales defense damage (floor 0.5). */
+  defensePower?: number;
+  trees: { id: number; tileX: number; tileY: number }[];
+  /** sha256 of every other field, canonical JSON. */
+  checksum: string;
+}
+
+/** Legal deployment band: inside the outer box and outside the inner box. */
+export interface RaidDeployZone {
+  x0: number; y0: number; x1: number; y1: number;
+  ix0: number; iy0: number; ix1: number; iy1: number;
+}
+
+export interface RaidDeployEvent {
+  /** Raid simulation tick at which the unit was placed (applied before the next step). */
+  tick: number;
+  unit: keyof RaidArmy;
+  x: number;
+  y: number;
+  /** The Home unit consumed by this deployment. */
+  homeUnitId: number;
+}
+
+export type RaidEndReason = 'timer' | 'destroyed' | 'eliminated' | 'surrender';
+
+export interface RaidOutcome {
+  endTick: number;
+  reason: RaidEndReason;
+  destruction: number;
+  stars: number;
+  hubDestroyed: boolean;
+  /** sha256 over the final simulation state; replays must reproduce it. */
+  checksum: string;
+}
+
+/** Everything needed to re-simulate a raid exactly. */
+export interface RaidReplay {
+  rulesVersion: number;
+  snapshotId: string;
+  snapshotChecksum: string;
+  maxTicks: number;
+  /** Whole reservation: undeployed units decide whether the force is eliminated. */
+  reserved: RaidArmy;
+  /** Attacker unit research levels at reservation; they change combat numbers. */
+  research: Partial<Record<keyof RaidArmy, number>>;
+  deploys: RaidDeployEvent[];
+  surrenderAt?: number;
+}
+
+export interface RaidReport {
+  raidId: string;
+  label: string;
+  cityLevel: number;
+  stars: number;
+  destruction: number;
+  reason: RaidEndReason;
+  /** System-funded reward actually credited (the defender loses nothing). */
+  reward: Resources;
+  /** What the raid earned before the storage cap; reward < earned means storage was full. */
+  earned: Resources;
+  trophiesDelta: number;
+  deployed: number;
+  returned: number;
+  settledAt: number;
+  outcomeChecksum: string;
+  replay: RaidReplay;
+}
+
+/** Home-raid context the attacker's HUD needs; rides on RaidSnap.home. */
+export interface HomeRaidView {
+  state: RaidSessionState;
+  /** Whose base this is: a deterministic bot or another player's published defense. */
+  opponent: 'bot' | 'player';
+  label: string;
+  cityLevel: number;
+  /** Seconds until the scout offer lapses (SCOUTING only). */
+  expiresIn?: number;
+  nextScoutGold: number;
+  /** Manufactured units at Home that could still be reserved. */
+  available: RaidArmy;
+  /** Pinned reward ceiling for this offer. */
+  reward: Resources;
+  trophies: { win: number; loss: number };
+  zone: RaidDeployZone;
+  report?: RaidReport;
 }
 
 /** Server-authoritative Clash-style assault state, visible only to its attacker. */
@@ -216,6 +359,8 @@ export interface RaidSnap {
   stars: number;
   loot: Resources;
   events: RaidEvent[];
+  /** Present for persistent-Home raids against a pinned defense snapshot. */
+  home?: HomeRaidView;
 }
 
 /** WATT-style stewardship result for one player. */

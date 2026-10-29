@@ -119,7 +119,9 @@ async function exitPath(): Promise<void> {
   internals.step();
   const paid = foodBefore - player.resources.food;
   assert.ok(Math.abs(paid - (AGE_COSTS[2]!.food ?? 0)) < 5, `Hub upgrade cost deducted once (paid ${paid})`);
-  stepUntil(game, () => hub.progress >= 1);
+  assert.equal(hub.progress, 1, 'the Hub keeps working while it upgrades');
+  stepUntil(game, () => player.age === 2);
+  assert.equal(hub.level, 2);
   assert.equal(player.age, 2, 'City Level 2 after Hub construction completes');
   assert.equal(hub.upgradeTargetLevel, undefined);
 

@@ -62,6 +62,20 @@ import {
   HOME_BASE_STORAGE,
   HOME_CAMP_SPACE,
   HOME_STARTED_JOB_REFUND,
+  RAID_MAX_REPORTS,
+  RAID_MAX_SETTLED_KEYS,
+  HOME_BUILDING_CITY_LEVEL,
+  HOME_CITY_LEVELS,
+  HOME_MAX_LEVEL,
+  HOME_RESEARCH_MAX,
+  HOME_UNIT_RESEARCH,
+  HOME_UNIT_UNLOCK,
+  homeResearchCost,
+  homeUpgradeCost,
+  homeUpgradeTime,
+  buildingMaxHp,
+  levelScale,
+  DEFENSE_POWER_FLOOR,
   HOME_DEVELOPMENT,
   HOME_LEVEL_POINTS,
   HOME_OFFLINE_CAP_SECONDS,
@@ -94,7 +108,14 @@ import type {
   RaidArmy,
   RaidEvent,
   RaidSnap,
+  HomeRaidView,
   HomeStatusSnap,
+  DefenseSnapshot,
+  RaidDeployZone,
+  RaidEndReason,
+  RaidOutcome,
+  RaidPhase,
+  RaidReport,
 } from '@age/shared';
 import { DIFFICULTY, runBotAI } from './ai';
 import { generateMap } from './mapgen';
@@ -102,7 +123,9 @@ import { collectSpreadTiles, findPath, idx, isWalkable, nearestWalkableTile, rin
 import { MatchLedger } from '../chain/ledger';
 import { needElon, rankStandings, reliabilityBonus, reliabilityPpm, stewardshipValue, type NeedSample } from './stewardship';
 import { createUnit, type Building, type GamePlayer, type ResNode, type Sheep, type Unit } from './state';
-import type { HomeSaveV1 } from '../home/types';
+import type { HomeProgression, HomeRaidData, HomeSave } from '../home/types';
+import { inDeployZone, snapshotChecksum } from '../raid/snapshot';
+import { createHash } from 'node:crypto';
 
 /** First 30 s of a match: need cycles are not sampled (see sampleNeeds). */
 const NEED_GRACE_TICKS = 300;
@@ -141,9 +164,39 @@ export interface FacilityRecord {
 export type SendFn = (playerId: number, msg: ServerMessage) => void;
 
 export interface GameOptions {
-  session?: 'arena' | 'home';
-  homeState?: HomeSaveV1;
+  session?: 'arena' | 'home' | 'raid';
+  homeState?: HomeSave;
   now?: () => number;
+  /** Raid session: the pinned defense and its legal deployment band. */
+  raid?: { snapshot: DefenseSnapshot; zone: RaidDeployZone; onEnd?: (outcome: RaidOutcome) => void };
+}
+
+/** Live state of an isolated raid simulation (session 'raid'). */
+interface RaidSim {
+  attacker: number;
+  defender: number;
+  zone: RaidDeployZone;
+  /** Reserved units not yet placed, by type. */
+  reserve: RaidArmy;
+  initialArmy: RaidArmy;
+  deployed: number;
+  /** Simulation length in ticks from the first deployment (tick 0). */
+  maxTicks: number;
+  surrenderAt?: number;
+  /** Buildings that count toward destruction (walls excluded). */
+  scored: number[];
+  hubId?: number;
+  destruction: number;
+  stars: number;
+  hubDestroyed: boolean;
+  outcome?: RaidOutcome;
+  onEnd?: (outcome: RaidOutcome) => void;
+  /** Home-raid HUD context set by the orchestrator. */
+  view?: HomeRaidView;
+  /** Attacker research levels (pinned at reservation; part of the replay). */
+  research: Partial<Record<keyof RaidArmy, number>>;
+  /** Defender grid factor from the snapshot, floored at DEFENSE_POWER_FLOOR. */
+  defensePower: number;
 }
 
 export class Game {
@@ -195,6 +248,12 @@ export class Game {
   private raids = new Map<number, ActiveRaid>();
   private nextRaidId = 1;
   readonly homeMode: boolean;
+  readonly raidMode: boolean;
+  private raidSim: RaidSim | null = null;
+  /** Persistent raid ledger of a Home (trophies, active session, reports). */
+  raidData: HomeRaidData = { trophies: 0, scoutCounter: 0, active: null, reports: [], settled: [], outbox: [] };
+  /** Persistent Home progression: unit research, shield, defense inbox. */
+  progression: HomeProgression = { research: {}, shieldUntil: 0, defenseReports: [], publishedSignature: '' };
   private homeRevision = 0;
   private homeOfflineAppliedSeconds = 0;
   private homeProductionCollectedAt = 0;
@@ -215,8 +274,9 @@ export class Game {
     void experience;
     this.symbiosis = true;
     this.homeMode = options.session === 'home';
+    this.raidMode = options.session === 'raid';
     this.now = options.now ?? Date.now;
-    this.ledger = this.homeMode ? null : new MatchLedger(matchSalt);
+    this.ledger = this.homeMode || this.raidMode ? null : new MatchLedger(matchSalt);
     const gen = generateMap(members.length, undefined, terrain);
     this.grid = gen.grid;
     this.map = { size: gen.grid.size, tiles: gen.grid.tiles };
@@ -290,6 +350,9 @@ export class Game {
       else if (member) this.bootstrapHome(member.id);
       this.recomputePower();
     }
+    if (this.raidMode && options.raid && members.length >= 2) {
+      this.setupRaid(options.raid.snapshot, options.raid.zone, members[0].id, members[1].id, options.raid.onEnd);
+    }
   }
 
   start(): void {
@@ -353,7 +416,7 @@ export class Game {
 
   /** Marca um jogador como derrotado (desconexão) e remove suas entidades. */
   markDefeated(playerId: number): void {
-    if (this.homeMode) return;
+    if (this.homeMode || this.raidMode) return;
     const p = this.players.get(playerId);
     if (!p || p.defeated) return;
     p.defeated = true;
@@ -411,6 +474,8 @@ export class Game {
     this.updateTowers(dt);
     for (const b of this.buildings.values()) this.updateBuildingTraining(b, dt);
     if (this.homeMode) this.updateHomeProduction(dt);
+    if (this.homeMode) this.updateHomeResearch(dt);
+    if (this.raidSim) this.updateRaidSim();
 
     // pesquisa de era em andamento
     for (const p of this.players.values()) {
@@ -472,7 +537,7 @@ export class Game {
         ageProgress: p.ageResearch
           ? Math.min(1, p.ageResearch.elapsed / (AGE_RESEARCH_TIME[p.ageResearch.target] || 1))
           : this.homeMode
-            ? [...this.buildings.values()].find((b) => b.owner === p.id && b.upgradeTargetLevel !== undefined)?.progress
+            ? [...this.buildings.values()].find((b) => b.owner === p.id && b.type === 'town_center' && b.upgradeTargetLevel !== undefined)?.upgradeProgress
             : undefined,
         cityPath: p.cityPath,
         pathResearch: p.ageResearch?.path,
@@ -503,7 +568,8 @@ export class Game {
     } as const;
     for (const p of this.players.values()) {
       const raid = this.raids.get(p.id);
-      this.send(p.id, { ...common, ...(raid ? { raid: this.raidSnap(raid) } : {}) });
+      const raidView = this.raidSim?.attacker === p.id ? this.raidSimSnap() : raid ? this.raidSnap(raid) : undefined;
+      this.send(p.id, { ...common, ...(raidView ? { raid: raidView } : {}) });
     }
 
     // ESPECTADORES: mesma partida, pacote MAGRO. Sai a economia (recursos, techs,
@@ -570,7 +636,11 @@ export class Game {
 
   private armyCapacityOf(playerId: number): number {
     let cap = 0;
-    for (const b of this.buildings.values()) if (b.owner === playerId && b.progress >= 1) cap += BUILDING_DEFS[b.type].armyCapacity ?? 0;
+    for (const b of this.buildings.values()) {
+      if (b.owner !== playerId || b.progress < 1) continue;
+      // Home camps grow +50% per level; an upgrade only counts once finished.
+      cap += Math.round((BUILDING_DEFS[b.type].armyCapacity ?? 0) * (this.homeMode ? levelScale(b.level, 0.5) : 1));
+    }
     return cap;
   }
 
@@ -578,6 +648,11 @@ export class Game {
     let used = 0;
     for (const u of this.units.values()) if (u.owner === playerId && SYMBIOSIS_COMBAT_UNITS.has(u.type)) used += this.armySpaceOf(u.type);
     return used;
+  }
+
+  /** Factory upgrades add two queue slots per level at Home (spec §5). */
+  private queueSlotsOf(b: Building): number {
+    return this.homeMode ? TRAIN_QUEUE_MAX + 2 * ((b.level ?? 1) - 1) : TRAIN_QUEUE_MAX;
   }
 
   /** Home measures the army in Army Camp space (spec §5); Arena keeps unit pop. */
@@ -897,6 +972,8 @@ export class Game {
     if (b.garrison?.length) s.garrison = b.garrison.length; // unidades dentro
     if (b.upgradeTargetLevel !== undefined) s.upgradeTargetLevel = b.upgradeTargetLevel;
     if (b.trainBlocked) s.trainBlocked = b.trainBlocked;
+    if (b.level !== undefined && b.level > 1) s.level = b.level;
+    if (b.upgradeProgress !== undefined) s.upgradeProgress = b.upgradeProgress;
     const proof = this.facilityProofs.get(b.id);
     if (proof) s.proof = proof;
     return s;
@@ -911,7 +988,8 @@ export class Game {
       if (b.progress < 1) continue;
       const g = next.get(b.owner);
       if (!g) continue;
-      g.supply += BUILDING_DEFS[b.type].power ?? (b.type === 'town_center' ? TOWN_CENTER_POWER : 0);
+      const base = BUILDING_DEFS[b.type].power ?? (b.type === 'town_center' ? TOWN_CENTER_POWER : 0);
+      g.supply += this.homeMode ? Math.round(base * levelScale(b.level, 0.5)) : base;
     }
     for (const u of this.units.values()) {
       const g = next.get(u.owner);
@@ -932,7 +1010,8 @@ export class Game {
 
   /** 1 for non-automated units; grid-limited for robots and drones. */
   private automationFactor(u: Unit): number {
-    if (!POWER_DRAW[u.type]) return 1;
+    // A raiding army is away from its home grid; only Home/Arena grids throttle.
+    if (!POWER_DRAW[u.type] || this.raidMode) return 1;
     const g = this.powerOf(u.owner);
     return powerEfficiency(g.supply, g.draw);
   }
@@ -962,7 +1041,7 @@ export class Game {
   }
 
   private checkVictory(): void {
-    if (this.ended || this.homeMode) return;
+    if (this.ended || this.homeMode || this.raidMode) return;
     const alive = [...this.players.values()].filter((p) => !p.defeated);
     // Vitória por LADOS: cada time (>0) é um lado; sem time, cada jogador é o
     // próprio lado. Acaba quando resta <= 1 lado vivo (aliados vencem juntos).
@@ -1050,6 +1129,12 @@ export class Game {
       case 'setRally':
         this.cmdSetRally(playerId, cmd.buildingId, cmd.x, cmd.y);
         break;
+      case 'upgradeBuilding':
+        if (this.homeMode) this.cmdUpgradeBuilding(playerId, cmd.buildingId);
+        break;
+      case 'unitResearch':
+        if (this.homeMode) this.cmdUnitResearch(playerId, cmd.unit);
+        break;
       case 'advanceAge':
         this.cmdAdvanceAge(playerId);
         break;
@@ -1091,7 +1176,7 @@ export class Game {
 
   private emptyRaidArmy(): RaidArmy {
     return { attack_drone: 0, fighter: 0, rocket_launcher: 0, siege_mech: 0,
-      stealth_bomber: 0, plasma_tank: 0, iron_guardian: 0 };
+      stealth_bomber: 0, plasma_tank: 0, iron_guardian: 0, aegis_valkyrie: 0 };
   }
 
   private raidSnap(r: ActiveRaid): RaidSnap {
@@ -1137,6 +1222,7 @@ export class Game {
       stealth_bomber: Math.max(0, Math.min(4, Math.floor(army.stealth_bomber || 0))),
       plasma_tank: Math.max(0, Math.min(4, Math.floor(army.plasma_tank || 0))),
       iron_guardian: Math.max(0, Math.min(1, Math.floor(army.iron_guardian || 0))),
+      aegis_valkyrie: Math.max(0, Math.min(1, Math.floor(army.aegis_valkyrie || 0))),
     };
     if (Object.values(clean).reduce((a, b) => a + b, 0) > 18) return;
     for (const [type, wanted] of Object.entries(clean) as [keyof RaidArmy, number][]) {
@@ -1331,7 +1417,8 @@ export class Game {
 
   private cmdAdvanceAge(playerId: number): void {
     if (this.homeMode) {
-      this.cmdUpgradeHomeHub(playerId);
+      const hub = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
+      if (hub) this.cmdUpgradeBuilding(playerId, hub.id);
       return;
     }
     const p = this.players.get(playerId);
@@ -1870,12 +1957,14 @@ export class Game {
       return;
     }
     const arsenal: ReadonlySet<BuildingType> = new Set(['drone_factory', 'aerospace_hangar', 'missile_foundry', 'mech_forge', 'exosuit_lab']);
-    if (arsenal.has(type) && p.cityPath !== 'command' && !(this.homeMode && type === 'drone_factory')) {
+    if (arsenal.has(type) && p.cityPath !== 'command' && !this.homeMode) {
       this.errorTo(playerId, 'err.raid_requires_command');
       return;
     }
-    if (p.age < def.ageReq) {
-      this.errorTo(playerId, 'err.requires_age', { age: def.ageReq });
+    // Home unlocks follow the City Level table (spec §4), not Arena ages.
+    const minLevel = this.homeMode ? HOME_BUILDING_CITY_LEVEL[type] ?? def.ageReq : def.ageReq;
+    if (p.age < minLevel) {
+      this.errorTo(playerId, 'err.requires_age', { age: minLevel });
       return;
     }
     // pré-requisito de prédio (árvore do AoE2): Fazenda/Mercado ← Moinho; etc.
@@ -2044,14 +2133,21 @@ export class Game {
     const b = this.buildings.get(buildingId);
     if (!b || b.owner !== playerId || b.progress < 1) return;
     const def = BUILDING_DEFS[b.type];
-    if (!def.trains.includes(unit)) return;
+    const homeArmy = this.homeMode && SYMBIOSIS_COMBAT_UNITS.has(unit);
+    if (homeArmy) {
+      // Home manufacturing: the factory and its level decide, not Arena trains lists.
+      const unlock = HOME_UNIT_UNLOCK[unit];
+      if (!unlock || unlock.factory !== b.type) return;
+      if ((this.players.get(playerId)?.age ?? 1) < unlock.cityLevel) { this.errorTo(playerId, 'err.requires_age', { age: unlock.cityLevel }); return; }
+      if ((b.level ?? 1) < unlock.factoryLevel) { this.errorTo(playerId, 'err.factory_level', { level: unlock.factoryLevel }); return; }
+    } else if (!def.trains.includes(unit)) return;
     if ((SYMBIOSIS_UNITS.has(unit) || SYMBIOSIS_COMBAT_UNITS.has(unit)) && !this.symbiosis) return;
-    if (b.queue.length >= TRAIN_QUEUE_MAX) {
+    if (b.queue.length >= this.queueSlotsOf(b)) {
       this.errorTo(playerId, 'err.queue_full');
       return;
     }
     const p = this.players.get(playerId)!;
-    const req = UNIT_AGE_REQ[unit] ?? 1;
+    const req = homeArmy ? 1 : UNIT_AGE_REQ[unit] ?? 1;
     if (p.age < req) {
       this.errorTo(playerId, 'err.requires_age', { age: req });
       return;
@@ -2158,7 +2254,8 @@ export class Game {
   private trainTimeFor(b: Building): number {
     // trainTime vem de BUILDING_DEFS via unit? Não — está em UNIT_DEFS? Checamos ambos.
     const head = b.queue[0];
-    const base = UNIT_TRAIN_TIME[head.unit];
+    // Home factory upgrades raise throughput (+15%/level), never combat stats.
+    const base = UNIT_TRAIN_TIME[head.unit] / (this.homeMode ? levelScale(b.level, 0.15) : 1);
     if (!SYMBIOSIS_COMBAT_UNITS.has(head.unit)) return base;
     // Human designers are the Laboratory layer: every active designer improves
     // all weapon factories by 8%, capped at 40% so factories still matter.
@@ -2249,17 +2346,22 @@ export class Game {
   /** Vida máxima efetiva (base + upgrades do dono). */
   private unitMaxHp(u: Unit): number {
     const p = this.players.get(u.owner);
-    return UNIT_DEFS[u.type].hp + (p ? techBonus(p.techs, u.type).hp : 0);
+    const base = UNIT_DEFS[u.type].hp + (p ? techBonus(p.techs, u.type).hp : 0);
+    // Raid research: Siege Mech and Plasma Tank research add hit points.
+    if (this.isRaidAttacker(u) && (u.type === 'siege_mech' || u.type === 'plasma_tank')) return Math.round(base * (1 + this.raidGain(u.type)));
+    return base;
   }
 
   /** Alcance efetivo (base + upgrades do dono). */
   private unitRange(u: Unit): number {
     const p = this.players.get(u.owner);
-    return UNIT_DEFS[u.type].range + (p ? techBonus(p.techs, u.type).range : 0);
+    const base = UNIT_DEFS[u.type].range + (p ? techBonus(p.techs, u.type).range : 0);
+    return u.type === 'rocket_launcher' && this.isRaidAttacker(u) ? base * (1 + this.raidGain('rocket_launcher')) : base;
   }
 
   private dealDamage(u: Unit, targetId: number): void {
-    const atk = this.unitAttack(u);
+    let atk = this.unitAttack(u);
+    if (this.isRaidAttacker(u)) atk = this.raidAttackFor(u, atk, this.buildings.get(targetId));
     const tu = this.units.get(targetId);
     if (tu) {
       tu.hp -= Math.max(1, atk - this.unitArmor(tu)); // dano mínimo 1
@@ -2271,16 +2373,22 @@ export class Game {
     }
     const b = this.buildings.get(targetId);
     if (b) {
-      b.hp -= atk; // prédios não têm blindagem de upgrade
-      // registra "base do fulano apanhando" — bots ALIADOS protetores leem isto
-      const bs = BUILDING_DEFS[b.type].size;
-      this.recentAttacks.set(b.owner, { x: b.tileX + bs / 2, y: b.tileY + bs / 2, tick: this.tick });
-      if (b.hp <= 0) {
-        this.unblockFootprint(b.tileX, b.tileY, BUILDING_DEFS[b.type].size);
-        this.buildings.delete(targetId);
-        this.retargetAttackersOf(targetId);
-        this.checkTownCenterLoss(b.owner);
-      }
+      this.damageBuilding(b, atk);
+      if (this.isRaidAttacker(u)) this.raidAfterHit(u, b, atk);
+    }
+  }
+
+  private damageBuilding(b: Building, amount: number): void {
+    if (!this.buildings.has(b.id)) return;
+    b.hp -= amount; // prédios não têm blindagem de upgrade
+    // registra "base do fulano apanhando" — bots ALIADOS protetores leem isto
+    const bs = BUILDING_DEFS[b.type].size;
+    this.recentAttacks.set(b.owner, { x: b.tileX + bs / 2, y: b.tileY + bs / 2, tick: this.tick });
+    if (b.hp <= 0) {
+      this.unblockFootprint(b.tileX, b.tileY, bs);
+      this.buildings.delete(b.id);
+      this.retargetAttackersOf(b.id);
+      this.checkTownCenterLoss(b.owner);
     }
   }
 
@@ -2715,7 +2823,8 @@ export class Game {
       const p = this.players.get(b.owner);
       if (this.symbiosis && p?.cityPath !== 'command') { b.targetId = undefined; continue; }
       const age = p?.age ?? 1;
-      const range = buildingRange(b.type, age, p?.techs);
+      const baseRange = buildingRange(b.type, age, p?.techs);
+      const range = this.raidSim ? this.raidDefenseRange(b, baseRange) : baseRange;
       const size = BUILDING_DEFS[b.type].size;
       const cx = b.tileX + size / 2;
       const cy = b.tileY + size / 2;
@@ -2730,6 +2839,7 @@ export class Game {
         for (const u of this.units.values()) {
           if (this.allied(u.owner, b.owner)) continue;
           if (this.symbiosis && this.players.get(u.owner)?.cityPath !== 'command') continue;
+          if (def.targets && (def.targets === 'air') !== isFlyingUnit(u.type)) continue;
           const d = Math.hypot(u.x - cx, u.y - cy);
           if (d <= bestD) {
             bestD = d;
@@ -2740,7 +2850,8 @@ export class Game {
       }
       if (target && b.attackTimer <= 0) {
         b.attackTimer = def.cooldown;
-        const dmg = buildingAttack(b.type, age, p?.techs);
+        const baseDmg = buildingAttack(b.type, age, p?.techs);
+        const dmg = this.raidSim ? this.raidDefenseDamage(b, baseDmg, target) : baseDmg;
         const arrows = 1 + (b.garrison?.length ?? 0); // +1 flecha por unidade dentro
         if (arrows <= 1) {
           target.hp -= Math.max(1, dmg - this.unitArmor(target));
@@ -2885,10 +2996,14 @@ export class Game {
     const b = this.buildings.get(u.buildTargetId ?? -1);
     const def = b ? BUILDING_DEFS[b.type] : undefined;
     // nada a fazer: obra sumiu, ou está pronta E com vida cheia → segue a fila
-    if (!b || !def || (b.progress >= 1 && b.hp >= def.hp)) {
+    if (!b || !def || (b.progress >= 1 && b.hp >= def.hp && b.upgradeTargetLevel === undefined)) {
       u.buildTargetId = undefined;
       if (this.advanceBuildQueue(u)) return;
       u.state = 'idle';
+      return;
+    }
+    if (b.progress >= 1 && b.upgradeTargetLevel !== undefined && this.homeMode) {
+      this.homeUpgradeTick(u, b, dt);
       return;
     }
     if (b.progress >= 1) {
@@ -2898,23 +3013,13 @@ export class Game {
     }
     let rate = (BUILD_RATE[u.type] ?? 1) * this.automationFactor(u);
     if (this.homeMode) {
-      const active = [...this.units.values()]
-        .filter((worker) => worker.owner === b.owner && worker.buildTargetId === b.id && worker.state === 'building')
-        .sort((a, z) => a.id - z.id);
-      if (active[0]?.id !== u.id) return;
-      const rates = active
-        .map((worker) => (BUILD_RATE[worker.type] ?? 1) * this.automationFactor(worker))
-        .sort((a, z) => z - a);
-      rate = (rates[0] ?? 0) + rates.slice(1).reduce((sum, value) => sum + value * 0.6, 0);
+      const aggregate = this.homeCrewRate(u, b);
+      if (aggregate === null) return;
+      rate = aggregate;
     }
     b.progress = Math.min(1, b.progress + (dt * rate) / def.buildTime);
     b.hp = Math.round(def.hp * (0.1 + 0.9 * b.progress));
     if (b.progress >= 1) {
-      if (b.upgradeTargetLevel !== undefined) {
-        const owner = this.players.get(b.owner);
-        if (owner) owner.age = b.upgradeTargetLevel;
-        b.upgradeTargetLevel = undefined;
-      }
       if (b.type === 'farm') {
         b.foodLeft = FARM_FOOD;
         // fazenda pronta: quem construiu segue a fila; sem fila, colhe na hora (AoE2)
@@ -3061,43 +3166,216 @@ export class Game {
     this.homeProductionCollectedAt = this.now();
   }
 
-  private cmdUpgradeHomeHub(playerId: number): void {
-    const player = this.players.get(playerId);
-    if (!player || player.age !== 1) return;
-    const hub = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
-    if (!hub || hub.progress < 1 || hub.upgradeTargetLevel !== undefined) return;
-    const has = (type: BuildingType): boolean => [...this.buildings.values()].some((b) => b.owner === playerId && b.type === type && b.progress >= 1);
-    if (!has('robotics_workshop') || (!has('solar_array') && !has('wind_turbine'))) {
-      this.errorTo(playerId, 'err.requires_buildings', { n: 2, age: 1, have: 0 });
-      return;
-    }
-    if (this.developmentPointsOf(playerId) < (HOME_LEVEL_POINTS[2] ?? Infinity)) {
-      this.errorTo(playerId, 'err.requires_buildings', { n: HOME_LEVEL_POINTS[2], age: 1, have: this.developmentPointsOf(playerId) });
-      return;
-    }
-    const grid = this.powerOf(playerId);
-    if (grid.draw > grid.supply) { this.errorTo(playerId, 'err.home_power'); return; }
-    const builders = [...this.units.values()].filter((u) => u.owner === playerId && isBuilderUnit(u.type));
-    if (builders.length === 0) { this.errorTo(playerId, 'err.home_builders'); return; }
-    const cost = AGE_COSTS[2] ?? {};
-    if (!this.canAfford(player, cost)) { this.errorTo(playerId, 'err.no_resources'); return; }
-    this.deduct(player, cost);
-    hub.upgradeTargetLevel = 2;
-    hub.progress = 0.02;
-    hub.hp = Math.max(1, Math.round(BUILDING_DEFS.town_center.hp * 0.12));
-    for (const builder of builders) this.assignBuilder(builder, hub);
+  /** Spec §3.2 crew rule: fastest + 0.6 × the rest, applied once per site per
+   *  tick by the lowest-id worker. Returns null for the other workers. */
+  private homeCrewRate(u: Unit, b: Building): number | null {
+    const active = [...this.units.values()]
+      .filter((worker) => worker.owner === b.owner && worker.buildTargetId === b.id && worker.state === 'building')
+      .sort((a, z) => a.id - z.id);
+    if (active[0]?.id !== u.id) return null;
+    const rates = active
+      .map((worker) => (BUILD_RATE[worker.type] ?? 1) * this.automationFactor(worker))
+      .sort((a, z) => z - a);
+    return (rates[0] ?? 0) + rates.slice(1).reduce((sum, value) => sum + value * 0.6, 0);
   }
 
+  private homeUpgradeTick(u: Unit, b: Building, dt: number): void {
+    const rate = this.homeCrewRate(u, b);
+    if (rate === null || b.upgradeTargetLevel === undefined) return;
+    const time = homeUpgradeTime(b.type, b.upgradeTargetLevel);
+    b.upgradeProgress = Math.min(1, (b.upgradeProgress ?? 0) + (dt * rate) / time);
+    if (b.upgradeProgress < 1) return;
+    this.completeHomeUpgrade(b);
+    for (const worker of this.units.values()) {
+      if (worker.owner !== b.owner || worker.buildTargetId !== b.id) continue;
+      worker.buildTargetId = undefined;
+      if (!this.advanceBuildQueue(worker)) worker.state = 'idle';
+    }
+  }
+
+  /** The new level exists only from here on (spec §3.4: never imply it early). */
+  private completeHomeUpgrade(b: Building): void {
+    if (b.upgradeTargetLevel === undefined) return;
+    b.level = b.upgradeTargetLevel;
+    b.upgradeTargetLevel = undefined;
+    b.upgradeProgress = undefined;
+    b.hp = buildingMaxHp(b.type, b.level);
+    if (b.type === 'town_center') {
+      const owner = this.players.get(b.owner);
+      if (owner) {
+        owner.age = b.level;
+        if (b.level >= 5) owner.cityPath = 'command'; // Specialized City: command path
+      }
+    }
+  }
+
+  private hasCompleted(playerId: number, types: BuildingType[], level: number): boolean {
+    for (const b of this.buildings.values()) {
+      if (b.owner === playerId && b.progress >= 1 && types.includes(b.type) && (b.level ?? 1) >= level) return true;
+    }
+    return false;
+  }
+
+  /** Unmet Hub requirements for a target City Level, as short reasons for the HUD. */
+  cityLevelBlockers(playerId: number, target: number): string[] {
+    const req = HOME_CITY_LEVELS[target];
+    if (!req) return ['max level'];
+    const out: string[] = [];
+    for (const need of req.buildings) {
+      if (!this.hasCompleted(playerId, need.types, need.level)) out.push(`${need.types.join('/')} L${need.level}`);
+    }
+    const grid = this.powerOf(playerId);
+    if (grid.supply < req.minSupply || grid.draw > grid.supply) out.push(`grid ${req.minSupply}+ supply, no shortage`);
+    if (req.research && (this.progression.research[req.research.unit] ?? 0) < req.research.level) {
+      out.push(`${req.research.unit} research L${req.research.level}`);
+    }
+    const points = HOME_LEVEL_POINTS[target] ?? Infinity;
+    if (this.developmentPointsOf(playerId) < points) out.push(`${points} development`);
+    return out;
+  }
+
+  /** Physical one-level upgrade of a completed building (Hub = City Level). The
+   *  building keeps working at its old level until builders finish. */
+  /** City Level is the source of truth for the Hub's level (older saves only
+   *  stored `age`); keep them in step before reading either. */
+  private syncHubLevels(): void {
+    for (const b of this.buildings.values()) {
+      if (b.type !== 'town_center') continue;
+      const age = this.players.get(b.owner)?.age ?? 1;
+      if (age > 1) b.level = age;
+      else delete b.level;
+    }
+  }
+
+  private cmdUpgradeBuilding(playerId: number, buildingId: number): void {
+    this.syncHubLevels();
+    const player = this.players.get(playerId);
+    const b = this.buildings.get(buildingId);
+    if (!player || !b || b.owner !== playerId || b.progress < 1) return;
+    if (b.upgradeTargetLevel !== undefined) { this.errorTo(playerId, 'err.upgrade_in_progress'); return; }
+    const level = b.level ?? 1;
+    const max = HOME_MAX_LEVEL[b.type] ?? 1;
+    if (level >= max) { this.errorTo(playerId, 'err.max_level'); return; }
+    const target = level + 1;
+    if (b.type === 'town_center') {
+      const blockers = this.cityLevelBlockers(playerId, target);
+      if (blockers.length) { this.errorTo(playerId, 'err.city_requirements', { missing: blockers.join(', ') }); return; }
+    } else if (target > player.age) {
+      // A building may not outgrow its city.
+      this.errorTo(playerId, 'err.requires_age', { age: target });
+      return;
+    }
+    const builders = [...this.units.values()].filter((u) => u.owner === playerId && isBuilderUnit(u.type));
+    if (builders.length === 0) { this.errorTo(playerId, 'err.home_builders'); return; }
+    const cost = homeUpgradeCost(b.type, target);
+    if (!this.canAfford(player, cost)) { this.errorTo(playerId, 'err.no_resources'); return; }
+    this.deduct(player, cost);
+    b.upgradeTargetLevel = target;
+    b.upgradeProgress = 0;
+    // Idle builders go first; with none idle the Hub still pulls the whole crew.
+    const idle = builders.filter((u) => u.state === 'idle');
+    for (const u of idle.length ? idle : b.type === 'town_center' ? builders : builders.slice(0, 1)) this.assignBuilder(u, b);
+  }
+
+  private cmdUnitResearch(playerId: number, unit: UnitType): void {
+    const player = this.players.get(playerId);
+    const def = HOME_UNIT_RESEARCH[unit];
+    const unlock = HOME_UNIT_UNLOCK[unit];
+    if (!player || !def || !unlock) return;
+    if (this.progression.researching) { this.errorTo(playerId, 'err.research_busy'); return; }
+    if (!this.hasCompleted(playerId, ['robotics_workshop'], 1)) { this.errorTo(playerId, 'err.requires_building', { building: 'robotics_workshop' }); return; }
+    if (player.age < unlock.cityLevel) { this.errorTo(playerId, 'err.requires_age', { age: unlock.cityLevel }); return; }
+    const next = (this.progression.research[unit] ?? 0) + 1;
+    if (next > HOME_RESEARCH_MAX) { this.errorTo(playerId, 'err.max_level'); return; }
+    const cost = homeResearchCost(unit, next);
+    if (!this.canAfford(player, cost)) { this.errorTo(playerId, 'err.no_resources'); return; }
+    this.deduct(player, cost);
+    this.progression.researching = { unit, level: next, progress: 0 };
+  }
+
+  /** Research runs at the workshop under the grid factor; upgraded workshops research faster. */
+  private updateHomeResearch(dt: number): void {
+    const r = this.progression.researching;
+    const player = this.homePlayer();
+    if (!r || !player) return;
+    const def = HOME_UNIT_RESEARCH[r.unit];
+    const workshop = [...this.buildings.values()]
+      .filter((b) => b.owner === player.id && b.type === 'robotics_workshop' && b.progress >= 1)
+      .reduce((best, b) => Math.max(best, b.level ?? 1), 0);
+    if (!def || workshop === 0) return;
+    const grid = this.powerOf(player.id);
+    r.progress = Math.min(1, r.progress + (dt * powerEfficiency(grid.supply, grid.draw) * levelScale(workshop, 0.2)) / (def.time * r.level));
+    if (r.progress >= 1) {
+      this.progression.research[r.unit] = r.level;
+      this.progression.researching = undefined;
+    }
+  }
+
+  /** Immutable defense snapshot of this Home for other players to raid (spec
+   *  §6.6): completed buildings only, re-centred on the raid map with their
+   *  relative layout, levels and the current grid factor. */
+  captureDefenseSnapshot(label: string, ownerKey: string): DefenseSnapshot | null {
+    const p = this.homePlayer();
+    if (!p) return null;
+    const built = [...this.buildings.values()].filter((b) => b.owner === p.id && b.progress >= 1);
+    if (!built.some((b) => b.type === 'town_center')) return null;
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+    for (const b of built) {
+      const size = BUILDING_DEFS[b.type].size;
+      minX = Math.min(minX, b.tileX); minY = Math.min(minY, b.tileY);
+      maxX = Math.max(maxX, b.tileX + size); maxY = Math.max(maxY, b.tileY + size);
+    }
+    const n = this.grid.size;
+    const dx = Math.max(2 - minX, Math.min(n - 2 - maxX, Math.floor(n / 2 - (minX + maxX) / 2)));
+    const dy = Math.max(2 - minY, Math.min(n - 2 - maxY, Math.floor(n / 2 - (minY + maxY) / 2)));
+    const grid = this.powerOf(p.id);
+    const signature = this.defenseSignature();
+    const body: Omit<DefenseSnapshot, 'checksum'> = {
+      id: `player-${ownerKey.slice(0, 10)}-${createHash('sha256').update(signature).digest('hex').slice(0, 10)}`,
+      version: 2,
+      kind: 'player',
+      label,
+      cityLevel: p.age,
+      seed: 0,
+      buildings: built
+        .sort((a, z) => a.id - z.id)
+        .map((b) => ({ id: b.id, type: b.type, tileX: b.tileX + dx, tileY: b.tileY + dy, ...((b.level ?? 1) > 1 ? { level: b.level } : {}) })),
+      trees: [],
+      defensePower: Math.round(powerEfficiency(grid.supply, grid.draw) * 1000) / 1000,
+    };
+    return { ...body, checksum: snapshotChecksum(body) };
+  }
+
+  /** Stable fingerprint of the defensible layout; a change triggers a new published snapshot. */
+  defenseSignature(): string {
+    this.syncHubLevels();
+    const p = this.homePlayer();
+    return [...this.buildings.values()]
+      .filter((b) => b.owner === p?.id && b.progress >= 1)
+      .map((b) => `${b.id}:${b.type}:${b.tileX}:${b.tileY}:${b.level ?? 1}`)
+      .sort()
+      .join('|');
+  }
+
+  /** Completed buildings only. Upgrades add +50% of base per level; each
+   *  further copy of a type is worth 80% of the previous (no spam farming);
+   *  walls are capped at 50 in total. */
   private developmentPointsOf(playerId: number): number {
-    let points = 0;
+    const byType = new Map<BuildingType, number[]>();
     let wallPoints = 0;
     for (const b of this.buildings.values()) {
       if (b.owner !== playerId || b.progress < 1) continue;
-      const value = HOME_DEVELOPMENT[b.type] ?? 0;
-      if (b.type === 'wall') wallPoints += value;
-      else points += value;
+      const value = (HOME_DEVELOPMENT[b.type] ?? 0) * levelScale(b.level, 0.5);
+      if (b.type === 'wall') { wallPoints += value; continue; }
+      const list = byType.get(b.type) ?? [];
+      list.push(value);
+      byType.set(b.type, list);
     }
-    return points + Math.min(50, wallPoints);
+    let points = 0;
+    for (const values of byType.values()) {
+      values.sort((a, z) => z - a).forEach((v, i) => { points += v * Math.pow(0.8, i); });
+    }
+    return Math.round(points + Math.min(50, wallPoints));
   }
 
   private storageCapsOf(playerId: number): Resources {
@@ -3106,7 +3384,7 @@ export class Game {
       if (b.owner !== playerId || b.progress < 1) continue;
       const bonus = HOME_STORAGE_PER_DEPOT[b.type];
       if (!bonus) continue;
-      for (const key of Object.keys(bonus) as ResourceType[]) caps[key] += bonus[key] ?? 0;
+      for (const key of Object.keys(bonus) as ResourceType[]) caps[key] += Math.round((bonus[key] ?? 0) * levelScale(b.level, 1));
     }
     return caps;
   }
@@ -3118,8 +3396,11 @@ export class Game {
         if (b.owner !== player.id || b.progress < 1) continue;
         const production = HOME_PRODUCTION_PER_HOUR[b.type];
         if (!production) continue;
+        const scale = levelScale(b.level, 0.5);
         for (const key of Object.keys(production) as ResourceType[]) {
-          player.resources[key] = Math.min(caps[key], player.resources[key] + (production[key] ?? 0) * dt / 3600);
+          // Production stops at capacity; it never destroys stock already above it.
+          if (player.resources[key] >= caps[key]) continue;
+          player.resources[key] = Math.min(caps[key], player.resources[key] + (production[key] ?? 0) * scale * dt / 3600);
         }
       }
     }
@@ -3135,16 +3416,22 @@ export class Game {
       nextLevelPoints: HOME_LEVEL_POINTS[level + 1] ?? HOME_LEVEL_POINTS[level] ?? 0,
       offlineAppliedSeconds: this.homeOfflineAppliedSeconds,
       session: 'home',
+      trophies: this.raidData.trophies,
+      ...(this.raidData.reports[0] ? { lastReport: this.raidData.reports[0] } : {}),
+      research: { ...this.progression.research },
+      ...(this.progression.researching ? { researching: { ...this.progression.researching } } : {}),
+      shieldSeconds: Math.max(0, Math.ceil((this.progression.shieldUntil - this.now()) / 1000)),
+      defenseReports: this.progression.defenseReports.slice(0, 5),
     };
   }
 
-  captureHomeState(profileId: string): HomeSaveV1 {
+  captureHomeState(profileId: string): HomeSave {
     if (!this.homeMode) throw new Error('cannot capture arena as a Home save');
     const player = [...this.players.values()][0];
     if (!player) throw new Error('Home has no player');
     this.homeRevision++;
     return structuredClone({
-      version: 1,
+      version: 3,
       profileId,
       revision: this.homeRevision,
       savedAt: this.now(),
@@ -3159,11 +3446,17 @@ export class Game {
       lastPower: { ...this.powerOf(player.id) },
       productionCollectedAt: this.homeProductionCollectedAt || this.now(),
       storageCaps: this.storageCapsOf(player.id),
-    });
+      raid: this.raidData,
+      progression: this.progression,
+    } satisfies HomeSave);
   }
 
-  private restoreHomeState(save: HomeSaveV1, playerId: number, name: string, color: string): void {
+  private restoreHomeState(save: HomeSave, playerId: number, name: string, color: string): void {
     const savedOwner = save.player.id;
+    this.raidData = structuredClone(save.raid);
+    this.progression = structuredClone(save.progression);
+    // Reserved units held by a raid record belong to this player too.
+    for (const u of this.raidData.active?.reserved ?? []) if (u.owner === savedOwner) u.owner = playerId;
     this.tick = Math.max(0, Math.floor(save.tick));
     this.nextId = Math.max(save.nextId, 1);
     this.homeRevision = save.revision;
@@ -3193,6 +3486,7 @@ export class Game {
       else this.grid.blocked[at] = 1;
     }
     for (const b of this.buildings.values()) this.blockFootprint(b.tileX, b.tileY, BUILDING_DEFS[b.type].size);
+    this.syncHubLevels();
     this.recomputePower();
     const elapsed = Math.min(HOME_OFFLINE_CAP_SECONDS, Math.max(0, (this.now() - save.savedAt) / 1000));
     this.homeOfflineAppliedSeconds = elapsed;
@@ -3213,7 +3507,11 @@ export class Game {
       if (b.owner !== playerId || b.progress < 1) continue;
       const production = HOME_PRODUCTION_PER_HOUR[b.type];
       if (!production) continue;
-      for (const key of Object.keys(production) as ResourceType[]) player.resources[key] = Math.min(caps[key], player.resources[key] + (production[key] ?? 0) * hours);
+      const scale = levelScale(b.level, 0.5);
+      for (const key of Object.keys(production) as ResourceType[]) {
+        if (player.resources[key] >= caps[key]) continue; // stop at capacity, never clamp down
+        player.resources[key] = Math.min(caps[key], player.resources[key] + (production[key] ?? 0) * scale * hours);
+      }
     }
     const efficiency = powerEfficiency(savedPower.supply, savedPower.draw);
     for (const b of this.buildings.values()) {
@@ -3233,6 +3531,35 @@ export class Game {
       if (b.progress >= 1 && b.upgradeTargetLevel !== undefined) {
         player.age = b.upgradeTargetLevel;
         b.upgradeTargetLevel = undefined;
+      }
+    }
+    // Upgrades in progress use the same crew rule and frozen power factor.
+    for (const b of this.buildings.values()) {
+      if (b.owner !== playerId || b.progress < 1 || b.upgradeTargetLevel === undefined) continue;
+      const contributions = [...this.units.values()]
+        .filter((u) => u.owner === playerId && u.buildTargetId === b.id && (u.state === 'building' || u.state === 'movingToBuild'))
+        .map((u) => {
+          const travel = u.state === 'movingToBuild' ? u.path.length / Math.max(0.1, UNIT_DEFS[u.type].speed) : 0;
+          return Math.max(0, elapsed - travel) * (BUILD_RATE[u.type] ?? 1) * (POWER_DRAW[u.type] ? efficiency : 1);
+        })
+        .sort((a, z) => z - a);
+      const work = (contributions[0] ?? 0) + contributions.slice(1).reduce((sum, value) => sum + value * 0.6, 0);
+      b.upgradeProgress = Math.min(1, (b.upgradeProgress ?? 0) + work / homeUpgradeTime(b.type, b.upgradeTargetLevel));
+      if (b.upgradeProgress >= 1) this.completeHomeUpgrade(b);
+    }
+    // Research continues offline on the frozen grid factor.
+    const research = this.progression.researching;
+    if (research) {
+      const workshop = [...this.buildings.values()]
+        .filter((b) => b.owner === playerId && b.type === 'robotics_workshop' && b.progress >= 1)
+        .reduce((best, b) => Math.max(best, b.level ?? 1), 0);
+      const def = HOME_UNIT_RESEARCH[research.unit];
+      if (def && workshop > 0) {
+        research.progress = Math.min(1, research.progress + (elapsed * efficiency * levelScale(workshop, 0.2)) / (def.time * research.level));
+        if (research.progress >= 1) {
+          this.progression.research[research.unit] = research.level;
+          this.progression.researching = undefined;
+        }
       }
     }
     // Factory queues run on the same frozen power factor. Finished units dock
@@ -3340,6 +3667,394 @@ export class Game {
     }
   }
 
+  // ---------------- Home raids (Phase 3): isolated snapshot simulation ----------------
+
+  /** Replaces the generated world with the pinned defense snapshot. The raid
+   *  never ticks until the first deployment, which happens at tick 0, so a
+   *  replay is the same snapshot + deployments at the same ticks. */
+  private setupRaid(snapshot: DefenseSnapshot, zone: RaidDeployZone, attacker: number, defender: number, onEnd?: (o: RaidOutcome) => void): void {
+    this.buildings.clear();
+    this.units.clear();
+    this.nodes.clear();
+    this.sheep.clear();
+    this.grid.tiles.fill(TILE_GRASS);
+    this.grid.blocked.fill(0);
+    this.navalGrid.blocked.fill(1);
+    this.airGrid.blocked.fill(0);
+    this.tick = 0;
+    for (const id of [attacker, defender]) {
+      const p = this.players.get(id);
+      if (p) p.cityPath = 'command'; // raid participants are always combat-enabled
+    }
+    const defenderPlayer = this.players.get(defender);
+    if (defenderPlayer) defenderPlayer.age = snapshot.cityLevel;
+    let maxId = 0;
+    let hubId: number | undefined;
+    const scored: number[] = [];
+    for (const s of snapshot.buildings) {
+      const def = BUILDING_DEFS[s.type];
+      const level = Math.max(1, Math.floor(s.level ?? 1));
+      this.buildings.set(s.id, {
+        id: s.id, owner: defender, type: s.type, tileX: s.tileX, tileY: s.tileY,
+        hp: buildingMaxHp(s.type, level), progress: 1, queue: [], ...(level > 1 ? { level } : {}),
+      });
+      this.blockFootprint(s.tileX, s.tileY, def.size);
+      if (s.type !== 'wall') scored.push(s.id);
+      if (s.type === 'town_center') hubId = s.id;
+      maxId = Math.max(maxId, s.id);
+    }
+    for (const t of snapshot.trees) {
+      this.nodes.set(t.id, { id: t.id, type: 'tree', tileX: t.tileX, tileY: t.tileY, amount: 100 });
+      this.grid.blocked[idx(t.tileX, t.tileY, this.grid.size)] = 1;
+      maxId = Math.max(maxId, t.id);
+    }
+    this.nextId = maxId + 1;
+    this.knownCompletedBuildings = new Set(this.buildings.keys());
+    this.knownUnits = new Set();
+    this.recomputePower();
+    const empty = this.emptyRaidArmy();
+    this.raidSim = {
+      attacker, defender, zone, reserve: { ...empty }, initialArmy: { ...empty }, deployed: 0,
+      maxTicks: 0, scored, hubId, destruction: 0, stars: 0, hubDestroyed: false, onEnd,
+      research: {}, defensePower: Math.max(DEFENSE_POWER_FLOOR, Math.min(1, snapshot.defensePower ?? 1)),
+    };
+  }
+
+  /** Sends the current state now (the raid does not tick while scouting). */
+  pushSnapshot(): void {
+    this.broadcastSnapshot();
+  }
+
+  /** Advances exactly one fixed tick (headless replays and tests). */
+  advance(): void {
+    this.step();
+  }
+
+  get raidOutcome(): RaidOutcome | undefined {
+    return this.raidSim?.outcome;
+  }
+
+  get raidDeployed(): number {
+    return this.raidSim?.deployed ?? 0;
+  }
+
+  setRaidReserve(army: RaidArmy, maxTicks: number, research: Partial<Record<keyof RaidArmy, number>> = {}): void {
+    if (!this.raidSim || this.raidSim.deployed > 0) return;
+    this.raidSim.reserve = { ...army };
+    this.raidSim.initialArmy = { ...army };
+    this.raidSim.maxTicks = maxTicks;
+    this.raidSim.research = { ...research };
+  }
+
+  /** Fractional research gain for an attacking unit type (0 outside raids). */
+  private raidGain(type: UnitType): number {
+    const r = this.raidSim;
+    if (!r || !(type in r.reserve)) return 0;
+    return (r.research[type as keyof RaidArmy] ?? 0) * (HOME_UNIT_RESEARCH[type]?.perLevel ?? 0);
+  }
+
+  private isRaidAttacker(u: Unit): boolean {
+    return this.raidSim !== null && u.owner === this.raidSim.attacker;
+  }
+
+  /** Defense range in a raid: +0.5 tile per level, +15% near a Sensor Tower. */
+  private raidDefenseRange(b: Building, base: number): number {
+    let range = base + 0.5 * ((b.level ?? 1) - 1);
+    for (const s of this.buildings.values()) {
+      if (s.type !== 'sensor_tower' || s.owner !== b.owner) continue;
+      if (Math.hypot(s.tileX - b.tileX, s.tileY - b.tileY) <= 6) { range *= 1.15; break; }
+    }
+    return range;
+  }
+
+  /** Defense damage in a raid: level (+20%/level) × defender grid factor ×
+   *  Iron Guardian field on the target (−30% while pulsing). */
+  private raidDefenseDamage(b: Building, base: number, target: Unit): number {
+    const r = this.raidSim!;
+    let dmg = base * levelScale(b.level, 0.2) * r.defensePower;
+    if (target.owner === r.attacker && this.inGuardianField(target)) dmg *= 0.7;
+    return dmg;
+  }
+
+  /** Guardian field: radius 4 and a 4 s pulse every 8 s, both +5%/research level. */
+  private inGuardianField(target: Unit): boolean {
+    const gain = this.raidGain('iron_guardian');
+    if ((this.tick % 80) >= 40 * (1 + gain)) return false;
+    const radius = 4 * (1 + gain);
+    for (const g of this.units.values()) {
+      if (g.type === 'iron_guardian' && g.owner === target.owner && Math.hypot(g.x - target.x, g.y - target.y) <= radius) return true;
+    }
+    return false;
+  }
+
+  /** Attacker damage in a raid, after research (drone damage, fighter vs defenses). */
+  private raidAttackFor(u: Unit, base: number, target: Building | undefined): number {
+    if (u.type === 'attack_drone') return base * (1 + this.raidGain('attack_drone'));
+    if (u.type === 'fighter' && target && DEFENSE_DEFS[target.type]) return base * (1 + this.raidGain('fighter'));
+    return base;
+  }
+
+  /** Bomber blast and Valkyrie chain arcs after a hit on a building. */
+  private raidAfterHit(u: Unit, primary: Building, atk: number): void {
+    const size = BUILDING_DEFS[primary.type].size;
+    const cx = primary.tileX + size / 2;
+    const cy = primary.tileY + size / 2;
+    // Distance from the impact point to each footprint's nearest edge, so area
+    // effects reach neighbours regardless of building size.
+    const others = [...this.buildings.values()]
+      .filter((b) => b.owner === primary.owner && b.id !== primary.id)
+      .map((b) => {
+        const bs = BUILDING_DEFS[b.type].size;
+        const nx = Math.max(b.tileX, Math.min(cx, b.tileX + bs));
+        const ny = Math.max(b.tileY, Math.min(cy, b.tileY + bs));
+        return { b, d: Math.hypot(nx - cx, ny - cy) - size / 2 };
+      })
+      .sort((a, z) => a.d - z.d || a.b.id - z.b.id);
+    if (u.type === 'stealth_bomber') {
+      const radius = 2.5 * (1 + this.raidGain('stealth_bomber'));
+      for (const { b, d } of others) if (d <= radius) this.damageBuilding(b, atk * 0.5);
+    } else if (u.type === 'aegis_valkyrie') {
+      const level = this.raidSim?.research.aegis_valkyrie ?? 0;
+      const arcs = 2 + Number(level >= 3) + Number(level >= 5);
+      const arcDamage = atk * 0.5 * (1 + this.raidGain('aegis_valkyrie'));
+      for (const { b } of others.filter((o) => o.d <= 3.5).slice(0, arcs)) this.damageBuilding(b, arcDamage);
+    }
+  }
+
+  setRaidView(view: HomeRaidView): void {
+    if (this.raidSim) this.raidSim.view = view;
+  }
+
+  /** Places one reserved unit inside the legal perimeter band. Returns an error
+   *  code, or null when the unit is on the field. */
+  raidDeploy(type: keyof RaidArmy, x: number, y: number): string | null {
+    const r = this.raidSim;
+    if (!r || r.outcome) return 'err.raid_over';
+    if (!Object.prototype.hasOwnProperty.call(r.reserve, type) || r.reserve[type] < 1) return 'err.raid_no_reserve';
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 'err.raid_perimeter';
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    if (!inDeployZone(r.zone, tx, ty)) return 'err.raid_perimeter';
+    const spot = nearestWalkableTile(this.gridForType(type), tx, ty);
+    if (!spot || !inDeployZone(r.zone, spot.x, spot.y)) return 'err.raid_perimeter';
+    const u = createUnit(this.nextId++, r.attacker, type, spot.x + 0.5, spot.y + 0.5);
+    u.hp = this.unitMaxHp(u);
+    this.units.set(u.id, u);
+    this.knownUnits.add(u.id);
+    r.reserve[type]--;
+    r.deployed++;
+    const target = this.raidTargetFor(u, r.defender);
+    if (target) this.assignAttack(u, target.id);
+    return null;
+  }
+
+  /** Ends the raid after the next tick; only meaningful once troops are down. */
+  raidSurrender(): number | undefined {
+    const r = this.raidSim;
+    if (!r || r.outcome || r.deployed === 0) return undefined;
+    r.surrenderAt ??= this.tick;
+    return r.surrenderAt;
+  }
+
+  /** Replay entry point: surrender recorded at a known tick. */
+  setRaidSurrenderAt(tick: number): void {
+    if (this.raidSim && !this.raidSim.outcome) this.raidSim.surrenderAt = tick;
+  }
+
+  /** Spec §6.4 target preference per unit type. Lower score wins; ties keep
+   *  insertion order, so targeting is deterministic. */
+  private raidTargetFor(u: Unit, defender: number): Building | undefined {
+    const mine = [...this.buildings.values()].filter((b) => b.owner === defender);
+    const center = (b: Building) => {
+      const size = BUILDING_DEFS[b.type].size;
+      return { x: b.tileX + size / 2, y: b.tileY + size / 2 };
+    };
+    const dist = (b: Building) => { const c = center(b); return Math.hypot(c.x - u.x, c.y - u.y); };
+    const isDefense = (b: Building) => !!DEFENSE_DEFS[b.type] && b.type !== 'town_center';
+    const neighbours = (b: Building) => {
+      const c = center(b);
+      return mine.filter((o) => o !== b && Math.hypot(center(o).x - c.x, center(o).y - c.y) <= 3).length;
+    };
+    let score: (b: Building) => number;
+    switch (u.type) {
+      case 'siege_mech': // opens ground routes
+        score = (b) => (isDefense(b) || b.type === 'wall' ? 0 : 1000) + dist(b); break;
+      case 'rocket_launcher': // suppresses active defenses from standoff range
+        score = (b) => (isDefense(b) ? 0 : 1000) + dist(b); break;
+      case 'fighter': // strike pass on air-threat defenses
+        score = (b) => (b.type === 'anti_air' ? 0 : isDefense(b) ? 500 : 1000) + dist(b); break;
+      case 'stealth_bomber': // densest cluster
+        score = (b) => -neighbours(b) * 10 + dist(b) * 0.1; break;
+      case 'plasma_tank': // high-HP structure nearby
+        score = (b) => dist(b) - buildingMaxHp(b.type, b.level) / 150; break;
+      case 'iron_guardian': { // the defense currently shooting allies
+        const threats = new Set(mine.filter((b) => b.targetId !== undefined && this.units.get(b.targetId)?.owner === u.owner).map((b) => b.id));
+        score = (b) => (threats.has(b.id) ? 0 : isDefense(b) ? 500 : 1000) + dist(b); break;
+      }
+      case 'aegis_valkyrie': // high-value, exposed defense
+        score = (b) => (isDefense(b) ? 0 : 1000) + dist(b) * 0.5 - (b.level ?? 1) * 3 + neighbours(b) * 2; break;
+      default: // drones and the rest: nearest structure
+        score = dist;
+    }
+    let best: Building | undefined;
+    let bestScore = Infinity;
+    for (const b of mine) {
+      const value = score(b);
+      if (value < bestScore) { bestScore = value; best = b; }
+    }
+    return best;
+  }
+
+  private updateRaidSim(): void {
+    const r = this.raidSim;
+    if (!r || r.outcome || r.deployed === 0) return;
+    for (const u of this.units.values()) {
+      if (u.owner !== r.attacker || u.state !== 'idle') continue;
+      const target = this.raidTargetFor(u, r.defender);
+      if (target) this.assignAttack(u, target.id);
+    }
+    let destroyed = 0;
+    for (const id of r.scored) if (!this.buildings.has(id)) destroyed++;
+    r.destruction = r.scored.length ? Math.floor((destroyed * 100) / r.scored.length) : 100;
+    r.hubDestroyed = r.hubId !== undefined && !this.buildings.has(r.hubId);
+    // Independent milestones (spec §6.5): 50%, Hub, 100%.
+    r.stars = Number(r.destruction >= 50) + Number(r.hubDestroyed) + Number(r.destruction >= 100);
+    let attackers = 0;
+    for (const u of this.units.values()) if (u.owner === r.attacker) attackers++;
+    const reserve = Object.values(r.reserve).reduce((a, b) => a + b, 0);
+    let reason: RaidEndReason | null = null;
+    if (r.destruction >= 100) reason = 'destroyed';
+    else if (r.surrenderAt !== undefined && this.tick > r.surrenderAt) reason = 'surrender';
+    else if (this.tick >= r.maxTicks) reason = 'timer';
+    else if (attackers === 0 && reserve === 0) reason = 'eliminated';
+    if (!reason) return;
+    r.outcome = {
+      endTick: this.tick, reason, destruction: r.destruction, stars: r.stars, hubDestroyed: r.hubDestroyed,
+      checksum: this.raidChecksum(reason, r),
+    };
+    this.stop();
+    this.broadcastSnapshot();
+    r.onEnd?.(r.outcome);
+  }
+
+  private raidChecksum(reason: RaidEndReason, r: RaidSim): string {
+    const buildings = [...this.buildings.values()].map((b) => [b.id, b.hp]).sort((a, z) => a[0] - z[0]);
+    const units = [...this.units.values()]
+      .map((u) => [u.id, u.type, u.hp, Math.round(u.x * 1000), Math.round(u.y * 1000)] as const)
+      .sort((a, z) => a[0] - z[0]);
+    return createHash('sha256')
+      .update(JSON.stringify({ tick: this.tick, reason, destruction: r.destruction, stars: r.stars, hub: r.hubDestroyed, buildings, units }))
+      .digest('hex');
+  }
+
+  private raidSimSnap(): RaidSnap {
+    const r = this.raidSim!;
+    const view = r.view;
+    const phase: RaidPhase = r.outcome ? 'result' : r.deployed > 0 ? 'battle' : view?.state === 'SCOUTING' ? 'scouting' : 'deploying';
+    const elapsed = r.deployed > 0 ? this.tick : 0;
+    return {
+      id: 0, phase, attacker: r.attacker, defender: r.defender,
+      army: { ...r.initialArmy }, remaining: { ...r.reserve }, deployed: r.deployed,
+      duration: (r.maxTicks * TICK_MS) / 1000,
+      secondsLeft: r.outcome ? 0 : Math.max(0, ((r.maxTicks - elapsed) * TICK_MS) / 1000),
+      destruction: r.destruction, stars: r.stars,
+      loot: view?.report ? { ...view.report.reward } : { food: 0, wood: 0, gold: 0, stone: 0 },
+      events: [],
+      ...(view ? { home: structuredClone(view) } : {}),
+    };
+  }
+
+  // ---------------- Home side of raids: reservation, return, rewards ----------------
+
+  private homePlayer(): GamePlayer | undefined {
+    return [...this.players.values()][0];
+  }
+
+  get homeName(): string {
+    return this.homePlayer()?.name ?? 'Unknown';
+  }
+
+  get homeLevel(): number {
+    return this.homePlayer()?.age ?? 1;
+  }
+
+  /** Manufactured combat units currently at Home, by type. */
+  homeArmy(): RaidArmy {
+    const army = this.emptyRaidArmy();
+    const p = this.homePlayer();
+    for (const u of this.units.values()) {
+      if (u.owner === p?.id && u.type in army) army[u.type as keyof RaidArmy]++;
+    }
+    return army;
+  }
+
+  /** Moves the requested units out of Home into a reservation (lowest ids first).
+   *  All-or-nothing: returns null without changing anything if any are missing. */
+  takeForRaid(army: RaidArmy): Unit[] | null {
+    const p = this.homePlayer();
+    if (!p) return null;
+    const picked: Unit[] = [];
+    for (const [type, count] of Object.entries(army) as [keyof RaidArmy, number][]) {
+      if (!Number.isInteger(count) || count < 0) return null;
+      const pool = [...this.units.values()].filter((u) => u.owner === p.id && u.type === type).sort((a, z) => a.id - z.id);
+      if (pool.length < count) return null;
+      picked.push(...pool.slice(0, count));
+    }
+    for (const u of picked) {
+      this.units.delete(u.id);
+      this.retargetAttackersOf(u.id);
+    }
+    return picked.map((u) => structuredClone(u));
+  }
+
+  /** Puts undeployed reserved units back at Home, docked by a camp. */
+  returnFromRaid(units: Unit[]): void {
+    const p = this.homePlayer();
+    const hub = [...this.buildings.values()].find((b) => b.owner === p?.id && b.type === 'town_center');
+    for (const stored of units) {
+      if (this.units.has(stored.id)) continue; // already home: returning twice is a no-op
+      const u = structuredClone(stored);
+      this.clearTasks(u);
+      u.state = 'idle';
+      const camp = hub ? this.nearestCamp(hub) : null;
+      const spot = camp ? this.campDockSpot(camp) : hub ? this.findFreeSpotNear(hub.tileX, hub.tileY, BUILDING_DEFS[hub.type].size) : null;
+      if (spot) { u.x = spot.x + 0.5; u.y = spot.y + 0.5; }
+      this.units.set(u.id, u);
+      this.knownUnits.add(u.id);
+    }
+  }
+
+  /** Credits a system-funded reward, clamped to storage. Returns what was credited. */
+  grantRaidReward(reward: Resources): Resources {
+    const p = this.homePlayer();
+    const granted: Resources = { food: 0, wood: 0, gold: 0, stone: 0 };
+    if (!p) return granted;
+    const caps = this.storageCapsOf(p.id);
+    for (const key of Object.keys(granted) as ResourceType[]) {
+      // Whole units only, never past storage; computed directly (stockpiles are fractional).
+      const room = Math.max(0, Math.floor(caps[key] - p.resources[key]));
+      const credit = Math.min(room, Math.max(0, Math.floor(reward[key] ?? 0)));
+      p.resources[key] += credit;
+      granted[key] = credit;
+    }
+    return granted;
+  }
+
+  spendHomeGold(amount: number): boolean {
+    const p = this.homePlayer();
+    if (!p || p.resources.gold < amount) return false;
+    p.resources.gold -= amount;
+    return true;
+  }
+
+  /** Bounded report/settlement bookkeeping shared by every settlement path. */
+  recordRaidSettlement(key: string, report: RaidReport): void {
+    this.raidData.reports.unshift(report);
+    this.raidData.reports.length = Math.min(this.raidData.reports.length, RAID_MAX_REPORTS);
+    this.raidData.settled.push(key);
+    if (this.raidData.settled.length > RAID_MAX_SETTLED_KEYS) this.raidData.settled.splice(0, this.raidData.settled.length - RAID_MAX_SETTLED_KEYS);
+  }
+
   toPlayerInfos(): PlayerInfo[] {
     return [...this.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color, team: p.team }));
   }
@@ -3368,4 +4083,5 @@ const UNIT_TRAIN_TIME: Record<UnitType, number> = {
   stealth_bomber: UNIT_DEFS.stealth_bomber.trainTime,
   plasma_tank: UNIT_DEFS.plasma_tank.trainTime,
   iron_guardian: UNIT_DEFS.iron_guardian.trainTime,
+  aegis_valkyrie: UNIT_DEFS.aegis_valkyrie.trainTime,
 };
