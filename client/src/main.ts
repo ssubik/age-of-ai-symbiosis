@@ -45,6 +45,7 @@ let signedIn = false;
 
 let gameScreen: GameScreen | null = null;
 let gamePaused = false; // partida pausada (autoritativo do servidor); tecla P alterna
+let gameSession: 'arena' | 'home' = 'arena';
 // Ao cair em jogo, espera uns segundos antes de mostrar "conexão perdida" — um
 // soluço rápido de rede reconecta sozinho e o jogador nem percebe. O gameStart
 // da retomada limpa este timer.
@@ -99,7 +100,7 @@ const settingsOverlay = new SettingsOverlay({
     settingsOverlay.hide();
     const eraPartida = current === 'game';
     const soAssistindo = gameScreen?.isSpectating ?? false;
-    net.send({ type: 'leaveRoom' });
+    net.send(gameSession === 'home' ? { type: 'enterArena' } : { type: 'leaveRoom' });
     gameOverScreen.hide();
     teardownGame();
     showScreen('lobby');
@@ -295,14 +296,15 @@ function dispatch(msg: ServerMessage): void {
       break;
     }
     case 'nameOk': {
-      // nome aceito -> lembra o nome e só AGORA vai pro lobby
+      // A signed-in player opens their persistent, map-first Home by default.
       nameScreen.setStatus('');
       if (pendingName) saveName(pendingName);
       myName = pendingName;
       signedIn = true;
-      if (current === 'name') {
-        net.send({ type: 'listRooms' });
-        showScreen('lobby');
+      // Also after a reconnect mid-Home: Home sessions aren't rooms, so the
+      // server's resumeGame path can't bring them back — re-enter explicitly.
+      if (current === 'name' || (current === 'game' && gameSession === 'home')) {
+        net.send({ type: 'enterHome' });
       }
       break;
     }
@@ -363,6 +365,7 @@ function dispatch(msg: ServerMessage): void {
       teardownGame();
       gameOverScreen.hide();
       gamePaused = false;
+      gameSession = msg.session ?? 'arena';
       gameScreen = new GameScreen(msg.map, msg.players, msg.you, {
         onCommand: (cmd: GameCommand) => net.send({ type: 'cmd', cmd }),
         onChat: (text) => net.send({ type: 'chat', text }),
@@ -370,11 +373,11 @@ function dispatch(msg: ServerMessage): void {
         onPing: (x, y) => net.send({ type: 'ping', x, y }),
         onBackToLobby: () => {
           teardownGame();
-          net.send({ type: 'leaveRoom' }); // sai da sala pra não ficar preso nela
+          net.send(gameSession === 'home' ? { type: 'enterArena' } : { type: 'leaveRoom' });
           showScreen('lobby');
           net.send({ type: 'listRooms' });
         },
-      }, msg.fog, msg.spectating, 'symbiosis');
+      }, msg.fog, msg.spectating, 'symbiosis', gameSession);
       showScreen('game');
       break;
     }
@@ -412,6 +415,8 @@ function dispatch(msg: ServerMessage): void {
           market: msg.market,
           spectators: msg.spectators,
           chain: msg.chain,
+          raid: msg.raid,
+          home: msg.home,
         });
       }
       break;

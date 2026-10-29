@@ -62,6 +62,7 @@ export class GameScreen {
   private raidOpen = false;
   private attackBtn: HTMLButtonElement | null = null;
   private goalPanel: HTMLElement | null = null;
+  private homeBadge: HTMLElement | null = null;
   private goalSig = '';
   private productionCycle = 0;
 
@@ -89,7 +90,7 @@ export class GameScreen {
    *  nunca esteve jogando.) */
   get isSpectating(): boolean { return this.spectating; }
 
-  constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false, private experience: ExperienceMode = 'symbiosis') {
+  constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false, private experience: ExperienceMode = 'symbiosis', private session: 'arena' | 'home' = 'arena') {
     this.spectating = spectating;
     // Espectador vê o mapa todo (é o ponto de assistir) — a névoa é desligada.
     this.state = new GameState(map, players, you, spectating ? false : fogEnabled);
@@ -100,6 +101,14 @@ export class GameScreen {
     this.el.style.cursor = 'default';
     const root = el('div', 'game-atlas');
     root.id = 'game-root';
+
+    if (session === 'home') {
+      this.el.classList.add('home-mode');
+      this.homeBadge = el('button', 'home-status', 'HOME · CITY LEVEL 1');
+      this.homeBadge.title = 'Persistent Home — open the Arena lobby';
+      this.homeBadge.addEventListener('click', () => this.deps.onBackToLobby());
+      root.appendChild(this.homeBadge);
+    }
 
     this.canvas = el('canvas');
     this.canvas.id = 'game-canvas';
@@ -349,6 +358,7 @@ export class GameScreen {
     const panel = this.goalPanel;
     const me = this.state.me();
     if (!panel || !me) return;
+    if (this.state.home) { panel.classList.add('hidden'); return; }
     const age = me.age;
     if (age >= MAX_AGE || me.cityPath) {
       panel.classList.add('hidden');
@@ -612,6 +622,7 @@ export class GameScreen {
       this.updateLedger();
       this.updateRaidPanel();
       this.updateGoal();
+      this.updateHomeStatus();
       this.updateWatchBadge();
       this.checkDefeat();
       if (this.ctx) {
@@ -622,6 +633,19 @@ export class GameScreen {
       this.rafId = requestAnimationFrame(frame);
     };
     this.rafId = requestAnimationFrame(frame);
+  }
+
+  private updateHomeStatus(): void {
+    if (!this.homeBadge) return;
+    const player = this.state.playerSnaps.get(this.state.you);
+    const home = this.state.home;
+    const current = home?.developmentPoints ?? 0;
+    const next = home?.nextLevelPoints ?? current;
+    const workshop = [...this.state.buildings.values()].some((b) => b.owner === this.state.you && b.type === 'robotics_workshop' && b.progress >= 1);
+    const generator = [...this.state.buildings.values()].some((b) => b.owner === this.state.you && (b.type === 'solar_array' || b.type === 'wind_turbine') && b.progress >= 1);
+    const grid = player?.power;
+    const stable = !!grid && grid.supply >= grid.draw;
+    this.homeBadge.textContent = `HOME · CITY LEVEL ${player?.age ?? 1} · ${current}/${next} DEV · WORKSHOP ${workshop ? '✓' : '○'} · GRID ${generator && stable ? '✓' : '○'} · ARENA`;
   }
 
   private onRaidDeploy = (event: MouseEvent): void => {

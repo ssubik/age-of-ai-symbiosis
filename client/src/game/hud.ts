@@ -873,24 +873,39 @@ export class Hud {
         } else if (myAge >= MAX_AGE) {
           this.ageBtn.textContent = t('hud.age_max', { age: AGE_NAMES[MAX_AGE] });
           this.ageBtn.disabled = true;
+        } else if (this.gs.home && myAge >= 2) {
+          this.ageBtn.textContent = 'City Level 2 · Phase 1 maximum';
+          this.ageBtn.disabled = true;
         } else if (me.ageProgress !== undefined) {
           this.ageBtn.textContent = t('hud.age_researching', { age: AGE_NAMES[myAge + 1] });
           this.ageBtn.disabled = true;
         } else {
           const cost = AGE_COSTS[myAge + 1] ?? {};
-          // regra do AoE2: N prédios DIFERENTES da era atual (casa/fazenda/muralha não contam)
-          const needB = buildingsToAdvance(myAge);
-          const have = new Set<BuildingType>();
-          for (const b of this.gs.buildings.values()) {
-            if (b.owner === this.gs.you && b.progress >= 1 && countsForAgeUp(b.type, myAge)) have.add(b.type);
-          }
-          if (have.size < needB) {
-            const req = needB > 1 ? t('hud.buildings_diff', { n: needB }) : t('hud.one_building');
-            this.ageBtn.textContent = t('hud.age_need', { age: AGE_NAMES[myAge + 1], req, have: have.size, need: needB });
-            this.ageBtn.disabled = true;
+          if (this.gs.home && myAge === 1) {
+            const hasWorkshop = [...this.gs.buildings.values()].some((b) => b.owner === this.gs.you && b.type === 'robotics_workshop' && b.progress >= 1);
+            const hasPower = [...this.gs.buildings.values()].some((b) => b.owner === this.gs.you && (b.type === 'solar_array' || b.type === 'wind_turbine') && b.progress >= 1);
+            const stableGrid = (me.power?.supply ?? 0) >= (me.power?.draw ?? 0);
+            const enoughDevelopment = this.gs.home.developmentPoints >= this.gs.home.nextLevelPoints;
+            const ready = hasWorkshop && hasPower && stableGrid && enoughDevelopment;
+            this.ageBtn.textContent = ready
+              ? `Upgrade Civic Hub · ${costText(cost)}`
+              : `Hub L2 · Workshop ${hasWorkshop ? '✓' : '○'} · Power ${hasPower && stableGrid ? '✓' : '○'} · Development ${this.gs.home.developmentPoints}/${this.gs.home.nextLevelPoints}`;
+            this.ageBtn.disabled = !ready || !this.canAfford(cost);
           } else {
-            this.ageBtn.textContent = t('hud.age_advance', { age: AGE_NAMES[myAge + 1], cost: costText(cost) });
-            this.ageBtn.disabled = !this.canAfford(cost);
+            // regra do AoE2: N prédios DIFERENTES da era atual (casa/fazenda/muralha não contam)
+            const needB = buildingsToAdvance(myAge);
+            const have = new Set<BuildingType>();
+            for (const b of this.gs.buildings.values()) {
+              if (b.owner === this.gs.you && b.progress >= 1 && countsForAgeUp(b.type, myAge)) have.add(b.type);
+            }
+            if (have.size < needB) {
+              const req = needB > 1 ? t('hud.buildings_diff', { n: needB }) : t('hud.one_building');
+              this.ageBtn.textContent = t('hud.age_need', { age: AGE_NAMES[myAge + 1], req, have: have.size, need: needB });
+              this.ageBtn.disabled = true;
+            } else {
+              this.ageBtn.textContent = t('hud.age_advance', { age: AGE_NAMES[myAge + 1], cost: costText(cost) });
+              this.ageBtn.disabled = !this.canAfford(cost);
+            }
           }
         }
       }

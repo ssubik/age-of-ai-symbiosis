@@ -16,6 +16,7 @@ import type {
   UnitSnap,
   UnitType,
   RaidSnap,
+  HomeStatusSnap,
 } from '@age/shared';
 import {
   BUILDING_DEFS,
@@ -50,6 +51,7 @@ export interface SnapshotData {
   /** Symbiosis public match ledger. */
   chain?: ChainSnap;
   raid?: RaidSnap;
+  home?: HomeStatusSnap;
 }
 
 export type PickResult =
@@ -109,6 +111,7 @@ export class GameState {
   playerSnaps = new Map<number, PlayerSnap>();
   chain: ChainSnap | null = null;
   raid: RaidSnap | null = null;
+  home: HomeStatusSnap | null = null;
   /** Preços do mercado (ouro por lote de 100), atualizados por snapshot. */
   marketPrices: MarketPrices = { food: 100, wood: 100, stone: 100 };
   /** Quantos estão assistindo esta partida (0 se ninguém). Só chega pra quem
@@ -216,6 +219,7 @@ export class GameState {
     this.spectatorCount = snap.spectators ?? 0;
     this.chain = snap.chain ?? null;
     this.raid = snap.raid ?? null;
+    this.home = snap.home ?? null;
 
     // --- deltas de combate (dano/morte) comparando com o snapshot anterior ---
     const now = this.snapTime;

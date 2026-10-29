@@ -105,6 +105,8 @@ export interface BuildingSnap {
   garrison?: number;
   /** Symbiosis: ledger transaction hash attesting this facility's completion. */
   proof?: string;
+  /** Home: Civic Hub level being physically constructed. */
+  upgradeTargetLevel?: number;
 }
 
 export interface NodeSnap {
@@ -160,6 +162,16 @@ export interface PlayerSnap {
   power?: PowerSnap;
   /** Live stewardship score (Symbiosis). */
   score?: { stewardship: number; reliabilityPpm: number; bonus: number; score: number };
+}
+
+/** Persistent Home-only status. The world still uses ordinary PlayerSnap,
+ * buildings and units; this is progression/context for the edge HUD. */
+export interface HomeStatusSnap {
+  revision: number;
+  developmentPoints: number;
+  nextLevelPoints: number;
+  offlineAppliedSeconds: number;
+  session: 'home';
 }
 
 export type RaidPhase = 'idle' | 'scouting' | 'deploying' | 'battle' | 'result' | 'replay';

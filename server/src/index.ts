@@ -13,11 +13,17 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { GAME_PORT } from '@age/shared';
 import type { ClientMessage, ServerMessage } from '@age/shared';
 import { Lobby } from './lobby';
+import { HomeManager } from './home/manager';
+import { JsonHomeRepository } from './home/repository';
 import { handleApi } from './api';
 import { readMetrics, MONITOR_HTML } from './metrics';
 import { conectarJogo, slugDoPath, estadoDasSalas } from './online-games-ws';
 
-const lobby = new Lobby();
+// Saves persistentes da Home: server/profiles, resolvido a partir deste arquivo
+// (server/src ou server/dist) e nao do cwd — `npm run dev -w server` roda em server/.
+const HOME_DIR = process.env.HOME_DATA_DIR
+  ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../profiles');
+const lobby = new Lobby(new HomeManager(new JsonHomeRepository(HOME_DIR)));
 const PORT = Number(process.env.PORT) || GAME_PORT;
 // Senha do painel /sistema: vem SÓ da env MONITOR_KEY (definida fora do repo, no
 // ~/.age_env do celular). Sem a env, o /sistema fica DESLIGADO (404 sempre) — assim

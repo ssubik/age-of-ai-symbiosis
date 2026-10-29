@@ -207,3 +207,30 @@ button.btn.primary {
     animation-iteration-count: 1 !important;
   }
 }
+.home-status {
+  position: absolute;
+  z-index: 35;
+  /* Below the resource bar: §8.9 keeps resources and caps visible up top. */
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 16px;
+  border: 1px solid rgba(91, 220, 255, .55);
+  border-radius: 999px;
+  color: #d9f8ff;
+  background: linear-gradient(180deg, rgba(12, 31, 48, .94), rgba(5, 15, 25, .9));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .35), inset 0 0 18px rgba(42, 184, 225, .09);
+  font: 700 11px/1.1 var(--font-ui, system-ui);
+  letter-spacing: .1em;
+  cursor: pointer;
+}
+
+.home-status:hover { border-color: rgba(139, 238, 255, .9); color: #fff; }
+
+/* Home has no match ledger; the panel would only ever read "Block #0". */
+.home-mode .chain-panel { display: none; }
+
+@media (max-width: 600px) {
+  .home-status { top: 88px; padding: 6px 12px; font-size: 10px; letter-spacing: .06em; }
+}

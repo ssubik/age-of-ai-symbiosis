@@ -5,6 +5,7 @@ import type { BotDifficulty, ClientMessage, ExperienceMode, GameMode, RoomPlayer
 import { Game, type RoomMember } from './game/room';
 import { writeChronicle, writeProof } from './archive/chronicle';
 import { proofAdapterFromEnv, safelySubmitProof } from './proofs';
+import { HomeManager } from './home/manager';
 
 export interface Connection {
   id: number;
@@ -140,7 +141,7 @@ export class Lobby {
   // Varredura de salas ociosas (unref: não segura o processo em scripts/testes).
   private idleSweep = setInterval(() => this.sweepIdleRooms(), 60_000);
 
-  constructor() {
+  constructor(private readonly homes = new HomeManager()) {
     this.idleSweep.unref?.();
   }
 
@@ -183,6 +184,7 @@ export class Lobby {
     // reconexão que reusou o mesmo playerId), ignore — não derrube o novo dono.
     if (this.conns.get(conn.id) !== conn) return;
     if (conn.spectatingRoomId) this.stopSpectating(conn); // fechou a aba assistindo
+    if (this.homes.has(conn.id)) void this.homes.leave(conn.id);
     if (conn.roomId) this.handleDisconnectFromRoom(conn);
     if (this.conns.get(conn.id) === conn) this.conns.delete(conn.id);
   }
@@ -203,6 +205,12 @@ export class Lobby {
         break;
       case 'listRooms':
         this.sendRoomListTo(conn);
+        break;
+      case 'enterHome':
+        void this.enterHome(conn);
+        break;
+      case 'enterArena':
+        void this.enterArena(conn);
         break;
       case 'createRoom':
         this.createRoom(conn);
@@ -302,6 +310,36 @@ export class Lobby {
     conn.name = wanted;
     conn.send({ type: 'nameOk' });
     if (conn.roomId) this.broadcastRoomState(conn.roomId);
+  }
+
+  private async enterHome(conn: Connection): Promise<void> {
+    if (process.env.PERSISTENT_HOME_ENABLED === 'false') {
+      conn.send({ type: 'error', code: 'err.home_disabled' });
+      conn.send({ type: 'leftRoom' });
+      this.sendRoomListTo(conn);
+      return;
+    }
+    if (conn.roomId) this.leaveRoom(conn);
+    if (conn.spectatingRoomId) this.stopSpectating(conn);
+    try {
+      await this.homes.enter({
+        id: conn.id,
+        name: conn.name,
+        color: PLAYER_COLORS[(conn.id - 1) % PLAYER_COLORS.length],
+        clientId: conn.clientId ?? `connection-${conn.id}`,
+        send: conn.send,
+      });
+    } catch (error) {
+      console.error('[home] failed to enter', error);
+      conn.send({ type: 'error', code: 'err.home_load_failed' });
+    }
+  }
+
+  private async enterArena(conn: Connection): Promise<void> {
+    try { await this.homes.leave(conn.id); }
+    catch (error) { console.error('[home] failed to save on exit', error); }
+    conn.send({ type: 'leftRoom' });
+    this.sendRoomListTo(conn);
   }
 
   /** Procura, entre as salas EM JOGO, uma vaga deste clientId cujo jogador ainda
@@ -925,6 +963,7 @@ export class Lobby {
   // ---------------- Comandos de jogo ----------------
 
   private cmd(conn: Connection, msg: Extract<ClientMessage, { type: 'cmd' }>): void {
+    if (this.homes.has(conn.id)) { this.homes.command(conn.id, msg.cmd); return; }
     if (!conn.roomId) return;
     const room = this.rooms.get(conn.roomId);
     if (!room || !room.inGame || !room.game) return;
@@ -933,6 +972,7 @@ export class Lobby {
 
   /** Pausar/retomar a partida (qualquer jogador da sala). */
   private setPause(conn: Connection, paused: boolean): void {
+    if (this.homes.has(conn.id)) { this.homes.pause(conn.id, paused); return; }
     if (!conn.roomId) return;
     const room = this.rooms.get(conn.roomId);
     if (!room || !room.inGame || !room.game) return;
@@ -941,6 +981,7 @@ export class Lobby {
 
   /** Sinaliza (ping) no minimapa — o Game repassa só aos aliados. */
   private ping(conn: Connection, x: number, y: number): void {
+    if (this.homes.has(conn.id)) { this.homes.ping(conn.id, x, y); return; }
     if (!conn.roomId) return;
     const room = this.rooms.get(conn.roomId);
     if (!room || !room.inGame || !room.game) return;

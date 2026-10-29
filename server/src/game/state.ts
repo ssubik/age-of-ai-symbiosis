@@ -72,6 +72,8 @@ export interface Building {
   /** Unidades GUARNECIDAS dentro (torre/Centro). NÃO vão no snapshot como
    *  unidades — só a contagem. Voltam ao mapa ao ejetar; morrem se o prédio cai. */
   garrison?: Unit[];
+  /** Home-only physical Civic Hub upgrade. City level changes on completion. */
+  upgradeTargetLevel?: number;
 }
 
 export interface ResNode {

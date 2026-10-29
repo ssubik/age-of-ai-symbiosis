@@ -2255,6 +2255,31 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
 
+    // City Level 2 remains recognizably the same Civic Hub, but gains a clear
+    // cyan command ring and antenna instead of swapping to an unrelated asset.
+    if (!under && b.type === 'town_center' && age >= 2) {
+      const lift = hh * 0.46;
+      const ring = [T, R, B, L].map((p) => ({ x: p.x, y: p.y - lift }));
+      ctx.save();
+      ctx.shadowColor = 'rgba(84,219,233,.75)';
+      ctx.shadowBlur = Math.max(5, hh * 0.55);
+      ctx.strokeStyle = 'rgba(84,219,233,.82)';
+      ctx.lineWidth = Math.max(1.2, hh * 0.12);
+      ctx.beginPath();
+      ctx.moveTo(ring[0].x, ring[0].y);
+      for (let i = 1; i < ring.length; i++) ctx.lineTo(ring[i].x, ring[i].y);
+      ctx.closePath();
+      ctx.stroke();
+      const hubX = (T.x + B.x) / 2;
+      const hubY = (T.y + B.y) / 2 - th * 2.45;
+      ctx.beginPath();
+      ctx.moveTo(hubX, hubY + hh * 0.8);
+      ctx.lineTo(hubX, hubY);
+      ctx.stroke();
+      this.blob(ctx, hubX, hubY, hh * 0.16, hh * 0.1, '#8ef2ff');
+      ctx.restore();
+    }
+
     // flash de dano no prédio (losango da base pisca em vermelho, some em ~200ms)
     const hitT = this.gs.lastHit.get(b.id);
     if (hitT !== undefined) {
@@ -2762,7 +2787,12 @@ export class Renderer {
     b: BuildingSnap,
     now: number,
   ): void {
-    const plan = constructionFxPlan(b.id, b.progress);
+    const planned = constructionFxPlan(b.id, b.progress);
+    // Home builders are real selectable units. Keep site machinery and sparks,
+    // but never paint decorative workers that are absent from simulation state.
+    const plan = this.gs.home
+      ? { ...planned, human: false, robot: false, drone: false }
+      : planned;
     if (!plan.active) return;
     const pulse = now * 0.004 + plan.phase * Math.PI * 2;
     const humanX = L.x * 0.35 + B.x * 0.65;

@@ -130,13 +130,33 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
 
 // ---------- Symbiosis: automated builders + power grid ----------
 /** Construction speed per builder (villager = 1). */
-export const BUILD_RATE: Partial<Record<UnitType, number>> = { villager: 1, designer: 0.8, robot: 1.8, drone: 1.25 };
+export const BUILD_RATE: Partial<Record<UnitType, number>> = { villager: 1, designer: 1, robot: 1.8, drone: 1.25 };
 /** Grid power each automated unit draws while it exists. */
 export const POWER_DRAW: Partial<Record<UnitType, number>> = { robot: 1, drone: 1, attack_drone: 2, fighter: 3, rocket_launcher: 2, siege_mech: 3, stealth_bomber: 4, plasma_tank: 4, iron_guardian: 6 };
 /** Base grid capacity of a completed Town Center in Symbiosis matches. */
 export const TOWN_CENTER_POWER = 2;
 /** Floor for automation efficiency when demand exceeds supply. */
 export const POWER_MIN_EFFICIENCY = 0.3;
+
+// ---------- Persistent Home Phase 1 ----------
+export const HOME_OFFLINE_CAP_SECONDS = 8 * 60 * 60;
+export const HOME_LEVEL_POINTS: readonly number[] = [0, 0, 280, 620, 1100, 1800];
+export const HOME_DEVELOPMENT: Partial<Record<BuildingType, number>> = {
+  town_center: 100, house: 30, farm: 25, mill: 50, lumber_camp: 50,
+  mining_camp: 50, solar_array: 50, wind_turbine: 50,
+  robotics_workshop: 100, data_center: 70, army_camp: 80,
+  drone_factory: 80, watch_tower: 35, wall: 2,
+};
+/** Passive Home production per completed facility, per wall-clock hour. */
+export const HOME_PRODUCTION_PER_HOUR: Partial<Record<BuildingType, Partial<Resources>>> = {
+  farm: { food: 120 }, mill: { food: 80 }, lumber_camp: { wood: 100 },
+  mining_camp: { gold: 55, stone: 55 }, solar_array: {},
+};
+export const HOME_BASE_STORAGE: Resources = { food: 2000, wood: 2000, gold: 1500, stone: 1500 };
+export const HOME_STORAGE_PER_DEPOT: Partial<Record<BuildingType, Partial<Resources>>> = {
+  mill: { food: 1000 }, lumber_camp: { wood: 1000 },
+  mining_camp: { gold: 750, stone: 750 },
+};
 export const SYMBIOSIS_UNITS: ReadonlySet<UnitType> = new Set(['robot', 'drone']);
 export const SYMBIOSIS_COMBAT_UNITS: ReadonlySet<UnitType> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian']);
 export const ELON_UNIT_COST: Partial<Record<UnitType, number>> = {

@@ -16,6 +16,7 @@ import type {
   UnitSnap,
   UnitType,
   CityPath,
+  HomeStatusSnap,
   RaidArmy,
   RaidSnap,
 } from './types';
@@ -80,6 +81,8 @@ export type BotDifficulty = 'easy' | 'normal' | 'hard' | 'expert';
 
 export type ClientMessage =
   | { type: 'setName'; name: string; clientId?: string }
+  | { type: 'enterHome' }
+  | { type: 'enterArena' }
   | { type: 'setMode'; mode: GameMode } // apenas host: escolhe Normal/Batalha na sala
   | { type: 'setExperience'; experience: ExperienceMode }
   | { type: 'setFog'; fog: boolean } // apenas host: mapa fechado (névoa) ou aberto
@@ -145,7 +148,7 @@ export type ServerMessage =
   // `spectating`: você entrou só pra ASSISTIR — não tem vaga nem unidades, e
   // `you` não corresponde a jogador nenhum (o cliente usa isso pra revelar o
   // mapa e esconder os painéis de comando).
-  | { type: 'gameStart'; map: MapData; players: PlayerInfo[]; you: number; fog: boolean; spectating?: boolean; experience?: ExperienceMode }
+  | { type: 'gameStart'; map: MapData; players: PlayerInfo[]; you: number; fog: boolean; spectating?: boolean; experience?: ExperienceMode; session?: 'arena' | 'home' }
   | {
       type: 'snapshot';
       tick: number;
@@ -164,6 +167,8 @@ export type ServerMessage =
       chain?: ChainSnap;
       /** Attacker-only asynchronous-assault lifecycle and retained replay. */
       raid?: RaidSnap;
+      /** Present only for persistent Home sessions. */
+      home?: HomeStatusSnap;
     }
   // Acabou o que se estava assistindo. NÃO tira o espectador da tela na força:
   // ele vê o que aconteceu e decide se continua olhando o tabuleiro final ou se
