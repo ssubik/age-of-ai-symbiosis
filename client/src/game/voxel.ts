@@ -646,14 +646,26 @@ export function drawUnitArt(ctx: CanvasRenderingContext2D, u: UnitArt): boolean 
       return true;
     }
     case 'fighter':
-      // Delta wing, sharp nose, engine glow — points along its heading.
+      // Fighter jet: long fuselage, swept wings with missiles, twin tail fins,
+      // canopy and a flickering afterburner. Points along its heading.
       flip(() => {
-        const y = sy - U * 1.6 - hover;
-        poly(ctx, [{ x: sx + U * 1.1, y }, { x: sx - U * 0.7, y: y - U * 0.55 }, { x: sx - U * 0.45, y }, { x: sx - U * 0.7, y: y + U * 0.55 }], PAL.panel);
-        poly(ctx, [{ x: sx + U * 1.1, y }, { x: sx - U * 0.45, y }, { x: sx - U * 0.7, y: y + U * 0.55 }], shade(PAL.panel, -0.3));
-        poly(ctx, [{ x: sx + U * 0.55, y: y - U * 0.04 }, { x: sx + U * 0.15, y: y - U * 0.12 }, { x: sx + U * 0.15, y: y + U * 0.04 }], PAL.glass);
-        light(sx - U * 0.55, y, U * 0.12, PAL.cyan);
-        poly(ctx, [{ x: sx - U * 0.2, y: y - U * 0.3 }, { x: sx - U * 0.45, y: y - U * 0.3 }, { x: sx - U * 0.4, y: y - U * 0.15 }], team);
+        const y = sy - U * 1.7 - hover;
+        const flick = 0.75 + 0.25 * Math.sin(now / 45 + id);
+        poly(ctx, [{ x: sx - U * 0.95, y: y - U * 0.1 }, { x: sx - U * (1.45 + 0.35 * flick), y }, { x: sx - U * 0.95, y: y + U * 0.1 }], `rgba(255,170,80,${0.85 * flick})`);
+        poly(ctx, [{ x: sx - U * 0.95, y: y - U * 0.05 }, { x: sx - U * (1.2 + 0.2 * flick), y }, { x: sx - U * 0.95, y: y + U * 0.05 }], '#fff1c4');
+        poly(ctx, [{ x: sx + U * 0.25, y }, { x: sx - U * 0.55, y: y - U * 0.78 }, { x: sx - U * 0.75, y: y - U * 0.74 }, { x: sx - U * 0.45, y }], shade(PAL.panel, -0.35));
+        for (const off of [0, 0.14]) {
+          poly(ctx, [{ x: sx - U * (0.6 + off), y: y - U * 0.08 }, { x: sx - U * (0.86 + off), y: y - U * 0.62 }, { x: sx - U * (0.98 + off), y: y - U * 0.58 }, { x: sx - U * (0.9 + off), y: y - U * 0.06 }], shade(PAL.panel, -0.2 - off));
+        }
+        poly(ctx, [{ x: sx + U * 1.3, y }, { x: sx + U * 0.45, y: y - U * 0.16 }, { x: sx - U * 0.95, y: y - U * 0.13 }, { x: sx - U * 0.95, y }], PAL.panel);
+        poly(ctx, [{ x: sx + U * 1.3, y }, { x: sx - U * 0.95, y }, { x: sx - U * 0.95, y: y + U * 0.12 }, { x: sx + U * 0.45, y: y + U * 0.13 }], shade(PAL.panel, -0.32));
+        poly(ctx, [{ x: sx + U * 0.25, y: y + U * 0.04 }, { x: sx - U * 0.6, y: y + U * 0.88 }, { x: sx - U * 0.82, y: y + U * 0.84 }, { x: sx - U * 0.45, y: y + U * 0.04 }], shade(PAL.panel, 0.08));
+        poly(ctx, [{ x: sx - U * 0.05, y: y + U * 0.42 }, { x: sx - U * 0.55, y: y + U * 0.42 }, { x: sx - U * 0.55, y: y + U * 0.5 }, { x: sx - U * 0.05, y: y + U * 0.5 }], '#eef3f7');
+        light(sx - U * 0.02, y + U * 0.46, U * 0.05, PAL.threat);
+        poly(ctx, [{ x: sx - U * 0.2, y: y + U * 0.62 }, { x: sx - U * 0.62, y: y + U * 0.62 }, { x: sx - U * 0.6, y: y + U * 0.7 }, { x: sx - U * 0.26, y: y + U * 0.7 }], team);
+        ctx.fillStyle = PAL.glass;
+        ctx.beginPath(); ctx.ellipse(sx + U * 0.62, y - U * 0.1, U * 0.3, U * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+        light(sx + U * 0.7, y - U * 0.13, U * 0.05, 'rgba(160,220,255,.8)');
       });
       return true;
     case 'stealth_bomber':
@@ -666,12 +678,29 @@ export function drawUnitArt(ctx: CanvasRenderingContext2D, u: UnitArt): boolean 
       });
       return true;
     case 'rocket_launcher':
-      // Narrow tracked platform with a raised missile rack.
+      // Rocket truck: six wheels, armoured cab, raised and angled launch pod of
+      // red-tipped tubes; a flash at the tubes while firing.
       flip(() => {
-        sbox(ctx, sx, sy, U * 1.2, U * 0.6, U * 0.3, '#2b3442');
-        sbox(ctx, sx, sy, U * 1.0, U * 0.5, U * 0.25, PAL.steel, U * 0.3);
-        sbox(ctx, sx - U * 0.2, sy, U * 0.6, U * 0.45, U * 0.45, team, U * 0.55);
-        for (let i = 0; i < 3; i++) light(sx + U * 0.05 + i * U * 0.12, sy - U * 1.05 - i * U * 0.04, U * 0.07, PAL.threat);
+        for (const wx of [-0.55, -0.15, 0.4]) {
+          ctx.fillStyle = '#141b25';
+          ctx.beginPath(); ctx.ellipse(sx + wx * U, sy + U * 0.06, U * 0.17, U * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        sbox(ctx, sx - U * 0.05, sy, U * 1.55, U * 0.6, U * 0.24, '#2b3442', U * 0.12);
+        sbox(ctx, sx + U * 0.58, sy, U * 0.42, U * 0.56, U * 0.42, team, U * 0.36);
+        poly(ctx, [{ x: sx + U * 0.75, y: sy - U * 0.68 }, { x: sx + U * 0.86, y: sy - U * 0.63 }, { x: sx + U * 0.86, y: sy - U * 0.48 }, { x: sx + U * 0.75, y: sy - U * 0.53 }], PAL.glass);
+        const bx = sx - U * 0.15; const by = sy - U * 0.5;
+        const pod = [{ x: bx - U * 0.55, y: by + U * 0.05 }, { x: bx + U * 0.35, y: by - U * 0.35 }, { x: bx + U * 0.35, y: by - U * 0.78 }, { x: bx - U * 0.55, y: by - U * 0.38 }];
+        poly(ctx, pod, PAL.steel);
+        poly(ctx, [pod[1], { x: pod[1].x + U * 0.14, y: pod[1].y + U * 0.06 }, { x: pod[2].x + U * 0.14, y: pod[2].y + U * 0.06 }, pod[2]], shade(PAL.steel, -0.3));
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < 3; c++) {
+            const tx = pod[1].x + U * 0.07 - r * U * 0.05; const ty = pod[1].y - U * (0.1 + c * 0.13) - r * U * 0.02;
+            ctx.fillStyle = '#141b25';
+            ctx.beginPath(); ctx.ellipse(tx, ty, U * 0.05, U * 0.045, 0, 0, Math.PI * 2); ctx.fill();
+            light(tx, ty, U * 0.025, PAL.threat);
+          }
+        }
+        if (u.attacking && Math.sin(now / 120 + id) > 0.6) light(pod[1].x + U * 0.25, pod[1].y - U * 0.2, U * 0.22, 'rgba(255,214,140,.85)');
       });
       return true;
     case 'siege_mech': {
@@ -700,15 +729,38 @@ export function drawUnitArt(ctx: CanvasRenderingContext2D, u: UnitArt): boolean 
       });
       return true;
     case 'iron_guardian': {
-      // Large armored aerial protector: broad shoulder frame, jet glow below.
-      const y = sy - U * 0.9 - hover;
-      sbox(ctx, sx, y, U * 0.5, U * 0.4, U * 0.7, PAL.steel, 0);
-      sbox(ctx, sx, y, U * 1.3, U * 0.5, U * 0.35, PAL.slate, U * 0.6);
-      sbox(ctx, sx, y, U * 0.4, U * 0.36, U * 0.35, PAL.panel, U * 0.95);
-      light(sx + U * 0.1, y - U * 1.12, U * 0.07, PAL.cyan);
-      light(sx + U * 0.45, y - U * 0.8, U * 0.12, team);
-      ctx.fillStyle = `rgba(84,219,233,${0.4 + 0.3 * Math.sin(now / 120 + id)})`;
-      ctx.beginPath(); ctx.ellipse(sx, y + U * 0.15, U * 0.3, U * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+      // Armoured flight suit (original design): gunmetal and silver plates, a
+      // horizontal cyan visor band, hexagonal chest core, broad pauldrons,
+      // glowing palm thrusters and boot jets. Hovers above its shadow.
+      const base = sy - U * 0.75 - hover;
+      const flick = 0.7 + 0.3 * Math.sin(now / 50 + id);
+      for (const fx of [-0.16, 0.16]) {
+        poly(ctx, [{ x: sx + fx * U - U * 0.09, y: base }, { x: sx + fx * U, y: base + U * (0.45 + 0.2 * flick) }, { x: sx + fx * U + U * 0.09, y: base }], `rgba(142,242,255,${0.75 * flick})`);
+        poly(ctx, [{ x: sx + fx * U - U * 0.04, y: base }, { x: sx + fx * U, y: base + U * 0.25 }, { x: sx + fx * U + U * 0.04, y: base }], '#f2fdff');
+      }
+      sbox(ctx, sx - U * 0.16, base, U * 0.2, U * 0.22, U * 0.62, '#4a5566');
+      sbox(ctx, sx + U * 0.16, base, U * 0.2, U * 0.22, U * 0.62, '#4a5566');
+      sbox(ctx, sx, base, U * 0.52, U * 0.34, U * 0.28, '#3d4756', U * 0.6);
+      sbox(ctx, sx, base, U * 0.66, U * 0.4, U * 0.55, '#5d6b7e', U * 0.85);
+      poly(ctx, [{ x: sx - U * 0.22, y: base - U * 1.33 }, { x: sx + U * 0.22, y: base - U * 1.33 }, { x: sx + U * 0.18, y: base - U * 1.0 }, { x: sx - U * 0.18, y: base - U * 1.0 }], PAL.panel);
+      const cy0 = base - U * 1.18; const r = U * 0.09;
+      ctx.fillStyle = `rgba(84,219,233,${0.55 + 0.45 * flick})`;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; const hx = sx + Math.cos(a) * r; const hy = cy0 + Math.sin(a) * r; if (k) ctx.lineTo(hx, hy); else ctx.moveTo(hx, hy); }
+      ctx.closePath(); ctx.fill();
+      for (const side of [-1, 1]) {
+        sbox(ctx, sx + side * U * 0.45, base, U * 0.3, U * 0.34, U * 0.24, PAL.slate, U * 1.28);
+        poly(ctx, [{ x: sx + side * U * 0.32, y: base - U * 1.47 }, { x: sx + side * U * 0.58, y: base - U * 1.47 }, { x: sx + side * U * 0.58, y: base - U * 1.42 }, { x: sx + side * U * 0.32, y: base - U * 1.42 }], team);
+        ctx.strokeStyle = '#4a5566'; ctx.lineWidth = Math.max(2, U * 0.14); ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(sx + side * U * 0.45, base - U * 1.25); ctx.lineTo(sx + side * U * 0.62, base - U * 0.78); ctx.stroke(); ctx.lineCap = 'butt';
+        light(sx + side * U * 0.64, base - U * 0.72, U * 0.08, `rgba(142,242,255,${0.6 + 0.4 * flick})`);
+      }
+      sbox(ctx, sx, base, U * 0.3, U * 0.3, U * 0.32, PAL.panel, U * 1.4);
+      poly(ctx, [{ x: sx - U * 0.14, y: base - U * 1.58 }, { x: sx + U * 0.15, y: base - U * 1.55 }, { x: sx + U * 0.15, y: base - U * 1.5 }, { x: sx - U * 0.14, y: base - U * 1.53 }], PAL.cyan);
+      if (u.attacking) {
+        ctx.strokeStyle = 'rgba(84,219,233,.35)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.ellipse(sx, sy, U * 1.9, U * 0.95, 0, 0, Math.PI * 2); ctx.stroke();
+      }
       return true;
     }
     default:

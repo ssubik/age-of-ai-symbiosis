@@ -152,6 +152,8 @@ export function settleRaid(home: Game, record: RaidSessionRecord, now: number): 
     replay: replayOf(record),
   };
   home.recordRaidSettlement(record.id, report);
+  home.recordHomeEvent('raid', `Raid on ${report.label}: ${report.stars}★ ${report.destruction}%`,
+    report.reward.food + report.reward.wood + report.reward.gold + report.reward.stone);
   // A player defender learns about it (and gets a shield) via the outbox, in
   // this same atomic save; delivery is retried until it lands (spec §6.6).
   if (record.defenderProfileId) {

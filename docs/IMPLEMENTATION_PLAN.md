@@ -367,3 +367,55 @@ Home-only rules; Arena tables (ages, `trains`, techs) are unchanged.
 - Defense delivery is idempotent against the last 20 reports per defender.
 - The registry is a single local JSON file; production needs a database
   behind the same interface.
+
+## Urban planning, whole-map perfect city, map-first boot (2026-10-30)
+
+- **Urban plan** (`shared/src/urban.ts`): a road grid anchored on the Civic Hub
+  (2-tile roads every 9 tiles, 7×7 plots) covering the whole Home map. Shared by
+  the server (`validFootprint` rejects any footprint touching a road, walls
+  included, with `err.on_road`) and the client (placement ghost, ground,
+  road markings, minimap), so they cannot disagree. Resources from the Home map
+  generator and bot outposts (snapshot v3) keep off roads. Buildings that older
+  saves already placed on a road are kept as they are.
+- **`/perfectbase` at Home** fills every plot of the map with a zoned,
+  max-level city: Hub plot guards, an industry ring, an economy ring, housing,
+  then alternating power/food/housing and a defended rim; full research and a
+  docked strike wing. Dev commands now reach Home sessions (DEV_PLAYERS only).
+  Published defense snapshots crop to plots within 22 tiles of the Hub so raids
+  keep a deployment band and stay a 3-minute fight.
+- **Performance**: buildings are view-culled; power links are culled, limited to
+  24 tiles and drawn without `shadowBlur`. Perfect city (931 buildings): 60 fps,
+  p95 16.8 ms in headless Chrome (was 19.6 fps before the fix).
+- **Boot**: the landing/name page is removed. The client signs in automatically
+  with the saved name or a generated `Commander-XXXX` (suffix retry if taken)
+  and opens the player's city; the Arena lobby stays reachable from the ARENA
+  badge.
+- Tests: `scripts/home_urban_test.ts` (in `npm run test:home`).
+
+## Home-only product, city ledger and ELON settlement (2026-10-30)
+
+- **Home city is the whole game.** The client boots straight into the city; the
+  landing, lobby, room, game-over and WATT shell pages are deleted. Raids
+  against other cities stay. The server's Arena room code is dormant (Home and
+  raids run on the same engine) and no longer reachable from the client.
+- **City-only ground.** Home maps have no forests, mines, sheep or water;
+  older wilderness saves load as clean city ground (buildings kept).
+- **City ledger** (`server/src/home/ledger.ts`, save v4): hash-chained blocks
+  with Merkle roots, sealed once a minute, logging builds, upgrades,
+  manufacturing, research, raids, defense reports, ELON accrual and
+  settlements; retained window of 300 blocks / 600 entries, verified on every
+  page view. Defense reports are appended even when the defender is offline.
+- **ELON settlement.** Settle moves whole ELON from the playable balance into
+  a sealed block, exactly once, then anchors that block's head through the
+  existing `MatchCommitmentRegistry` adapter (`BLOCKCHAIN_ENABLED=true` + a
+  deployment → Anvil `commitWithLedger`; otherwise local/disabled, shown as
+  such). Failed anchors are shown and can be retried without settling twice.
+- **Ledger page** (`client/src/screens/ledger.ts`), opened from the city
+  badge: verification and chain status, ELON balance/capacity/rate, Settle,
+  settlements with anchor status and tx hash, linked blocks, activity log.
+- **Units:** fighter jets (fuselage, swept wings with missiles, twin fins,
+  canopy, afterburner), armoured flight suits (original design: gunmetal and
+  silver, horizontal visor, hexagonal core, palm and boot thrusters), rocket
+  trucks (six wheels, angled tube pod); missiles render as finned bodies with
+  flame and smoke trails.
+- Tests: `scripts/home_ledger_test.ts` (in `npm run test:home`).

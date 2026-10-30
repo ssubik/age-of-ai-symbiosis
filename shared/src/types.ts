@@ -438,3 +438,59 @@ export interface MapData {
   // row-major: tiles[y * size + x]; valores TILE_GRASS | TILE_WATER (constants.ts)
   tiles: number[];
 }
+
+// ---------- Home city ledger and ELON settlement ----------
+
+export type HomeLedgerKind = 'genesis' | 'build' | 'upgrade' | 'manufacture' | 'research' | 'raid' | 'defense' | 'elon' | 'settlement';
+
+/** One logged city event. `hash` commits to every field and the ledger's salt. */
+export interface HomeLedgerTx {
+  hash: string;
+  seq: number;
+  at: number;
+  kind: HomeLedgerKind;
+  label: string;
+  /** ELON for elon/settlement entries; resources total for raids; 0 otherwise. */
+  amount: number;
+  block?: number;
+}
+
+export interface HomeLedgerBlock {
+  height: number;
+  at: number;
+  hash: string;
+  prevHash: string;
+  /** Merkle root of the block's transactions. */
+  txRoot: string;
+  txCount: number;
+}
+
+/** ELON committed out of the playable balance and anchored by ledger head. */
+export interface ElonSettlement {
+  id: string;
+  amount: number;
+  at: number;
+  ledgerHead: string;
+  ledgerHeight: number;
+  /** disabled = chain off (hash-chain only), local = dev adapter, rpc states as reported. */
+  status: 'pending' | 'disabled' | 'local' | 'simulated' | 'submitted' | 'confirmed' | 'failed' | 'skipped';
+  transactionHash?: string;
+  chainId?: number;
+  blockNumber?: number;
+  contract?: string;
+  error?: string;
+}
+
+export interface HomeLedgerView {
+  city: string;
+  height: number;
+  head: string;
+  /** Every retained link and Merkle root recomputed on the server just now. */
+  verified: boolean;
+  pending: number;
+  elon: { balance: number; capacity: number; perMinute: number; settledTotal: number };
+  settlements: ElonSettlement[];
+  blocks: HomeLedgerBlock[];
+  txs: HomeLedgerTx[];
+  chain: { mode: 'disabled' | 'local' | 'rpc'; contract?: string };
+}

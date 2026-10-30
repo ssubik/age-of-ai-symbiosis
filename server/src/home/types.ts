@@ -1,5 +1,6 @@
 import type { DefenseReport, DefenseSnapshot, MapData, RaidArmy, RaidDeployEvent, RaidOutcome, RaidReport, RaidSessionState, Resources, UnitType } from '@age/shared';
 import type { Building, GamePlayer, ResNode, Sheep, Unit } from '../game/state';
+import type { HomeChainState } from './ledger';
 
 export interface StoredHomePlayer extends Omit<GamePlayer, 'techs'> {
   techs: string[];
@@ -92,7 +93,13 @@ export interface HomeSaveV3 extends Omit<HomeSaveV2, 'version' | 'raid'> {
   progression: HomeProgression;
 }
 
-export type HomeSave = HomeSaveV3;
+/** V4 adds the city ledger and ELON settlements. */
+export interface HomeSaveV4 extends Omit<HomeSaveV3, 'version'> {
+  version: 4;
+  chain: HomeChainState | null;
+}
+
+export type HomeSave = HomeSaveV4;
 
 export interface HomeLoadResult {
   save: HomeSave | null;

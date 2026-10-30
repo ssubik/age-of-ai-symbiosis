@@ -15,6 +15,7 @@ import {
   TILE_WATER,
 } from '@age/shared';
 import type { NodeType, TerrainKind } from '@age/shared';
+import { isRoadTile, urbanPlanForHub } from '@age/shared';
 import { idx, inBounds, nearestWalkableTile, type Grid } from './path';
 import type { Building, ResNode, Sheep, Unit } from './state';
 import { createSheep, createUnit } from './state';
@@ -121,8 +122,10 @@ export function generateHomeMap(forcedSeed = 0x41e0fa11): GenResult {
     units.push(createUnit(nextId++, 0, 'villager', spot.x + 0.5, spot.y + 0.5));
   }
 
+  // Resources respect the urban plan anchored on this Hub: never on a road.
+  const plan = urbanPlanForHub(tcX, tcY);
   const placeNode = (type: NodeType, x: number, y: number): void => {
-    if (!inBounds(grid, x, y) || blocked[idx(x, y, size)]) return;
+    if (!inBounds(grid, x, y) || blocked[idx(x, y, size)] || isRoadTile(plan, x, y)) return;
     nodes.push({ id: nextId++, type, tileX: x, tileY: y, amount: NODE_DEFS[type].amount });
     blocked[idx(x, y, size)] = 1;
   };
@@ -137,17 +140,9 @@ export function generateHomeMap(forcedSeed = 0x41e0fa11): GenResult {
     }
   };
 
-  // Engineered resource districts leave a broad 24×24 construction core clear.
-  cluster('berry_bush', center - 16, center + 4, 10, 7);
-  cluster('tree', center + 17, center - 11, 24, 10);
-  cluster('tree', center - 18, center - 14, 14, 8);
-  cluster('gold_mine', center + 15, center + 14, 8, 7);
-  cluster('stone_mine', center + 8, center + 19, 8, 7);
-  cluster('tree', center + 31, center + 4, 18, 10);
-  cluster('gold_mine', center - 30, center + 17, 5, 7);
-  cluster('stone_mine', center + 25, center - 27, 5, 7);
-
-  for (let i = 0; i < 3; i++) sheep.push(createSheep(nextId++, center - 10 + i * 0.8, center + 7 + (i % 2) * 0.7));
+  // A Home is a city only: no forests, mines or herds. (placeNode/cluster stay
+  // available for future decorative parks.)
+  void cluster; void rng;
   return { grid, units, buildings, nodes, sheep, nextId, seed: forcedSeed };
 }
 

@@ -17,7 +17,7 @@
     "build": "npm run build -w client",
     "smoke": "node scripts/smoke.mjs",
     "test:automation": "tsx scripts/automation_grid_test.ts",
-    "test:home": "tsx scripts/home_persistence_test.ts && tsx scripts/home_phase1_test.ts && tsx scripts/home_phase2_test.ts && tsx scripts/home_phase3_test.ts && tsx scripts/home_phase4_test.ts",
+    "test:home": "tsx scripts/home_persistence_test.ts && tsx scripts/home_phase1_test.ts && tsx scripts/home_phase2_test.ts && tsx scripts/home_phase3_test.ts && tsx scripts/home_phase4_test.ts && tsx scripts/home_urban_test.ts && tsx scripts/home_ledger_test.ts",
     "chain:node": "anvil",
     "chain:build": "cd contracts && forge build",
     "chain:test": "cd contracts && forge test",

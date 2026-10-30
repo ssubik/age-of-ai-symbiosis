@@ -31,8 +31,10 @@ const MIGRATIONS: Record<number, (record: Record<string, unknown>) => Record<str
       progression: { research: {}, shieldUntil: 0, defenseReports: [], publishedSignature: '' },
     };
   },
+  // The city ledger starts (with a genesis block) the first time the save loads.
+  3: (v3) => ({ ...v3, version: 4, chain: null }),
 };
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 4;
 
 export function migrateHomeSave(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
@@ -60,6 +62,7 @@ function validate(input: unknown): HomeSave {
   if (raid.active && (!raid.active.snapshot || !Array.isArray(raid.active.reserved) || !Array.isArray(raid.active.deploys))) throw new Error('invalid active raid');
   if (!Array.isArray(raid.outbox)) throw new Error('invalid raid outbox');
   const progression = record.progression;
+  if (record.chain !== null && (typeof record.chain !== 'object' || !record.chain.ledger || !Array.isArray(record.chain.ledger.blocks) || !Array.isArray(record.chain.settlements))) throw new Error('invalid city ledger');
   if (!progression || typeof progression.research !== 'object' || !Number.isFinite(progression.shieldUntil) || !Array.isArray(progression.defenseReports)) throw new Error('invalid home progression');
   return structuredClone(record);
 }

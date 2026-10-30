@@ -51,7 +51,7 @@ export function encodeCommitWithLedger(matchId: string, archiveHash: string, led
 export class RpcProofAdapter implements ProofAdapter {
   constructor(
     private readonly rpcUrl: string,
-    private readonly contract: string,
+    readonly contract: string,
     private readonly fetchFn: typeof fetch = fetch,
     private readonly pollMs = 250,
   ) {}

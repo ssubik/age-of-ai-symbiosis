@@ -254,25 +254,29 @@ function raidMechanics(): void {
   if (near) assert.ok(io(raid).raidDefenseRange(near, 7) > 7 + 0.5 * ((near.level ?? 1) - 1), 'Sensor Tower extends range');
 
   // Fighters open on anti-air; Valkyrie arcs and bomber blasts hit several structures.
-  const probe = (unit: keyof RaidArmy) => {
-    const g = createRaidGame(base, { id: 3, name: 'A', color: '#fff' }, () => undefined);
+  // Ability geometry is tested on the same base with its defenses removed, so a
+  // lone probe unit survives long enough to land its first hit.
+  const unarmedBody = { ...base, buildings: base.buildings.filter((b) => !['point_turret', 'anti_air', 'watch_tower'].includes(b.type)) };
+  const unarmed = { ...unarmedBody, checksum: snapshotChecksum(unarmedBody) };
+  const probe = (unit: keyof RaidArmy, snap = base) => {
+    const g = createRaidGame(snap, { id: 3, name: 'A', color: '#fff' }, () => undefined);
     g.setRaidReserve(army({ [unit]: 1 }), 900);
-    const z = deployZone(base);
+    const z = deployZone(snap);
     assert.equal(g.raidDeploy(unit, z.x0 + 1, z.y0 + 1), null);
     const u = [...g.units.values()][0];
     const firstTarget = g.buildings.get(u.attackTargetId!)!;
     const hp0 = new Map([...g.buildings.values()].map((b) => [b.id, b.hp]));
     for (let i = 0; i < 400 && !g.raidOutcome; i++) {
       g.advance();
-      const damaged = [...g.buildings.values()].filter((b) => b.hp < hp0.get(b.id)!).length + (base.buildings.length - g.buildings.size);
+      const damaged = [...g.buildings.values()].filter((b) => b.hp < hp0.get(b.id)!).length + (snap.buildings.length - g.buildings.size);
       if (damaged >= 2) return { firstTarget, multi: true };
     }
     return { firstTarget, multi: false };
   };
   assert.equal(probe('fighter').firstTarget.type, 'anti_air', 'fighter strike pass on anti-air');
   assert.ok(['point_turret', 'anti_air', 'watch_tower'].includes(probe('rocket_launcher').firstTarget.type), 'rockets suppress defenses');
-  assert.ok(probe('aegis_valkyrie').multi, 'Valkyrie arcs to nearby structures');
-  assert.ok(probe('stealth_bomber').multi, 'bomber blast hits a cluster');
+  assert.ok(probe('aegis_valkyrie', unarmed).multi, 'Valkyrie arcs to nearby structures');
+  assert.ok(probe('stealth_bomber', unarmed).multi, 'bomber blast hits a cluster');
 
   // Research changes the fight and is part of the replay.
   const snap = botSnapshot(4040, 2);

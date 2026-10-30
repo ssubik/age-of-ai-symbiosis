@@ -144,7 +144,7 @@ export class Minimap {
       for (let x = 0; x < size; x++) {
         const v = this.gs.map.tiles[y * size + x];
         if (hub && v !== TILE_WATER && v !== TILE_SHALLOW) {
-          const district = Math.max(Math.abs(x + 0.5 - hx), Math.abs(y + 0.5 - hy)) <= 29;
+          const district = true; // the urban plan covers the whole Home map
           const laneX = ((x - originX) % 9 + 9) % 9;
           const laneY = ((y - originY) % 9 + 9) % 9;
           ctx.fillStyle = district ? (laneX < 2 || laneY < 2 ? '#26343d' : '#3b575a') : '#283f32';

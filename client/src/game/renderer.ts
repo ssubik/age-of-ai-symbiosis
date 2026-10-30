@@ -10,6 +10,7 @@ import type { Camera } from './camera';
 import { ISO_HH, ISO_HW } from './camera';
 import { Ambient } from './ambient';
 import { drawBuildingArt, drawUnitArt, drawVoxelBush, drawVoxelMine, drawVoxelTree, hasVoxelArt } from './voxel';
+import { isRoadTile, urbanPlanForHub } from '@age/shared';
 
 const SYMBIOSIS_COMBAT: ReadonlySet<string> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian']);
 import { ConstructionSprites, Sprites, SymbiosisCombatSprites, TreeSprites, type SpriteFit } from './sprites';
@@ -225,6 +226,7 @@ export class Renderer {
       : this.gs.raid?.home
         ? [...this.gs.buildings.values()].find((b) => b.type === 'town_center') ?? null
         : null;
+    const homePlan = homeHub ? urbanPlanForHub(homeHub.tileX, homeHub.tileY) : null;
     const isWater = (x: number, y: number): boolean =>
       x >= 0 && y >= 0 && x < size && y < size && tiles[y * size + x] === TILE_WATER;
     // Losango levemente expandido: as bordas se sobrepõem e escondem as
@@ -264,12 +266,15 @@ export class Renderer {
             const hy = homeHub.tileY + hubSize / 2;
             const dx = tx + 0.5 - hx;
             const dy = ty + 0.5 - hy;
-            const district = Math.max(Math.abs(dx), Math.abs(dy)) <= 29;
+            // The urban plan covers the whole map (shared with server placement rules).
+            void dx; void dy;
+            const district = true;
             const originX = Math.floor(hx) - 5;
             const originY = Math.floor(hy) - 5;
             const laneX = ((tx - originX) % 9 + 9) % 9;
             const laneY = ((ty - originY) % 9 + 9) % 9;
-            const road = district && (laneX < 2 || laneY < 2);
+            const road = isRoadTile(homePlan!, tx, ty);
+            void laneX; void laneY;
             const blockX = Math.floor((tx - originX) / 9);
             const blockY = Math.floor((ty - originY) / 9);
             const park = district && !road && (blockX + blockY) % 5 === 0;
@@ -338,7 +343,7 @@ export class Renderer {
     this.ambient.drawWater(ctx, cam, now);
 
     // --- Symbiosis grid: animated energy flow from generators to hubs ---
-    this.drawPowerLines(ctx, px, py, hh, now);
+    this.drawPowerLines(ctx, px, py, hh, now, tx0, tx1, ty0, ty1);
 
     // --- Home raid: the legal deployment band, under every entity ---
     this.drawRaidZone(ctx, px, py, now);
@@ -369,8 +374,11 @@ export class Renderer {
       items.push({ depth: n.tileX + n.tileY, kind: 'node', node: n });
     }
     for (const b of this.gs.buildings.values()) {
-      if (!this.gs.buildingVisible(b)) continue;
       const s = BUILDING_DEFS[b.type]?.size ?? 1;
+      // View culling (a perfect city has hundreds of buildings); tall art can
+      // rise above its footprint, so the margin is generous.
+      if (b.tileX + s < minX - 4 || b.tileX > maxX + 2 || b.tileY + s < minY - 4 || b.tileY > maxY + 2) continue;
+      if (!this.gs.buildingVisible(b)) continue;
       items.push({ depth: b.tileX + b.tileY + s, kind: 'building', building: b });
     }
     for (const u of this.gs.units.values()) {
@@ -628,16 +636,20 @@ export class Renderer {
     const hy = hub.tileY + hubSize / 2;
     const originX = Math.floor(hx) - 5;
     const originY = Math.floor(hy) - 5;
-    const loX = hx - 29;
-    const hiX = hx + 29;
-    const loY = hy - 29;
-    const hiY = hy + 29;
+    // Roads span the whole map, matching the server's no-build rule.
+    const mapSize = this.gs.map.size;
+    const loX = 0;
+    const hiX = mapSize;
+    const loY = 0;
+    const hiY = mapSize;
+    const kLo = Math.floor(-Math.max(originX, originY) / 9) - 1;
+    const kHi = Math.ceil((mapSize - Math.min(originX, originY)) / 9) + 1;
     ctx.save();
     ctx.lineCap = 'round';
     // Solid road edges, then dashed centre lines (white, like painted asphalt).
     ctx.strokeStyle = 'rgba(236,242,248,.5)';
     ctx.lineWidth = Math.max(0.8, hh * 0.06);
-    for (let k = -3; k <= 3; k++) {
+    for (let k = kLo; k <= kHi; k++) {
       for (const off of [0.08, 1.92]) {
         const x = originX + k * 9 + off;
         ctx.beginPath(); ctx.moveTo(px(x, loY), py(x, loY)); ctx.lineTo(px(x, hiY), py(x, hiY)); ctx.stroke();
@@ -648,7 +660,7 @@ export class Renderer {
     ctx.setLineDash([Math.max(3, hh * 0.55), Math.max(4, hh * 0.8)]);
     ctx.strokeStyle = 'rgba(244,247,250,.7)';
     ctx.lineWidth = Math.max(0.8, hh * 0.07);
-    for (let k = -3; k <= 3; k++) {
+    for (let k = kLo; k <= kHi; k++) {
       const x = originX + k * 9 + 1;
       ctx.beginPath();
       ctx.moveTo(px(x, loY), py(x, loY));
@@ -665,8 +677,8 @@ export class Renderer {
     // Modular build-block borders make empty plots legible without blocking them.
     ctx.strokeStyle = 'rgba(83,226,219,.16)';
     ctx.lineWidth = Math.max(0.7, hh * 0.045);
-    for (let by = -3; by <= 3; by++) {
-      for (let bx = -3; bx <= 3; bx++) {
+    for (let by = kLo; by <= kHi; by++) {
+      for (let bx = kLo; bx <= kHi; bx++) {
         const x = originX + bx * 9 + 2.25;
         const y = originY + by * 9 + 2.25;
         const p0 = { x: px(x, y), y: py(x, y) };
@@ -2795,9 +2807,11 @@ export class Renderer {
     py: (x: number, y: number) => number,
     hh: number,
     now: number,
+    tx0 = -Infinity, tx1 = Infinity, ty0 = -Infinity, ty1 = Infinity,
   ): void {
     const grid = this.gs.me()?.power;
     if (!grid) return;
+    const inView = (p: { x: number; y: number }) => p.x >= tx0 - 2 && p.x <= tx1 + 2 && p.y >= ty0 - 2 && p.y <= ty1 + 2;
     const hubs: BuildingSnap[] = [];
     const gens: BuildingSnap[] = [];
     for (const b of this.gs.buildings.values()) {
@@ -2815,9 +2829,11 @@ export class Renderer {
     ctx.lineWidth = Math.max(1.2, hh * 0.12);
     ctx.setLineDash([hh * 0.5, hh * 0.35]);
     ctx.lineDashOffset = -now * 0.03;
-    ctx.strokeStyle = congested ? 'rgba(255,122,89,0.85)' : 'rgba(45,212,191,0.8)';
-    ctx.shadowColor = congested ? 'rgba(255,122,89,0.6)' : 'rgba(45,212,191,0.6)';
-    ctx.shadowBlur = hh * 0.6;
+    // Glow comes from a wide translucent under-stroke instead of shadowBlur:
+    // blur is costly per pixel, and a big city has hundreds of links.
+    const glow = congested ? 'rgba(255,122,89,0.22)' : 'rgba(45,212,191,0.2)';
+    const core = congested ? 'rgba(255,122,89,0.85)' : 'rgba(45,212,191,0.8)';
+    const coreWidth = ctx.lineWidth;
     for (const g of gens) {
       const a = center(g);
       let best = hubs[0];
@@ -2828,9 +2844,17 @@ export class Renderer {
         if (d < bestD) { bestD = d; best = h; }
       }
       const c = center(best);
+      // Only links with an end in view, and only local ones (a 60-tile cable
+      // across the map is noise, not information).
+      if (bestD > 24 || (!inView(a) && !inView(c))) continue;
       ctx.beginPath();
       ctx.moveTo(px(a.x, a.y), py(a.x, a.y));
       ctx.lineTo(px(c.x, c.y), py(c.x, c.y));
+      ctx.strokeStyle = glow;
+      ctx.lineWidth = coreWidth * 3;
+      ctx.stroke();
+      ctx.strokeStyle = core;
+      ctx.lineWidth = coreWidth;
       ctx.stroke();
     }
     ctx.restore();
@@ -3526,7 +3550,38 @@ export class Renderer {
       if (!onScreen(x, y)) return;
       const ang = Math.atan2(by - ay, bx - ax);
       const len = hh * (heavy ? 0.95 : 0.55);
-      ctx.strokeStyle = heavy ? 'rgba(255,113,87,.42)' : 'rgba(73,220,234,.38)';
+      if (heavy) {
+        // A real missile: fading smoke along the arc, then body, fins, red nose
+        // and engine flame, rotated to the arc's tangent.
+        const arcH = hh * 1.9;
+        const at = (q: number) => ({ x: ax + (bx - ax) * q, y: ay + (by - ay) * q - Math.sin(q * Math.PI) * arcH });
+        for (let k = 1; k <= 6; k++) {
+          const q = p - k * 0.035;
+          if (q <= 0) break;
+          const puff = at(q);
+          ctx.fillStyle = `rgba(200,205,214,${0.38 - k * 0.055})`;
+          ctx.beginPath(); ctx.arc(puff.x, puff.y, hh * (0.12 + k * 0.05), 0, Math.PI * 2); ctx.fill();
+        }
+        const dir = Math.atan2((by - ay) - Math.cos(p * Math.PI) * Math.PI * arcH, bx - ax);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(dir);
+        const L0 = hh * 0.9;
+        const W0 = hh * 0.1;
+        const flick = 0.7 + 0.3 * Math.sin(p * 90);
+        ctx.fillStyle = `rgba(255,170,80,${flick})`;
+        ctx.beginPath(); ctx.moveTo(-L0 * 0.5, -W0 * 0.8); ctx.lineTo(-L0 * (0.95 + 0.25 * flick), 0); ctx.lineTo(-L0 * 0.5, W0 * 0.8); ctx.fill();
+        ctx.fillStyle = '#e9eef3';
+        ctx.fillRect(-L0 * 0.5, -W0, L0 * 0.85, W0 * 2);
+        ctx.fillStyle = '#8c9bb0';
+        ctx.beginPath(); ctx.moveTo(-L0 * 0.5, -W0); ctx.lineTo(-L0 * 0.62, -W0 * 2.6); ctx.lineTo(-L0 * 0.32, -W0); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-L0 * 0.5, W0); ctx.lineTo(-L0 * 0.62, W0 * 2.6); ctx.lineTo(-L0 * 0.32, W0); ctx.fill();
+        ctx.fillStyle = '#f47975';
+        ctx.beginPath(); ctx.moveTo(L0 * 0.35, -W0); ctx.lineTo(L0 * 0.55, 0); ctx.lineTo(L0 * 0.35, W0); ctx.fill();
+        ctx.restore();
+        return;
+      }
+      ctx.strokeStyle = 'rgba(73,220,234,.38)';
       ctx.lineWidth = heavy ? 3 : 2;
       ctx.beginPath();
       ctx.moveTo(x - Math.cos(ang) * len * 2.2, y - Math.sin(ang) * len * 2.2);

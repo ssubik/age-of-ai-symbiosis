@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { BUILDING_DEFS, HOME_MAX_LEVEL, MAP_SIZE } from '@age/shared';
+import { BUILDING_DEFS, footprintOnRoad, HOME_MAX_LEVEL, MAP_SIZE, urbanPlanForHub } from '@age/shared';
 import type { BuildingType, DefenseSnapshot, RaidDeployZone } from '@age/shared';
 
-/** v2: building levels and Sensor Towers (Phase 4). */
-export const SNAPSHOT_VERSION = 2;
+/** v2: building levels and Sensor Towers (Phase 4). v3: urban plan (no buildings on roads). */
+export const SNAPSHOT_VERSION = 3;
 
 /** Original bot outpost names; seeded so the same seed always names the same base. */
 const NAMES = ['Kestrel', 'Basalt', 'Juniper', 'Cobalt', 'Meridian', 'Halcyon', 'Quarry', 'Vesper', 'Lumen', 'Talus'];
@@ -53,8 +53,12 @@ export function botSnapshot(seed: number, cityLevel: number): DefenseSnapshot {
   const occupied = new Set<number>();
   const key = (x: number, y: number) => y * MAP_SIZE + x;
   // A one-tile margin around every footprint keeps ground routes open.
+  // The Hub is placed first at the centre; every later footprint keeps off its roads.
+  const hubTile = center - Math.floor(BUILDING_DEFS.town_center.size / 2);
+  const plan = urbanPlanForHub(hubTile, hubTile);
   const fits = (x: number, y: number, size: number) => {
     if (x < 2 || y < 2 || x + size > MAP_SIZE - 2 || y + size > MAP_SIZE - 2) return false;
+    if (footprintOnRoad(plan, x, y, size)) return false;
     for (let dy = -1; dy <= size; dy++) for (let dx = -1; dx <= size; dx++) if (occupied.has(key(x + dx, y + dy))) return false;
     return true;
   };

@@ -25,6 +25,8 @@ export interface GameScreenDeps {
   onTogglePause: () => void;
   onPing: (x: number, y: number) => void;
   onBackToLobby: () => void;
+  /** Opens the city ledger page (activity log and ELON settlement). */
+  onOpenLedger?: () => void;
   /** Persistent-Home raid requests (Home and raid sessions only). */
   onRaid?: (action: RaidAction) => void;
 }
@@ -114,8 +116,8 @@ export class GameScreen {
     if (session === 'home') {
       this.el.classList.add('home-mode');
       this.homeBadge = el('button', 'home-status', 'HOME · CITY LEVEL 1');
-      this.homeBadge.title = 'Persistent Home — open the Arena lobby';
-      this.homeBadge.addEventListener('click', () => this.deps.onBackToLobby());
+      this.homeBadge.title = 'Open the city ledger: activity log and ELON settlement';
+      this.homeBadge.addEventListener('click', () => this.deps.onOpenLedger?.());
       root.appendChild(this.homeBadge);
     }
 
@@ -659,7 +661,7 @@ export class GameScreen {
     const generator = [...this.state.buildings.values()].some((b) => b.owner === this.state.you && (b.type === 'solar_array' || b.type === 'wind_turbine') && b.progress >= 1);
     const grid = player?.power;
     const stable = !!grid && grid.supply >= grid.draw;
-    this.homeBadge.textContent = `HOME · CITY LEVEL ${player?.age ?? 1} · ${current}/${next} DEV · WORKSHOP ${workshop ? '✓' : '○'} · GRID ${generator && stable ? '✓' : '○'} · ARENA`;
+    this.homeBadge.textContent = `HOME · CITY LEVEL ${player?.age ?? 1} · ${current}/${next} DEV · WORKSHOP ${workshop ? '✓' : '○'} · GRID ${generator && stable ? '✓' : '○'} · ⛓ LEDGER`;
   }
 
   private onRaidDeploy = (event: MouseEvent): void => {

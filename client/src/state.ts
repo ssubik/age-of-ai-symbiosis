@@ -20,6 +20,8 @@ import type {
 } from '@age/shared';
 import {
   BUILDING_DEFS,
+  footprintOnRoad,
+  urbanPlanForHub,
   BUILDING_VISION,
   BUILDING_VISION_DEFAULT,
   POP_CAP_MAX,
@@ -606,6 +608,11 @@ export class GameState {
     const s = def.size;
     const mapSize = this.map.size;
     if (tileX < 0 || tileY < 0 || tileX + s > mapSize || tileY + s > mapSize) return false;
+    // Urban planning at Home: never on a road (same rule the server enforces).
+    if (this.home) {
+      const hub = this.myTownCenter();
+      if (hub && footprintOnRoad(urbanPlanForHub(hub.tileX, hub.tileY), tileX, tileY, s)) return false;
+    }
     if (type === 'dock') {
       // Porto: TODO o footprint em água FUNDA explorada + encostado na costa
       // (>=1 vizinho de terra/raso). O servidor valida a mesma regra.

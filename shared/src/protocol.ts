@@ -17,6 +17,7 @@ import type {
   UnitType,
   CityPath,
   HomeStatusSnap,
+  HomeLedgerView,
   RaidArmy,
   RaidSnap,
 } from './types';
@@ -94,11 +95,15 @@ export type RaidAction =
   | { kind: 'surrender' }
   | { kind: 'return' };
 
+/** City ledger page: open it, settle the playable ELON balance, or retry an anchor. */
+export type LedgerAction = { kind: 'open' } | { kind: 'settle' } | { kind: 'anchor'; id: string };
+
 export type ClientMessage =
   | { type: 'setName'; name: string; clientId?: string }
   | { type: 'enterHome' }
   | { type: 'enterArena' }
   | { type: 'raid'; action: RaidAction }
+  | { type: 'ledger'; action: LedgerAction }
   | { type: 'setMode'; mode: GameMode } // apenas host: escolhe Normal/Batalha na sala
   | { type: 'setExperience'; experience: ExperienceMode }
   | { type: 'setFog'; fog: boolean } // apenas host: mapa fechado (névoa) ou aberto
@@ -150,6 +155,7 @@ export interface RoomPlayer {
 }
 
 export type ServerMessage =
+  | { type: 'ledger'; view: HomeLedgerView }
   | { type: 'welcome'; playerId: number }
   | { type: 'nameOk' }              // nome aceito -> pode ir pro lobby
   | { type: 'nameTaken' }           // nome já em uso -> escolha outro

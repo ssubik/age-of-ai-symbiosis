@@ -94,7 +94,11 @@ function defensesRespectTargetClass(): void {
   const zone = deployZone(snap);
   const raid = createRaidGame(snap, { id: 7, name: 'A', color: '#fff' }, () => undefined);
   raid.setRaidReserve(army({ attack_drone: 6, siege_mech: 2 }), 900);
-  for (let i = 0; i < 6; i++) assert.equal(raid.raidDeploy('attack_drone', zone.x0 + 1 + i, zone.y0 + 1), null);
+  // Half the drones go to the band beside the anti-air so both classes engage
+  // whatever the layout; the rest open from the north-west corner.
+  const aa = [...raid.buildings.values()].find((b) => b.type === 'anti_air')!;
+  for (let i = 0; i < 3; i++) assert.equal(raid.raidDeploy('attack_drone', zone.x0 + 1 + i, zone.y0 + 1), null);
+  for (let i = 0; i < 3; i++) assert.equal(raid.raidDeploy('attack_drone', aa.tileX + i, zone.iy1 + 1), null);
   for (let i = 0; i < 2; i++) assert.equal(raid.raidDeploy('siege_mech', zone.x0 + 1, zone.y0 + 3 + i), null);
   let air = 0; let ground = 0;
   while (!raid.raidOutcome) {
@@ -321,7 +325,7 @@ async function managerLoop(): Promise<void> {
 function migration(): void {
   const v1 = { version: 1, profileId: 'd'.repeat(64) };
   const migrated = migrateHomeSave(v1) as { version: number; raid: unknown; progression: unknown };
-  assert.equal(migrated.version, 3, 'v1 migrates through every step to current');
+  assert.equal(migrated.version, 4, 'v1 migrates through every step to current');
   assert.deepEqual(migrated.raid, { trophies: 0, scoutCounter: 0, active: null, reports: [], settled: [], outbox: [] });
   assert.deepEqual(migrated.progression, { research: {}, shieldUntil: 0, defenseReports: [], publishedSignature: '' });
 }

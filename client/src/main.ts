@@ -1,115 +1,73 @@
-// Ponto de entrada: orquestra transições de tela, rede e o toast global de erros.
+// Entry point. The game is the player's Home city: it boots straight onto the
+// map (no landing, lobby or room pages) and the only other page is the city
+// ledger, where activity is logged and ELON is settled.
 
-import type { GameCommand, RoomPlayer, ServerMessage } from '@age/shared';
+import type { BuildingType, GameCommand, HomeLedgerView, ServerMessage } from '@age/shared';
 import { Net } from './net';
 import { music } from './music';
 import { toast } from './ui';
 import { settings, saveSettings } from './settings';
-import { t, applyLang, AGE_NAMES, BUILDING_NAMES } from './i18n';
-import type { BuildingType } from '@age/shared';
+import { t, applyLang, AGE_NAMES, BUILDING_NAMES, L } from './i18n';
 import { getClientId, getSavedName, saveName } from './identity';
-import { NameScreen } from './screens/name';
-import { LobbyScreen } from './screens/lobby';
-import { RoomScreen } from './screens/room';
 import { GameScreen } from './screens/game';
-import { GameOverScreen } from './screens/gameover';
 import { SettingsOverlay } from './screens/settings';
-import { Shell } from './shell/shell';
-import type { PageId } from './shell/pages';
-import { L } from './shell/kit';
+import { LedgerPage } from './screens/ledger';
 import './style.css';
 import './watt.css';
 import './atlas.css';
 
-type ScreenName = 'name' | 'lobby' | 'room' | 'game';
+type ScreenName = 'boot' | 'game';
 
 const app = document.getElementById('app');
 if (!app) throw new Error('elemento #app não encontrado');
-
-// idioma da página (acessibilidade/SEO) conforme a preferência detectada/salva
 document.documentElement.lang = settings.lang;
 
 const connBadge = document.createElement('div');
 connBadge.id = 'conn-badge';
-connBadge.textContent = '';
 document.body.appendChild(connBadge);
 
 const net = new Net();
 
-let current: ScreenName = 'name';
-let myPlayerId = -1;
-let lastRoomPlayers: RoomPlayer[] = [];
-let pendingName = ''; // nome sendo confirmado (salvo no localStorage quando o servidor aceita)
-let myName = '';
-let signedIn = false;
-
+let current: ScreenName = 'boot';
+let pendingName = '';
 let gameScreen: GameScreen | null = null;
-let gamePaused = false; // partida pausada (autoritativo do servidor); tecla P alterna
-let gameSession: 'arena' | 'home' | 'raid' = 'arena';
-// Ao cair em jogo, espera uns segundos antes de mostrar "conexão perdida" — um
-// soluço rápido de rede reconecta sozinho e o jogador nem percebe. O gameStart
-// da retomada limpa este timer.
+let gamePaused = false;
+let gameSession: 'arena' | 'home' | 'raid' = 'home';
+// A short network hiccup reconnects on its own; only a lasting drop is shown.
 let connLostTimer: number | null = null;
-const gameOverScreen = new GameOverScreen({
-  onBackToLobby: () => {
-    gameOverScreen.hide();
-    teardownGame();
-    net.send({ type: 'leaveRoom' }); // sai da sala de verdade (senão o servidor te
-    showScreen('lobby');             // mantém preso nela e "Criar sala" recusa)
-    net.send({ type: 'listRooms' });
-  },
-  onOpenStewardship: () => {
-    gameOverScreen.hide();
-    teardownGame();
-    net.send({ type: 'leaveRoom' });
-    showScreen('lobby');
-    net.send({ type: 'listRooms' });
-    openPage('stewardship');
-  },
-});
-document.body.appendChild(gameOverScreen.el);
 
-// Menu de OPÇÕES (global): engrenagem no canto + overlay, disponível em toda tela.
-// Música é singleton (aplica sempre); efeitos/resolução aplicam se há partida.
+// ---------------------------------------------------------------- ledger page
+
+const ledgerPage = new LedgerPage({
+  onClose: () => ledgerPage.hide(),
+  onSettle: () => net.send({ type: 'ledger', action: { kind: 'settle' } }),
+  onRetryAnchor: (id) => net.send({ type: 'ledger', action: { kind: 'anchor', id } }),
+});
+document.body.appendChild(ledgerPage.el);
+function openLedger(): void {
+  ledgerPage.show();
+  net.send({ type: 'ledger', action: { kind: 'open' } });
+}
+
+// ---------------------------------------------------------------- settings
+
 const settingsOverlay = new SettingsOverlay({
   onMusicVol: (v) => { music.setVolume(v); settings.musicVol = v; saveSettings(); },
   onSfxVol: (v) => { gameScreen?.setSfxVolume(v); settings.sfxVol = v; saveSettings(); },
   onRenderScale: (s) => { gameScreen?.setRenderScale(s); settings.renderScale = s; saveSettings(); },
   onLang: (lang) => {
-    // Troca AO VIVO em QUALQUER tela — sem reload. Antes, fora do jogo isso dava
-    // location.reload(): a página inteira recarregava (a "travada", com a arte da
-    // entrada de novo) e o app sempre volta pra tela de nome, então o jogador
-    // perdia o lugar (ex.: estava no lobby e caía no início).
-    applyLang(lang); // já grava settings.lang e repopula os dicionários
+    applyLang(lang);
     saveSettings();
     document.documentElement.lang = lang;
     gearBtn.title = t('opt.title');
     gearBtn.setAttribute('aria-label', t('opt.title'));
-    nameScreen.retranslate();
-    shell.retranslate();
-    guideLink.lastChild!.textContent = ` ${L('Open Codex', 'Abrir Códice', 'Abrir Códice')}`;
-    lobbyScreen.retranslate();
-    roomScreen.retranslate();
+    bootStatus.textContent = L('Opening your city…', 'Abrindo sua cidade…', 'Abriendo tu ciudad…');
     gameScreen?.retranslate();
     settingsOverlay.retranslate();
+    ledgerPage.retranslate();
   },
-  // "Sair da sala" pela engrenagem (funciona na sala E no meio do jogo). Em jogo o
-  // servidor trata como desistência (o adversário ganha). Sai otimista pro lobby; o
-  // servidor confirma com leftRoom e, se um gameOver chegar atrasado, o guard ignora.
-  onLeaveRoom: () => {
-    settingsOverlay.hide();
-    const eraPartida = current === 'game';
-    const soAssistindo = gameScreen?.isSpectating ?? false;
-    net.send(gameSession === 'arena' ? { type: 'leaveRoom' } : { type: 'enterArena' });
-    gameOverScreen.hide();
-    teardownGame();
-    showScreen('lobby');
-    net.send({ type: 'listRooms' });
-    // Sair NO MEIO da partida conta como DERROTA (o adversário ganha). Dizer isso
-    // ao chegar no lobby fecha o ciclo: antes o jogador saía e nada confirmava o
-    // que tinha acontecido. Recado passageiro, não modal — ele PEDIU pra sair.
-    if (eraPartida && !soAssistindo) lobbyScreen.flash(t('lobby.gave_up'));
-  },
+  // There is nothing to leave: the city is the game.
+  onLeaveRoom: () => settingsOverlay.hide(),
 });
 document.body.appendChild(settingsOverlay.el);
 
@@ -121,154 +79,57 @@ gearBtn.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none"
 gearBtn.addEventListener('click', () => settingsOverlay.show());
 document.body.appendChild(gearBtn);
 
-// ---------------------------------------------------------------- telas
+// ---------------------------------------------------------------- boot view
 
-const nameScreen = new NameScreen({
-  initialName: getSavedName(),
-  onOpenPage: (page) => openPage(page),
-  onEnter: (name) => {
-    // não vai pro lobby na hora: espera o servidor confirmar o nome (nameOk) ou
-    // avisar que já está em uso (nameTaken).
-    nameScreen.setStatus(t('name.entering'));
-    pendingName = name;
-    net.send({ type: 'setName', name, clientId: getClientId() });
-  },
-});
+const bootEl = document.createElement('div');
+bootEl.className = 'boot-screen';
+bootEl.innerHTML = '<div class="boot-mark">AGE OF AI</div>';
+const bootStatus = document.createElement('p');
+bootStatus.className = 'boot-status';
+bootStatus.textContent = L('Opening your city…', 'Abrindo sua cidade…', 'Abriendo tu ciudad…');
+const bootRetry = document.createElement('button');
+bootRetry.className = 'boot-retry';
+bootRetry.textContent = L('Open my city here', 'Abrir minha cidade aqui', 'Abrir mi ciudad aquí');
+bootRetry.hidden = true;
+bootRetry.addEventListener('click', () => { bootRetry.hidden = true; bootStatus.textContent = L('Opening your city…', 'Abrindo sua cidade…', 'Abriendo tu ciudad…'); net.send({ type: 'enterHome' }); });
+bootEl.append(bootStatus, bootRetry);
 
-const lobbyScreen = new LobbyScreen({
-  onCreateRoom: () => net.send({ type: 'createRoom' }),
-  onJoinRoom: (roomId) => net.send({ type: 'joinRoom', roomId }),
-  onSpectate: (roomId) => net.send({ type: 'spectate', roomId }),
-  onRefresh: () => net.send({ type: 'listRooms' }),
-});
-
-const roomScreen = new RoomScreen({
-  onToggleReady: () => {
-    const me = lastRoomPlayers.find((p) => p.id === myPlayerId);
-    net.send({ type: 'setReady', ready: !(me?.ready ?? false) });
-  },
-  onStartGame: () => net.send({ type: 'startGame' }),
-  onLeaveRoom: () => {
-    net.send({ type: 'leaveRoom' });
-    showScreen('lobby');
-    net.send({ type: 'listRooms' });
-  },
-  onChat: (text) => net.send({ type: 'chat', text }),
-  onAddBot: () => net.send({ type: 'addBot' }),
-  onRemoveBot: () => net.send({ type: 'removeBot' }),
-  onSetTeam: (playerId, team) => net.send({ type: 'setTeam', playerId, team }),
-  onSetMode: (mode) => net.send({ type: 'setMode', mode }),
-  onSetFog: (fog) => net.send({ type: 'setFog', fog }),
-  onSetBroadcast: (on) => net.send({ type: 'setBroadcast', on }),
-  onSetTerrain: (terrain) => net.send({ type: 'setTerrain', terrain }),
-  onSetBotDifficulty: (botId, difficulty) => net.send({ type: 'setBotDifficulty', botId, difficulty }),
-});
-
-// WATT Arena frame around everything that is not the battlefield.
-const shell = new Shell({
-  playContent: () => (current === 'room' ? roomScreen.el : lobbyScreen.el),
-  playCrumb: () => (current === 'room' ? L('Room', 'Sala', 'Sala') : L('Play Realm', 'Jogar', 'Jugar')),
-  onSettings: () => settingsOverlay.show(),
-  onNavigate: (page) => openPage(page),
-  playerName: () => myName,
-  signedIn: () => signedIn,
-  onEnterWorld: () => { showScreen('name'); nameScreen.focus(); },
-});
-
-const guideLink = document.createElement('a');
-guideLink.className = 'appGuideLink';
-guideLink.href = '#';
-guideLink.innerHTML = '<b>?</b>';
-guideLink.append(` ${L('Open Codex', 'Abrir Códice', 'Abrir Códice')}`);
-guideLink.addEventListener('click', (e) => { e.preventDefault(); openPage('codex'); });
-document.body.appendChild(guideLink);
-
-/** Opens a WATT page. Before signing in, the shell is browsable as a guest. */
-function openPage(page: PageId, matchId?: string): void {
-  if (current === 'game') return;
-  if (page === 'play' && !signedIn) {
-    showScreen('name');
-    return;
-  }
-  if (!shell.el.isConnected) {
-    app!.innerHTML = '';
-    app!.appendChild(shell.el);
-    nameScreen.setVisible(false);
-    shell.setVisible(true);
-    document.body.classList.add('in-shell');
-  }
-  shell.show(page, matchId);
-}
-
-function screenEl(name: ScreenName): HTMLElement {
-  switch (name) {
-    case 'name': return nameScreen.el;
-    case 'lobby': return lobbyScreen.el;
-    case 'room': return roomScreen.el;
-    case 'game': return gameScreen?.el ?? document.createElement('div');
-  }
+/** Sign in with the saved name, or a generated commander name on first visit. */
+let signInAttempt = 0;
+function autoSignIn(): void {
+  if (!net.isOpen) return;
+  const saved = getSavedName();
+  const base = saved || `Commander-${getClientId().replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase() || '0001'}`;
+  const name = signInAttempt === 0 ? base : `${base.slice(0, 16)}-${Math.floor(10 + Math.random() * 90)}`;
+  signInAttempt++;
+  pendingName = name;
+  net.send({ type: 'setName', name, clientId: getClientId() });
 }
 
 function showScreen(name: ScreenName): void {
-  const previous = current;
   current = name;
-  const framed = name === 'lobby' || name === 'room';
-  if (framed) {
-    // A repeated lobby/room notice (e.g. the server's late leftRoom) must not
-    // pull the player off a WATT page they just opened; only a real change does.
-    const mounted = shell.el.isConnected;
-    if (!mounted) {
-      app!.innerHTML = '';
-      app!.appendChild(shell.el);
-    }
-    if (!mounted || previous !== name) shell.show('play');
-  } else {
-    app!.innerHTML = '';
-    app!.appendChild(screenEl(name));
-  }
-  shell.setVisible(framed);
-  nameScreen.setVisible(name === 'name');
-  document.body.classList.toggle('in-shell', framed);
+  app!.innerHTML = '';
+  app!.appendChild(name === 'game' && gameScreen ? gameScreen.el : bootEl);
   document.body.classList.toggle('in-game', name === 'game');
-  if (name === 'name') window.scrollTo(0, 0);
-  // engrenagem mostra "Sair da sala" só em sala/jogo; em jogo pede confirmação
-  settingsOverlay.setLeaveContext(name === 'room' || name === 'game', name === 'game');
-  // trilha por tela: abertura nos menus, faixas de fundo dentro da partida
+  settingsOverlay.setLeaveContext(false, false);
   music.setState(name === 'game' ? 'game' : 'menu');
 }
 
-// autoplay do navegador: a música destrava no primeiro gesto do usuário
 document.addEventListener('pointerdown', () => music.unlock(), { once: true });
-music.setVolume(settings.musicVol); // volume salvo no menu de opções
+music.setVolume(settings.musicVol);
 music.setState('menu');
 
-// Lobby "vivo": re-pede a lista a cada 20s enquanto o jogador está no lobby, pra
-// refletir as salas-vitrine (nome gira a cada 10 min, lotação oscila) e as salas
-// reais entrando/saindo. Sem isso a lista congela até clicar "Atualizar".
-window.setInterval(() => {
-  if (current === 'lobby' && net.isOpen) net.send({ type: 'listRooms' });
-}, 20_000);
-
-// ---------------------------------------------------------------- rede
+// ---------------------------------------------------------------- network
 
 net.onStatus = (status) => {
   if (status === 'open') {
     connBadge.textContent = '';
-    connBadge.classList.remove('hidden');
-    // Reconectou no meio de uma partida: re-identifica com o nome salvo + clientId
-    // pra o servidor RETOMAR a partida de onde parou (resumeGame → gameStart), sem
-    // precisar de F5. É o que faz um soluço de rede passar quase despercebido.
-    if (current === 'game') {
-      const savedName = getSavedName();
-      if (savedName) net.send({ type: 'setName', name: savedName, clientId: getClientId() });
-    }
+    // First connection, or a reconnect: sign in again and reopen the city.
+    autoSignIn();
   } else if (status === 'connecting') {
-    connBadge.textContent = current === 'name' || current === 'lobby' ? t('conn.connecting') : '';
+    connBadge.textContent = current === 'boot' ? t('conn.connecting') : '';
   } else if (status === 'closed') {
     if (current === 'game') {
-      // Não avisa na hora: dá ~4s pra reconexão automática retomar sozinha (o
-      // gameStart da retomada cancela este timer). Só mostra "conexão perdida" se
-      // a queda persistir — aí o jogador decide voltar ao lobby.
       if (connLostTimer === null) {
         connLostTimer = window.setTimeout(() => {
           connLostTimer = null;
@@ -291,59 +152,27 @@ net.onMessage = (msg: ServerMessage) => {
 
 function dispatch(msg: ServerMessage): void {
   switch (msg.type) {
-    case 'welcome': {
-      myPlayerId = msg.playerId;
-      break;
-    }
     case 'nameOk': {
-      // A signed-in player opens their persistent, map-first Home by default.
-      nameScreen.setStatus('');
+      signInAttempt = 0;
       if (pendingName) saveName(pendingName);
-      myName = pendingName;
-      signedIn = true;
-      // Also after a reconnect mid-Home: Home sessions aren't rooms, so the
-      // server's resumeGame path can't bring them back — re-enter explicitly.
-      if (current === 'name' || (current === 'game' && gameSession !== 'arena')) {
-        net.send({ type: 'enterHome' });
-      }
+      net.send({ type: 'enterHome' });
       break;
     }
     case 'nameTaken': {
-      nameScreen.setStatus(t('name.taken'));
-      nameScreen.focus();
-      break;
-    }
-    case 'roomList': {
-      lobbyScreen.setRooms(msg.rooms);
-      break;
-    }
-    case 'roomState': {
-      lastRoomPlayers = Array.isArray(msg.players) ? msg.players : [];
-      roomScreen.setState(msg.roomId, lastRoomPlayers, myPlayerId, msg.mode, msg.fog, msg.terrain, msg.broadcast);
-      // Ignora troca de tela enquanto o overlay de fim de jogo está visível: o
-      // servidor manda 'roomState' logo após 'gameOver' (reset do lobby), mas o
-      // jogador ainda não confirmou "Voltar ao lobby" — trocar de tela agora
-      // destruiria a tela de jogo silenciosamente por baixo do overlay.
-      if (current !== 'room' && current !== 'game') {
-        roomScreen.reset();
-        showScreen('room');
-      }
+      if (signInAttempt < 6) autoSignIn();
+      else bootStatus.textContent = t('name.taken');
       break;
     }
     case 'leftRoom': {
-      lastRoomPlayers = [];
-      // Pode chegar do servidor (sala fechada por ociosidade) com o jogador
-      // parado no overlay de fim de jogo — derruba overlay e partida antes de
-      // trocar de tela (no-ops no fluxo normal de "Sair da sala").
-      gameOverScreen.hide();
+      // Sent when this city was opened in another tab or device.
       teardownGame();
-      showScreen('lobby');
-      net.send({ type: 'listRooms' });
+      ledgerPage.hide();
+      showScreen('boot');
+      bootStatus.textContent = t('err.home_taken_over');
+      bootRetry.hidden = false;
       break;
     }
     case 'error': {
-      // Erro do servidor: traduz o código. `age` (número) e `building` (tipo)
-      // viram o nome no idioma do jogador aqui. `message` é reserva (texto pronto).
       if (msg.code) {
         const params: Record<string, string | number> = { ...(msg.params ?? {}) };
         if (typeof params.age === 'number') params.age = AGE_NAMES[params.age] ?? params.age;
@@ -355,44 +184,25 @@ function dispatch(msg: ServerMessage): void {
       break;
     }
     case 'chat': {
-      if (current === 'game') gameScreen?.addChat(msg.from, msg.text);
-      else if (current === 'room') roomScreen.addChat(msg.from, msg.text);
+      gameScreen?.addChat(msg.from, msg.text);
       break;
     }
     case 'gameStart': {
-      // retomamos a partida (início OU reconexão) — cancela o aviso de "conexão perdida"
       if (connLostTimer !== null) { clearTimeout(connLostTimer); connLostTimer = null; }
       teardownGame();
-      gameOverScreen.hide();
       gamePaused = false;
-      gameSession = msg.session ?? 'arena';
+      gameSession = msg.session ?? 'home';
       gameScreen = new GameScreen(msg.map, msg.players, msg.you, {
         onCommand: (cmd: GameCommand) => net.send({ type: 'cmd', cmd }),
         onChat: (text) => net.send({ type: 'chat', text }),
         onTogglePause: () => net.send({ type: 'setPause', paused: !gamePaused }),
         onPing: (x, y) => net.send({ type: 'ping', x, y }),
         onRaid: (action) => net.send({ type: 'raid', action }),
-        onBackToLobby: () => {
-          teardownGame();
-          net.send(gameSession === 'arena' ? { type: 'leaveRoom' } : { type: 'enterArena' });
-          showScreen('lobby');
-          net.send({ type: 'listRooms' });
-        },
-      }, msg.fog, msg.spectating, 'symbiosis', gameSession);
+        onOpenLedger: openLedger,
+        // Reload the city (connection-lost overlay, raid views): back home.
+        onBackToLobby: () => net.send(gameSession === 'raid' ? { type: 'raid', action: { kind: 'return' } } : { type: 'enterHome' }),
+      }, false, false, 'symbiosis', gameSession);
       showScreen('game');
-      break;
-    }
-    case 'spectateEnded': {
-      if (current !== 'game') break;
-      // NÃO arranca o espectador da tela: mostra o que aconteceu e deixa ELE
-      // decidir entre olhar o tabuleiro final ou voltar pro lobby. (Antes o
-      // caminho da desistência não avisava nada e ele ficava congelado.)
-      const motivo =
-        msg.reason === 'surrendered' ? t('spec.end_surrender', { who: msg.who ?? '?' })
-        : msg.reason === 'closed' ? t('spec.end_closed')
-        : msg.winnerName ? t('spec.end_winner', { winner: msg.winnerName })
-        : t('spec.end_over');
-      gameScreen?.showSpectateEnd(motivo);
       break;
     }
     case 'gamePaused': {
@@ -405,39 +215,26 @@ function dispatch(msg: ServerMessage): void {
       break;
     }
     case 'snapshot': {
-      if (gameScreen) {
-        gameScreen.state.applySnapshot({
-          tick: msg.tick,
-          units: msg.units,
-          buildings: msg.buildings,
-          nodes: msg.nodes,
-          sheep: msg.sheep,
-          players: msg.players,
-          market: msg.market,
-          spectators: msg.spectators,
-          chain: msg.chain,
-          raid: msg.raid,
-          home: msg.home,
-        });
-      }
+      gameScreen?.state.applySnapshot({
+        tick: msg.tick,
+        units: msg.units,
+        buildings: msg.buildings,
+        nodes: msg.nodes,
+        sheep: msg.sheep,
+        players: msg.players,
+        market: msg.market,
+        spectators: msg.spectators,
+        chain: msg.chain,
+        raid: msg.raid,
+        home: msg.home,
+      });
       break;
     }
-    case 'gameOver': {
-      // Se já saímos pro lobby (ex.: desistimos pela engrenagem), ignora um gameOver
-      // que chegue atrasado — senão abriria o overlay de fim por cima do lobby.
-      if (current !== 'game') break;
-      const youWon = msg.won ?? (msg.winner === myPlayerId);
-      gameScreen?.state.fog.revealAll(); // fim de jogo revela o mapa (estilo AoE)
-      gameOverScreen.show(youWon, msg.winnerName, msg.contributions, !!gameScreen?.state.chain, gameScreen?.state.chain ? msg.standings : undefined, msg.dev === true);
-      music.setState('end'); // música de fim de jogo
-      break;
-    }
-    case 'matchProof': {
-      gameOverScreen.showProof(msg.proof);
+    case 'ledger': {
+      ledgerPage.render(msg.view as HomeLedgerView);
       break;
     }
     default:
-      // Tipo desconhecido: ignora silenciosamente.
       break;
   }
 }
@@ -449,11 +246,8 @@ function teardownGame(): void {
   }
 }
 
-// ---------------------------------------------------------------- início
+// ---------------------------------------------------------------- start
 
-showScreen('name');
+showScreen('boot');
 net.connect();
-
-// F5/fechar aba: fecha o socket na hora pra o servidor liberar o nome
-// imediatamente (sem esperar o timeout). O clientId ainda garante reassumir.
 window.addEventListener('pagehide', () => net.close());

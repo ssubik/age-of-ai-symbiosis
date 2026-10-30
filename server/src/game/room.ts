@@ -76,6 +76,10 @@ import {
   buildingMaxHp,
   levelScale,
   DEFENSE_POWER_FLOOR,
+  footprintOnRoad,
+  urbanPlanForHub,
+  urbanPlots,
+  HOME_RESEARCH_MAX as RESEARCH_MAX_LEVEL,
   HOME_DEVELOPMENT,
   HOME_LEVEL_POINTS,
   HOME_OFFLINE_CAP_SECONDS,
@@ -125,6 +129,7 @@ import { needElon, rankStandings, reliabilityBonus, reliabilityPpm, stewardshipV
 import { createUnit, type Building, type GamePlayer, type ResNode, type Sheep, type Unit } from './state';
 import type { HomeProgression, HomeRaidData, HomeSave } from '../home/types';
 import { inDeployZone, snapshotChecksum } from '../raid/snapshot';
+import { newChainState, recordTx, sealBlock, verifyLedger, LEDGER_MAX_SETTLEMENTS, type HomeChainState } from '../home/ledger';
 import { createHash } from 'node:crypto';
 
 /** First 30 s of a match: need cycles are not sampled (see sampleNeeds). */
@@ -252,6 +257,11 @@ export class Game {
   private raidSim: RaidSim | null = null;
   /** Persistent raid ledger of a Home (trophies, active session, reports). */
   raidData: HomeRaidData = { trophies: 0, scoutCounter: 0, active: null, reports: [], settled: [], outbox: [] };
+  /** City ledger and ELON settlement record (Home only). */
+  chain: HomeChainState | null = null;
+  private readonly homeSalt: string;
+  /** ELON balance already reported to the ledger (the next block logs the difference). */
+  private elonLogged = 0;
   /** Persistent Home progression: unit research, shield, defense inbox. */
   progression: HomeProgression = { research: {}, shieldUntil: 0, defenseReports: [], publishedSignature: '' };
   private homeRevision = 0;
@@ -276,6 +286,7 @@ export class Game {
     this.homeMode = options.session === 'home';
     this.raidMode = options.session === 'raid';
     this.now = options.now ?? Date.now;
+    this.homeSalt = matchSalt;
     this.ledger = this.homeMode || this.raidMode ? null : new MatchLedger(matchSalt);
     const homeSeed = Number.parseInt(matchSalt.slice(0, 8), 16);
     const gen = this.homeMode
@@ -478,6 +489,7 @@ export class Game {
     for (const b of this.buildings.values()) this.updateBuildingTraining(b, dt);
     if (this.homeMode) this.updateHomeProduction(dt);
     if (this.homeMode) this.updateHomeResearch(dt);
+    if (this.homeMode && this.tick % 600 === 0) this.sealHomeLedger();
     if (this.raidSim) this.updateRaidSim();
 
     // pesquisa de era em andamento
@@ -749,10 +761,107 @@ export class Game {
       }
       case 'perfectbase':
       case 'maxbase':
-        return this.createPerfectBase(playerId);
+        return this.homeMode ? this.createPerfectCity(playerId) : this.createPerfectBase(playerId);
       default:
         return 'Dev commands: /perfectbase, /age [n], /res [n], /build, /power [n], /whoami';
     }
+  }
+
+  /** Developer showcase for a Home: fills EVERY plot of the map with a zoned,
+   *  max-level city that obeys the urban plan (no road is ever built on). The
+   *  ring of plots around the Hub decides the zone: civic defenses at the Hub,
+   *  then industry, economy, housing, and alternating power/food/housing
+   *  further out, with a defended rim. Existing buildings and resource nodes
+   *  are kept; any slot they occupy is simply skipped. */
+  private createPerfectCity(playerId: number): string {
+    const p = this.players.get(playerId);
+    const hub = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
+    if (!p || !hub) return 'A Civic Hub is required before creating a perfect city.';
+    p.age = 5;
+    p.cityPath = 'command';
+    p.resources = { food: 1_000_000, wood: 1_000_000, gold: 1_000_000, stone: 1_000_000 };
+    p.devPower = 2_000;
+    hub.level = 5;
+    hub.upgradeTargetLevel = undefined;
+    hub.upgradeProgress = undefined;
+    for (const unit of Object.keys(HOME_UNIT_RESEARCH) as UnitType[]) this.progression.research[unit] = RESEARCH_MAX_LEVEL;
+    this.progression.researching = undefined;
+
+    const plan = urbanPlanForHub(hub.tileX, hub.tileY);
+    const hubPlotX = hub.tileX - (((hub.tileX - plan.originX) % 9 + 9) % 9) + 2;
+    const hubPlotY = hub.tileY - (((hub.tileY - plan.originY) % 9 + 9) % 9) + 2;
+    const n = this.grid.size;
+    // Plot templates: offsets inside a 7×7 plot.
+    const QUAD3: [number, number][] = [[0, 0], [4, 0], [0, 4], [4, 4]];
+    const QUAD2: [number, number][] = [[1, 1], [4, 1], [1, 4], [4, 4]];
+    const CORNERS: [number, number][] = [[0, 0], [6, 0], [0, 6], [6, 6]];
+    const industry: BuildingType[] = ['drone_factory', 'mech_forge', 'missile_foundry', 'aerospace_hangar', 'exosuit_lab', 'robotics_workshop', 'army_camp', 'army_camp'];
+    const economy: BuildingType[] = ['mill', 'lumber_camp', 'mining_camp', 'farm', 'data_center', 'solar_array'];
+    const outer: BuildingType[][] = [['solar_array'], ['farm', 'mill'], ['house'], ['wind_turbine'], ['house', 'data_center'], ['solar_array', 'wind_turbine']];
+    let placed = 0;
+    const put = (type: BuildingType, x: number, y: number): void => {
+      const def = BUILDING_DEFS[type];
+      if (!this.validFootprint(x, y, def.size)) return;
+      const level = HOME_MAX_LEVEL[type] ?? 1;
+      const b: Building = {
+        id: this.nextId++, owner: playerId, type, tileX: x, tileY: y,
+        hp: buildingMaxHp(type, level), progress: 1, queue: [], ...(level > 1 ? { level } : {}),
+        ...(type === 'farm' ? { foodLeft: FARM_FOOD } : {}),
+      };
+      this.buildings.set(b.id, b);
+      this.blockFootprint(x, y, def.size);
+      this.knownCompletedBuildings.add(b.id);
+      placed++;
+    };
+    for (const plot of urbanPlots(plan, n)) {
+      const ring = Math.max(Math.abs(plot.x - hubPlotX), Math.abs(plot.y - hubPlotY)) / 9;
+      const rim = plot.x < 9 || plot.y < 9 || plot.x + 7 > n - 9 || plot.y + 7 > n - 9;
+      const k = Math.abs((plot.x * 7 + plot.y * 13) / 9) | 0;
+      const cycle = <T,>(list: T[], i: number): T => list[(k + i) % list.length];
+      if (ring === 0) {
+        const guards: BuildingType[] = ['point_turret', 'watch_tower', 'sensor_tower', 'point_turret'];
+        CORNERS.forEach(([dx, dy], i) => put(guards[i], plot.x + dx, plot.y + dy));
+      } else if (ring === 1) {
+        QUAD3.forEach(([dx, dy], i) => put(cycle(industry, i), plot.x + dx, plot.y + dy));
+      } else if (ring === 2) {
+        QUAD2.forEach(([dx, dy], i) => put(cycle(economy, i), plot.x + dx, plot.y + dy));
+      } else if (rim) {
+        // Defended rim: anti-air at the centre, turrets and towers on the corners.
+        put('anti_air', plot.x + 2, plot.y + 2);
+        CORNERS.forEach(([dx, dy], i) => put(i % 2 ? 'watch_tower' : 'point_turret', plot.x + dx, plot.y + dy));
+      } else if (ring === 3) {
+        QUAD2.forEach(([dx, dy]) => put('house', plot.x + dx, plot.y + dy));
+      } else {
+        const zone = cycle(outer, 0);
+        QUAD2.forEach(([dx, dy], i) => put(zone[i % zone.length], plot.x + dx, plot.y + dy));
+      }
+    }
+
+    // A docked strike wing and a full builder crew.
+    const roster: Partial<Record<UnitType, number>> = {
+      robot: 4, drone: 3, attack_drone: 10, siege_mech: 4, rocket_launcher: 4, fighter: 4,
+      stealth_bomber: 2, plasma_tank: 3, iron_guardian: 1, aegis_valkyrie: 1,
+    };
+    let created = 0;
+    for (const [type, wanted] of Object.entries(roster) as [UnitType, number][]) {
+      let have = [...this.units.values()].filter((u) => u.owner === playerId && u.type === type).length;
+      while (have < wanted) {
+        const camp = this.nearestCamp(hub);
+        const spot = camp && SYMBIOSIS_COMBAT_UNITS.has(type)
+          ? this.campDockSpot(camp)
+          : this.findFreeSpotNear(hub.tileX, hub.tileY, BUILDING_DEFS.town_center.size);
+        if (!spot) break;
+        const u = createUnit(this.nextId++, playerId, type, spot.x + 0.5, spot.y + 0.5);
+        u.hp = this.unitMaxHp(u);
+        this.units.set(u.id, u);
+        this.knownUnits.add(u.id);
+        have++;
+        created++;
+      }
+    }
+    this.recomputePower();
+    this.dev = true;
+    return `Perfect city ready: City Level 5, ${placed} buildings across ${urbanPlots(plan, n).length} plots, ${created} units, all research.`;
   }
 
   /** Developer-only showcase city. Placement still uses normal footprint rules,
@@ -2022,7 +2131,8 @@ export class Game {
       ? this.validDockFootprint(tileX, tileY, def.size) // Porto: na água, encostado na costa
       : this.validFootprint(tileX, tileY, def.size);
     if (!footprintOk) {
-      this.errorTo(playerId, 'err.bad_build_location');
+      const plan = this.homeUrbanPlan();
+      this.errorTo(playerId, plan && footprintOnRoad(plan, tileX, tileY, def.size) ? 'err.on_road' : 'err.bad_build_location');
       return;
     }
     if (!this.canAfford(p, def.cost)) {
@@ -2077,8 +2187,19 @@ export class Game {
     return false;
   }
 
+  /** Home urban plan anchored on the player's Civic Hub (null before one exists). */
+  private homeUrbanPlan(): ReturnType<typeof urbanPlanForHub> | null {
+    if (!this.homeMode) return null;
+    const p = this.homePlayer();
+    const hub = [...this.buildings.values()].find((b) => b.owner === p?.id && b.type === 'town_center');
+    return hub ? urbanPlanForHub(hub.tileX, hub.tileY) : null;
+  }
+
   private validFootprint(tileX: number, tileY: number, size: number): boolean {
     if (tileX < 0 || tileY < 0 || tileX + size > this.grid.size || tileY + size > this.grid.size) return false;
+    // Urban planning: roads are never built over at Home (walls included).
+    const plan = this.homeUrbanPlan();
+    if (plan && footprintOnRoad(plan, tileX, tileY, size)) return false;
     for (let yy = tileY; yy < tileY + size; yy++) {
       for (let xx = tileX; xx < tileX + size; xx++) {
         const i = idx(xx, yy, this.grid.size);
@@ -3023,6 +3144,7 @@ export class Game {
     b.progress = Math.min(1, b.progress + (dt * rate) / def.buildTime);
     b.hp = Math.round(def.hp * (0.1 + 0.9 * b.progress));
     if (b.progress >= 1) {
+      if (this.homeMode) this.recordHomeEvent('build', `${b.type.replace(/_/g, ' ')} completed`);
       if (b.type === 'farm') {
         b.foodLeft = FARM_FOOD;
         // fazenda pronta: quem construiu segue a fila; sem fila, colhe na hora (AoE2)
@@ -3180,6 +3302,67 @@ export class Game {
       }
     }
     this.homeProductionCollectedAt = this.now();
+    this.chain = newChainState(this.homeSalt, this.now());
+    this.elonLogged = player.elonBalance;
+  }
+
+  // ---------------- City ledger (Home) ----------------
+
+  /** Logs a city event; it is sealed into the next minute's block. */
+  recordHomeEvent(kind: Parameters<typeof recordTx>[2], label: string, amount = 0): void {
+    if (this.homeMode && this.chain) recordTx(this.chain.ledger, this.now(), kind, label, amount);
+  }
+
+  /** Once a minute: log ELON accrued since the last block, then seal. */
+  private sealHomeLedger(): void {
+    const chain = this.chain;
+    const p = this.homePlayer();
+    if (!chain || !p) return;
+    const delta = p.elonBalance - this.elonLogged;
+    if (delta >= 0.01) recordTx(chain.ledger, this.now(), 'elon', `+${delta.toFixed(2)} ELON accrued`, delta);
+    this.elonLogged = p.elonBalance;
+    sealBlock(chain.ledger, this.now());
+  }
+
+  /** Moves the whole-number playable ELON balance into a settlement, logs it
+   *  and seals a block whose head the chain adapter will anchor. */
+  settleElon(id: string): { settlement?: import('@age/shared').ElonSettlement; error?: string } {
+    const chain = this.chain;
+    const p = this.homePlayer();
+    if (!chain || !p) return { error: 'err.ledger_unavailable' };
+    const amount = Math.floor(p.elonBalance);
+    if (amount < 1) return { error: 'err.nothing_to_settle' };
+    this.sealHomeLedger(); // accrual up to now stays a separate, earlier entry
+    p.elonBalance -= amount;
+    this.elonLogged = p.elonBalance;
+    recordTx(chain.ledger, this.now(), 'settlement', `Settled ${amount} ELON (${id})`, amount);
+    sealBlock(chain.ledger, this.now());
+    const settlement = {
+      id, amount, at: this.now(), ledgerHead: chain.ledger.head, ledgerHeight: chain.ledger.nextHeight - 1, status: 'pending' as const,
+    };
+    chain.settledTotal += amount;
+    chain.settlements.unshift(settlement);
+    if (chain.settlements.length > LEDGER_MAX_SETTLEMENTS) chain.settlements.length = LEDGER_MAX_SETTLEMENTS;
+    return { settlement };
+  }
+
+  ledgerView(chainMode: 'disabled' | 'local' | 'rpc', contract?: string): import('@age/shared').HomeLedgerView | null {
+    const chain = this.chain;
+    const p = this.homePlayer();
+    if (!chain || !p) return null;
+    const l = chain.ledger;
+    return {
+      city: `${p.name}'s City`,
+      height: l.nextHeight - 1,
+      head: l.head,
+      verified: verifyLedger(l),
+      pending: l.pending.length,
+      elon: { balance: Math.floor(p.elonBalance * 100) / 100, capacity: this.elonCapacityOf(p.id), perMinute: this.elonPerMinuteOf(p.id), settledTotal: chain.settledTotal },
+      settlements: chain.settlements.map((x) => ({ ...x })),
+      blocks: l.blocks.slice(-24).reverse().map((b) => ({ ...b })),
+      txs: [...l.pending.slice().reverse(), ...l.txs.slice(-60).reverse()].slice(0, 60).map((t) => ({ ...t })),
+      chain: { mode: chainMode, ...(contract ? { contract } : {}) },
+    };
   }
 
   /** Spec §3.2 crew rule: fastest + 0.6 × the rest, applied once per site per
@@ -3216,6 +3399,7 @@ export class Game {
     b.upgradeTargetLevel = undefined;
     b.upgradeProgress = undefined;
     b.hp = buildingMaxHp(b.type, b.level);
+    this.recordHomeEvent('upgrade', `${b.type === 'town_center' ? 'City Level' : `${b.type.replace(/_/g, ' ')} level`} ${b.level}`);
     if (b.type === 'town_center') {
       const owner = this.players.get(b.owner);
       if (owner) {
@@ -3323,6 +3507,7 @@ export class Game {
     r.progress = Math.min(1, r.progress + (dt * powerEfficiency(grid.supply, grid.draw) * levelScale(workshop, 0.2)) / (def.time * r.level));
     if (r.progress >= 1) {
       this.progression.research[r.unit] = r.level;
+      this.recordHomeEvent('research', `${r.unit.replace(/_/g, ' ')} research level ${r.level}`);
       this.progression.researching = undefined;
     }
   }
@@ -3333,8 +3518,18 @@ export class Game {
   captureDefenseSnapshot(label: string, ownerKey: string): DefenseSnapshot | null {
     const p = this.homePlayer();
     if (!p) return null;
-    const built = [...this.buildings.values()].filter((b) => b.owner === p.id && b.progress >= 1);
-    if (!built.some((b) => b.type === 'town_center')) return null;
+    const hubB = [...this.buildings.values()].find((b) => b.owner === p.id && b.type === 'town_center' && b.progress >= 1);
+    if (!hubB) return null;
+    // A raid targets the city core: plots within SNAPSHOT_RADIUS of the Hub. A
+    // whole-map city would leave no deployment band and no 3-minute raid.
+    const SNAPSHOT_RADIUS = 22;
+    const hcx = hubB.tileX + 1.5;
+    const hcy = hubB.tileY + 1.5;
+    const built = [...this.buildings.values()].filter((b) => {
+      if (b.owner !== p.id || b.progress < 1) return false;
+      const size = BUILDING_DEFS[b.type].size;
+      return Math.max(Math.abs(b.tileX + size / 2 - hcx), Math.abs(b.tileY + size / 2 - hcy)) <= SNAPSHOT_RADIUS;
+    });
     let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
     for (const b of built) {
       const size = BUILDING_DEFS[b.type].size;
@@ -3447,7 +3642,7 @@ export class Game {
     if (!player) throw new Error('Home has no player');
     this.homeRevision++;
     return structuredClone({
-      version: 3,
+      version: 4,
       profileId,
       revision: this.homeRevision,
       savedAt: this.now(),
@@ -3464,6 +3659,7 @@ export class Game {
       storageCaps: this.storageCapsOf(player.id),
       raid: this.raidData,
       progression: this.progression,
+      chain: this.chain,
     } satisfies HomeSave);
   }
 
@@ -3471,6 +3667,8 @@ export class Game {
     const savedOwner = save.player.id;
     this.raidData = structuredClone(save.raid);
     this.progression = structuredClone(save.progression);
+    this.chain = save.chain ? structuredClone(save.chain) : newChainState(this.homeSalt, this.now());
+    this.elonLogged = this.players.get(playerId)?.elonBalance ?? 0;
     // Reserved units held by a raid record belong to this player too.
     for (const u of this.raidData.active?.reserved ?? []) if (u.owner === savedOwner) u.owner = playerId;
     this.tick = Math.max(0, Math.floor(save.tick));
@@ -3484,11 +3682,15 @@ export class Game {
     this.units = new Map(save.units.map((value) => {
       const u = structuredClone(value); if (u.owner === savedOwner) u.owner = playerId; return [u.id, u];
     }));
-    this.nodes = new Map(save.nodes.map((value) => [value.id, structuredClone(value)]));
-    this.sheep = new Map(save.sheep.map((value) => [value.id, structuredClone(value)]));
+    // The Home is a city only: no forests, mines, sheep or water. Older saves
+    // made on wilderness terrain come back as clean city ground.
+    this.nodes = new Map();
+    this.sheep = new Map();
+    void save.nodes; void save.sheep;
     if (save.map.size === this.grid.size) {
-      this.grid.tiles.splice(0, this.grid.tiles.length, ...save.map.tiles);
-      this.map.tiles.splice(0, this.map.tiles.length, ...save.map.tiles);
+      const cityTiles = save.map.tiles.map(() => TILE_GRASS);
+      this.grid.tiles.splice(0, this.grid.tiles.length, ...cityTiles);
+      this.map.tiles.splice(0, this.map.tiles.length, ...cityTiles);
     }
     this.grid.blocked.fill(0);
     this.navalGrid.blocked.fill(0);
@@ -3574,6 +3776,7 @@ export class Game {
         research.progress = Math.min(1, research.progress + (elapsed * efficiency * levelScale(workshop, 0.2)) / (def.time * research.level));
         if (research.progress >= 1) {
           this.progression.research[research.unit] = research.level;
+          this.recordHomeEvent('research', `${research.unit.replace(/_/g, ' ')} research level ${research.level} (offline)`);
           this.progression.researching = undefined;
         }
       }
@@ -3630,6 +3833,7 @@ export class Game {
     const unit = createUnit(id, b.owner, head.unit, exit.x + 0.5, exit.y + 0.5);
     unit.hp = this.unitMaxHp(unit);
     this.units.set(id, unit);
+    this.recordHomeEvent('manufacture', `${head.unit.replace(/_/g, ' ')} manufactured`);
     if (!docked) {
       // Physical departure: leave the factory and fly/drive to the camp pads.
       this.pathUnitTo(unit, dock.x + 0.5, dock.y + 0.5);

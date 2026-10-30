@@ -212,6 +212,11 @@ export class Lobby {
       case 'enterArena':
         void this.enterArena(conn);
         break;
+      case 'ledger':
+        if (this.homes.has(conn.id)) {
+          void this.homes.ledger(conn.id, msg.action).catch((error) => console.error('[home] ledger action failed', error));
+        }
+        break;
       case 'raid':
         if (this.homes.has(conn.id)) {
           void this.homes.raid(conn.id, msg.action).catch((error) => console.error('[home] raid action failed', error));
@@ -960,6 +965,10 @@ export class Lobby {
       return true;
     }
     if (!conn.clientId || !DEV_PLAYERS.has(conn.clientId)) return false;
+    if (this.homes.has(conn.id)) {
+      void this.homes.devCommand(conn.id, text).then(reply, () => reply('Dev command failed.'));
+      return true;
+    }
     const room = conn.roomId ? this.rooms.get(conn.roomId) : undefined;
     reply(room?.inGame && room.game ? room.game.devCommand(conn.id, text) : 'Dev commands work during a match.');
     return true;

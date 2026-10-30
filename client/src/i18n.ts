@@ -246,6 +246,9 @@ const PT: Dict = {
   'err.raid_scout_expired': 'A oferta de reconhecimento expirou. Procure outra base.',
   'err.raid_perimeter': 'Implante na faixa destacada ao redor da base.',
   'err.factory_level': 'Melhore esta fábrica para o nível {level} primeiro.',
+  'err.on_road': 'Ruas ficam livres: construa dentro de um lote.',
+  'err.nothing_to_settle': 'É preciso ter pelo menos 1 ELON para liquidar.',
+  'err.ledger_unavailable': 'O ledger da cidade ainda não está pronto.',
   'err.upgrade_in_progress': 'Este prédio já está sendo melhorado.',
   'err.max_level': 'Nível máximo atingido.',
   'err.city_requirements': 'Falta para o próximo nível da cidade: {missing}.',
@@ -557,6 +560,9 @@ const EN: Dict = {
   'err.raid_scout_expired': 'The scout offer expired. Find another base.',
   'err.raid_perimeter': 'Deploy inside the highlighted band around the base.',
   'err.factory_level': 'Upgrade this factory to level {level} first.',
+  'err.on_road': 'Roads stay clear: build inside a plot.',
+  'err.nothing_to_settle': 'You need at least 1 ELON to settle.',
+  'err.ledger_unavailable': 'The city ledger is not ready yet.',
   'err.upgrade_in_progress': 'This building is already being upgraded.',
   'err.max_level': 'Maximum level reached.',
   'err.city_requirements': 'Next City Level still needs: {missing}.',
@@ -864,6 +870,9 @@ const ES: Dict = {
   'err.raid_scout_expired': 'La oferta de reconocimiento expiró. Busca otra base.',
   'err.raid_perimeter': 'Despliega dentro de la franja resaltada alrededor de la base.',
   'err.factory_level': 'Mejora esta fábrica al nivel {level} primero.',
+  'err.on_road': 'Las calles quedan libres: construye dentro de un lote.',
+  'err.nothing_to_settle': 'Necesitas al menos 1 ELON para liquidar.',
+  'err.ledger_unavailable': 'El ledger de la ciudad aún no está listo.',
   'err.upgrade_in_progress': 'Este edificio ya se está mejorando.',
   'err.max_level': 'Nivel máximo alcanzado.',
   'err.city_requirements': 'Al siguiente nivel de ciudad le falta: {missing}.',
@@ -1293,4 +1302,10 @@ export function costLongText(cost: Partial<Record<ResourceType, number>>): strin
     if (val && val > 0) parts.push(`${val} ${RESOURCE_NAMES[res]}`);
   }
   return parts.join(', ');
+}
+
+/** Inline trilingual copy (English is the reference). */
+export function L(en: string, pt: string, es: string): string {
+  const lang = getLang();
+  return lang === 'pt' ? pt : lang === 'es' ? es : en;
 }

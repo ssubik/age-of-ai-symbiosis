@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canRaidTransition, RAID_NEXT_SCOUT_GOLD } from '@age/shared';
-import type { GameCommand, HomeRaidView, RaidAction, RaidArmy, RaidOutcome, RaidReport, ServerMessage } from '@age/shared';
+import type { GameCommand, HomeRaidView, LedgerAction, RaidAction, RaidArmy, RaidOutcome, RaidReport, ServerMessage } from '@age/shared';
 import { Game } from '../game/room';
 import {
   abandonBeforeDeploy, emptyArmy, newRaidRecord, RaidTransitionError, reserveDeadline,
   resolveInterrupted, settleRaid, ticksUntil, transition,
 } from '../raid/orchestrator';
 import { MemorySnapshotRegistry, type SnapshotRegistry } from '../raid/registry';
+import { LocalProofAdapter, proofAdapterFromEnv, RpcProofAdapter, safelySubmitProof, type ProofAdapter } from '../proofs';
+import { recordTx } from './ledger';
 import { createRaidGame } from '../raid/sim';
 import { deployZone } from '../raid/snapshot';
 import { JsonHomeRepository, type HomeRepository } from './repository';
@@ -48,7 +50,59 @@ export class HomeManager {
     ),
     private readonly now: () => number = Date.now,
     private readonly registry: SnapshotRegistry = new MemorySnapshotRegistry(),
+    private readonly proofs: ProofAdapter = proofAdapterFromEnv(),
   ) {}
+
+  private chainMode(): { mode: 'disabled' | 'local' | 'rpc'; contract?: string } {
+    if (this.proofs instanceof RpcProofAdapter) return { mode: 'rpc', contract: this.proofs.contract };
+    if (this.proofs instanceof LocalProofAdapter) return { mode: 'local' };
+    return { mode: 'disabled' };
+  }
+
+  private sendLedger(active: ActiveHome): void {
+    const { mode, contract } = this.chainMode();
+    const view = active.game.ledgerView(mode, contract);
+    if (view) active.connection.send({ type: 'ledger', view });
+  }
+
+  /** City ledger page: open, settle playable ELON, or retry an anchor. */
+  async ledger(playerId: number, action: LedgerAction): Promise<void> {
+    const active = this.active.get(playerId);
+    if (!active) return;
+    let toAnchor: string | null = null;
+    await this.serialize(active.profileId, async () => {
+      if (this.active.get(playerId) !== active) return;
+      if (action.kind === 'settle') {
+        const id = `s${(active.game.chain?.ledger.seq ?? 0).toString(36)}-${this.now().toString(36)}`;
+        const result = active.game.settleElon(id);
+        if (result.error) { active.connection.send({ type: 'error', code: result.error }); return; }
+        await this.persist(playerId);
+        toAnchor = id;
+      } else if (action.kind === 'anchor') {
+        const s = active.game.chain?.settlements.find((x) => x.id === action.id);
+        if (s && (s.status === 'failed' || s.status === 'pending')) toAnchor = s.id;
+      }
+      this.sendLedger(active);
+    });
+    if (toAnchor) await this.anchorSettlement(active, toAnchor);
+  }
+
+  /** Anchors the ledger head of a settlement through the chain adapter. The
+   *  ELON is already settled in the ledger; this only records where it is proven. */
+  private async anchorSettlement(active: ActiveHome, id: string): Promise<void> {
+    const s = active.game.chain?.settlements.find((x) => x.id === id);
+    if (!s) return;
+    const digest = createHash('sha256').update(`${active.profileId}|${s.id}|${s.amount}|${s.ledgerHead}`).digest('hex');
+    const result = await safelySubmitProof(this.proofs, `home-settlement:${active.profileId.slice(0, 16)}:${s.id}`, digest, undefined, { head: s.ledgerHead, height: s.ledgerHeight });
+    s.status = result.status;
+    s.transactionHash = result.transactionHash;
+    s.chainId = result.chainId;
+    s.blockNumber = result.blockNumber;
+    s.contract = result.contract;
+    s.error = result.error;
+    await this.persist(active.connection.id);
+    if (this.active.get(active.connection.id) === active) this.sendLedger(active);
+  }
 
   static profileId(clientId: string): string {
     return createHash('sha256').update(`age-of-ai-home:v1:${clientId}`).digest('hex');
@@ -119,6 +173,16 @@ export class HomeManager {
   }
 
   has(playerId: number): boolean { return this.active.has(playerId); }
+
+  /** Developer slash command against the live Home (then saved and republished). */
+  async devCommand(playerId: number, text: string): Promise<string> {
+    const active = this.active.get(playerId);
+    if (!active || active.view !== 'home') return 'Dev commands run in your city view.';
+    const result = active.game.devCommand(playerId, text);
+    await this.persist(playerId);
+    active.game.pushSnapshot();
+    return result;
+  }
 
   /** Test/inspection hook: the live Home simulation for a connection. */
   homeGame(playerId: number): Game | undefined { return this.active.get(playerId)?.game; }
@@ -411,13 +475,18 @@ export class HomeManager {
     };
     let shieldUntil: number | undefined;
     const online = [...this.active.values()].find((a) => a.profileId === delivery.defenderProfileId);
+    const label = `${delivery.report.attacker} raided you: ${delivery.report.stars}★ ${delivery.report.destruction}%`;
     if (online) {
+      if (!online.game.progression.defenseReports.some((r) => r.raidId === delivery.report.raidId)) online.game.recordHomeEvent('defense', label);
       shieldUntil = apply(online.game.progression);
       await this.repository.save(online.game.captureHomeState(online.profileId));
     } else {
       await this.serialize(delivery.defenderProfileId, async () => {
         const loaded = await this.repository.load(delivery.defenderProfileId);
         if (!loaded.save) return; // defender profile no longer exists: nothing to tell
+        if (loaded.save.chain && !loaded.save.progression.defenseReports.some((r) => r.raidId === delivery.report.raidId)) {
+          recordTx(loaded.save.chain.ledger, this.now(), 'defense', label, 0);
+        }
         shieldUntil = apply(loaded.save.progression);
         await this.repository.save(loaded.save);
       });

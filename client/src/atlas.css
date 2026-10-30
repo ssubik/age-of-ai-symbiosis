@@ -255,3 +255,54 @@ button.btn.primary {
 .research-tile .lvl { position: absolute; right: 3px; bottom: 2px; font: 700 10px/1 var(--font-ui, system-ui); color: #54dbe9; }
 .research-tile.active { outline: 1px solid #54dbe9; }
 .upgrade-btn { white-space: normal; text-align: left; }
+
+/* Boot view: shown only while the game signs in and opens the player's city. */
+.boot-screen { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center; background: #10151c; color: #d9e4ee; }
+.boot-mark { font: 700 clamp(1.8rem, 5vw, 3rem)/1 "Chakra Petch", system-ui, sans-serif; letter-spacing: .14em; color: #54dbe9; }
+.boot-status { margin: 0; font: 500 .95rem/1.4 system-ui, sans-serif; color: #8e9bab; }
+
+/* City ledger page: a full-screen sheet over the running city. */
+.ledger-page { position: fixed; inset: 0; z-index: 60; overflow-y: auto; background: #0f141b; color: #e3e9f1; font: 15px/1.5 system-ui, sans-serif; }
+.ledger-page.hidden { display: none; }
+.ledger-body { max-width: 1180px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-right, 0px)) 60px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 18px; }
+.ledger-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.ledger-titles { display: grid; gap: 2px; min-width: 0; }
+.ledger-kicker { font: 600 .72rem/1 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: #54dbe9; }
+.ledger-top h1 { margin: 0; font: 700 clamp(1.6rem, 3.4vw, 2.4rem)/1.1 "Chakra Petch", system-ui, sans-serif; }
+.ledger-back, .ledger-settle, .ledger-retry { font: 600 .95rem system-ui, sans-serif; border-radius: 6px; cursor: pointer; }
+.ledger-back { background: transparent; color: #e3e9f1; border: 1px solid #2c3746; padding: 9px 14px; }
+.ledger-back:hover, .ledger-back:focus-visible { border-color: #54dbe9; outline: none; }
+.ledger-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ledger-chip { font: 500 .78rem ui-monospace, Menlo, monospace; padding: 5px 9px; border-radius: 4px; background: #1a222d; border: 1px solid #263140; color: #b9c6d4; }
+.ledger-chip.ok { color: #72cfa4; border-color: #2c5a49; }
+.ledger-chip.warn { color: #ffbe68; border-color: #5a4728; }
+.ledger-chip.bad { color: #f47975; border-color: #5a2c2c; }
+.ledger-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 18px; }
+.ledger-card { background: #161d27; border: 1px solid #263140; border-radius: 8px; padding: 16px 18px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.ledger-card h2 { margin: 0; font: 600 1.05rem "Chakra Petch", system-ui, sans-serif; letter-spacing: .04em; }
+.ledger-big { font: 700 2.6rem/1 ui-monospace, Menlo, monospace; color: #54dbe9; font-variant-numeric: tabular-nums; }
+.ledger-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.ledger-stats dt { font: 500 .66rem ui-monospace, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; color: #8e9bab; }
+.ledger-stats dd { margin: 2px 0 0; font: 600 1rem ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ledger-settle { background: #54dbe9; color: #0f141b; border: 0; padding: 11px 14px; }
+.ledger-settle:disabled { background: #263140; color: #8e9bab; cursor: not-allowed; }
+.ledger-retry { background: transparent; color: #ffbe68; border: 1px solid #5a4728; padding: 4px 8px; font-size: .8rem; }
+.ledger-note { margin: 0; color: #8e9bab; font-size: .86rem; }
+.ledger-scroll { overflow-x: auto; }
+.ledger-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.ledger-table th { text-align: left; font: 500 .68rem ui-monospace, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; color: #8e9bab; padding: 6px 8px; border-bottom: 1px solid #263140; }
+.ledger-table td { padding: 7px 8px; border-bottom: 1px solid #1d2632; vertical-align: top; }
+.ledger-table .num, .ledger-table .mono, .ledger-block .mono { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ledger-status, .ledger-kind { font: 500 .74rem ui-monospace, Menlo, monospace; padding: 2px 7px; border-radius: 3px; background: #1f2935; white-space: nowrap; }
+.ledger-status.confirmed, .ledger-status.local { color: #72cfa4; }
+.ledger-status.failed { color: #f47975; }
+.ledger-status.pending, .ledger-status.submitted, .ledger-status.disabled { color: #ffbe68; }
+.ledger-kind.settlement, .ledger-kind.elon { color: #54dbe9; }
+.ledger-kind.raid { color: #f47975; }
+.ledger-kind.defense { color: #ffbe68; }
+.ledger-blocks { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+.ledger-block { flex: 0 0 auto; min-width: 190px; display: grid; gap: 3px; padding: 10px 12px; background: #1a222d; border: 1px solid #263140; border-left: 3px solid #54dbe9; border-radius: 6px; font-size: .82rem; }
+.ledger-block strong { font: 700 1rem ui-monospace, Menlo, monospace; }
+.ledger-block .dim, .ledger-table .dim { color: #8e9bab; }
+.boot-retry { justify-self: center; font: 600 .95rem system-ui, sans-serif; background: #54dbe9; color: #0f141b; border: 0; border-radius: 6px; padding: 9px 16px; cursor: pointer; }
+@media (max-width: 760px) { .ledger-grid { grid-template-columns: minmax(0, 1fr); } }
