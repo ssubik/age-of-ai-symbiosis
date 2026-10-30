@@ -115,10 +115,14 @@ export class GameScreen {
     }
     if (session === 'home') {
       this.el.classList.add('home-mode');
-      this.homeBadge = el('button', 'home-status', 'HOME · CITY LEVEL 1');
-      this.homeBadge.title = 'Open the city ledger: activity log and ELON settlement';
-      this.homeBadge.addEventListener('click', () => this.deps.onOpenLedger?.());
-      root.appendChild(this.homeBadge);
+      // City status chip (level, development, grid) beside a Ledger button.
+      const bar = el('div', 'home-status');
+      this.homeBadge = el('span', 'home-status-text', 'City L1');
+      const ledger = el('button', 'home-ledger-btn', '⛓ Ledger');
+      ledger.title = 'Open the city ledger: activity log and ELON settlement';
+      ledger.addEventListener('click', () => this.deps.onOpenLedger?.());
+      bar.append(this.homeBadge, ledger);
+      root.appendChild(bar);
     }
 
     this.canvas = el('canvas');
@@ -657,11 +661,14 @@ export class GameScreen {
     const home = this.state.home;
     const current = home?.developmentPoints ?? 0;
     const next = home?.nextLevelPoints ?? current;
-    const workshop = [...this.state.buildings.values()].some((b) => b.owner === this.state.you && b.type === 'robotics_workshop' && b.progress >= 1);
-    const generator = [...this.state.buildings.values()].some((b) => b.owner === this.state.you && (b.type === 'solar_array' || b.type === 'wind_turbine') && b.progress >= 1);
     const grid = player?.power;
-    const stable = !!grid && grid.supply >= grid.draw;
-    this.homeBadge.textContent = `HOME · CITY LEVEL ${player?.age ?? 1} · ${current}/${next} DEV · WORKSHOP ${workshop ? '✓' : '○'} · GRID ${generator && stable ? '✓' : '○'} · ⛓ LEDGER`;
+    const stable = !grid || grid.supply >= grid.draw;
+    const level = player?.age ?? 1;
+    const text = `City L${level} · ${current.toLocaleString()}${level < 5 ? ` / ${next.toLocaleString()}` : ''} dev`;
+    if (this.homeBadge.textContent !== text) this.homeBadge.textContent = text;
+    // Only a grid shortage earns colour; everything else stays neutral.
+    this.homeBadge.classList.toggle('short', !stable);
+    this.homeBadge.title = stable ? 'Development points toward the next City Level' : 'Grid shortage: automation runs slower';
   }
 
   private onRaidDeploy = (event: MouseEvent): void => {
@@ -677,6 +684,8 @@ export class GameScreen {
   private updateRaidPanel(): void {
     const panel = this.raidPanel;
     if (!panel) return;
+    // Lets small screens hide the command bar while the strike panel is up.
+    this.el.classList.toggle('raid-open', !panel.classList.contains('hidden'));
     if (this.session === 'home') { this.updateHomeRaidPanel(panel); return; }
     if (this.session === 'raid') { this.updateRaidSessionPanel(panel); return; }
     const r = this.state.raid;

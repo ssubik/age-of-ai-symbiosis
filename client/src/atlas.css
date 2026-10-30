@@ -3,19 +3,45 @@
    owned by shared/server and the Canvas renderer. */
 
 :root {
-  --atlas-void: #050b0d;
-  --atlas-plane: rgba(7, 17, 19, .94);
-  --atlas-raised: rgba(12, 29, 30, .94);
-  --atlas-line: rgba(137, 193, 184, .22);
-  --atlas-line-hot: rgba(126, 238, 218, .62);
-  --atlas-ink: #edf6f2;
-  --atlas-muted: #91aaa4;
-  --atlas-cyan: #7eeed9;
-  --atlas-mint: #a8e6bd;
-  --atlas-amber: #e8b45f;
-  --atlas-coral: #ef806d;
-  --atlas-radius: 10px;
-  --atlas-shadow: 0 18px 54px rgba(0, 0, 0, .44);
+  /* One palette for the whole UI, matched to the city art (spec §8.3):
+     neutral slate surfaces, one cyan accent for actions and friendly energy,
+     and semantic colours only where a state needs attention. */
+  --ui-surface: rgba(14, 19, 26, .92);
+  --ui-surface-2: rgba(22, 29, 39, .96);
+  --ui-line: rgba(150, 172, 196, .14);
+  --ui-line-2: rgba(150, 172, 196, .26);
+  --ui-text: #e4eaf1;
+  --ui-text-2: #9aa7b6;
+  --ui-text-3: #6c7a8b;
+  --ui-accent: #54dbe9;
+  --ui-accent-ink: #062027;
+  --ui-good: #72cfa4;
+  --ui-warn: #ffbe68;
+  --ui-bad: #f47975;
+  /* Type: Inter for text, JetBrains Mono for numbers and labels, Space Grotesk for titles. */
+  --ui-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ui-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ui-title: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --fs-xs: 10px;   /* labels, captions */
+  --fs-sm: 11.5px; /* secondary text */
+  --fs-md: 13px;   /* body, numbers */
+  --fs-lg: 15px;   /* panel titles */
+  --fs-xl: 20px;   /* page titles */
+
+  /* Legacy atlas names, now mapped onto the palette above. */
+  --atlas-void: #070b10;
+  --atlas-plane: var(--ui-surface);
+  --atlas-raised: var(--ui-surface-2);
+  --atlas-line: var(--ui-line);
+  --atlas-line-hot: var(--ui-line-2);
+  --atlas-ink: var(--ui-text);
+  --atlas-muted: var(--ui-text-2);
+  --atlas-cyan: var(--ui-accent);
+  --atlas-mint: var(--ui-good);
+  --atlas-amber: var(--ui-warn);
+  --atlas-coral: var(--ui-bad);
+  --atlas-radius: 8px;
+  --atlas-shadow: 0 10px 30px rgba(0, 0, 0, .38);
 }
 
 body {
@@ -207,33 +233,11 @@ button.btn.primary {
     animation-iteration-count: 1 !important;
   }
 }
-.home-status {
-  position: absolute;
-  z-index: 35;
-  /* Below the resource bar: §8.9 keeps resources and caps visible up top. */
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100% - 32px);
-  padding: 8px 16px;
-  border: 1px solid rgba(91, 220, 255, .55);
-  border-radius: 999px;
-  color: #d9f8ff;
-  background: linear-gradient(180deg, rgba(12, 31, 48, .94), rgba(5, 15, 25, .9));
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .35), inset 0 0 18px rgba(42, 184, 225, .09);
-  font: 700 11px/1.1 var(--font-ui, system-ui);
-  letter-spacing: .1em;
-  cursor: pointer;
-}
-
-.home-status:hover { border-color: rgba(139, 238, 255, .9); color: #fff; }
 
 /* Home has no match ledger; the panel would only ever read "Block #0". */
 .home-mode .chain-panel { display: none; }
 
-@media (max-width: 600px) {
-  .home-status { top: 88px; padding: 6px 12px; font-size: 10px; letter-spacing: .06em; }
-}
+
 
 /* Raid view: the enemy snapshot is not yours to build on or direct. */
 /* The raid simulation's attacker has no economy: its resource bar, pop, grid and
@@ -257,52 +261,146 @@ button.btn.primary {
 .upgrade-btn { white-space: normal; text-align: left; }
 
 /* Boot view: shown only while the game signs in and opens the player's city. */
-.boot-screen { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center; background: #10151c; color: #d9e4ee; }
-.boot-mark { font: 700 clamp(1.8rem, 5vw, 3rem)/1 "Chakra Petch", system-ui, sans-serif; letter-spacing: .14em; color: #54dbe9; }
-.boot-status { margin: 0; font: 500 .95rem/1.4 system-ui, sans-serif; color: #8e9bab; }
+.boot-screen { position: fixed; inset: 0; display: grid; place-content: center; gap: 12px; text-align: center; background: #0b1016; color: var(--ui-text); }
+.boot-mark { font: 600 clamp(1.4rem, 4vw, 2rem)/1 var(--ui-title); letter-spacing: .22em; color: var(--ui-accent); }
+.boot-status { margin: 0; font: 400 var(--fs-md)/1.4 var(--ui-font); color: var(--ui-text-2); }
 
 /* City ledger page: a full-screen sheet over the running city. */
-.ledger-page { position: fixed; inset: 0; z-index: 60; overflow-y: auto; background: #0f141b; color: #e3e9f1; font: 15px/1.5 system-ui, sans-serif; }
+.ledger-page { position: fixed; inset: 0; z-index: 60; overflow-y: auto; background: #0b1016; color: var(--ui-text); font: var(--fs-md)/1.5 var(--ui-font); }
 .ledger-page.hidden { display: none; }
-.ledger-body { max-width: 1180px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-right, 0px)) 60px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 18px; }
-.ledger-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.ledger-titles { display: grid; gap: 2px; min-width: 0; }
-.ledger-kicker { font: 600 .72rem/1 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: #54dbe9; }
-.ledger-top h1 { margin: 0; font: 700 clamp(1.6rem, 3.4vw, 2.4rem)/1.1 "Chakra Petch", system-ui, sans-serif; }
-.ledger-back, .ledger-settle, .ledger-retry { font: 600 .95rem system-ui, sans-serif; border-radius: 6px; cursor: pointer; }
-.ledger-back { background: transparent; color: #e3e9f1; border: 1px solid #2c3746; padding: 9px 14px; }
-.ledger-back:hover, .ledger-back:focus-visible { border-color: #54dbe9; outline: none; }
-.ledger-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.ledger-chip { font: 500 .78rem ui-monospace, Menlo, monospace; padding: 5px 9px; border-radius: 4px; background: #1a222d; border: 1px solid #263140; color: #b9c6d4; }
-.ledger-chip.ok { color: #72cfa4; border-color: #2c5a49; }
-.ledger-chip.warn { color: #ffbe68; border-color: #5a4728; }
-.ledger-chip.bad { color: #f47975; border-color: #5a2c2c; }
-.ledger-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 18px; }
-.ledger-card { background: #161d27; border: 1px solid #263140; border-radius: 8px; padding: 16px 18px; display: grid; gap: 12px; align-content: start; min-width: 0; }
-.ledger-card h2 { margin: 0; font: 600 1.05rem "Chakra Petch", system-ui, sans-serif; letter-spacing: .04em; }
-.ledger-big { font: 700 2.6rem/1 ui-monospace, Menlo, monospace; color: #54dbe9; font-variant-numeric: tabular-nums; }
-.ledger-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
-.ledger-stats dt { font: 500 .66rem ui-monospace, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; color: #8e9bab; }
-.ledger-stats dd { margin: 2px 0 0; font: 600 1rem ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
-.ledger-settle { background: #54dbe9; color: #0f141b; border: 0; padding: 11px 14px; }
-.ledger-settle:disabled { background: #263140; color: #8e9bab; cursor: not-allowed; }
-.ledger-retry { background: transparent; color: #ffbe68; border: 1px solid #5a4728; padding: 4px 8px; font-size: .8rem; }
-.ledger-note { margin: 0; color: #8e9bab; font-size: .86rem; }
+.ledger-body { max-width: 1120px; margin: 0 auto; padding: 22px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 14px; }
+.ledger-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--ui-line); }
+.ledger-titles { display: grid; gap: 3px; min-width: 0; }
+.ledger-kicker { font: 500 var(--fs-xs)/1 var(--ui-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ui-accent); }
+.ledger-top h1 { margin: 0; font: 600 var(--fs-xl)/1.15 var(--ui-title); letter-spacing: -.01em; }
+.ledger-back, .ledger-settle, .ledger-retry { font: 500 var(--fs-sm) var(--ui-font); border-radius: 6px; cursor: pointer; }
+.ledger-back { background: transparent; color: var(--ui-text-2); border: 1px solid var(--ui-line-2); padding: 7px 12px; }
+.ledger-back:hover, .ledger-back:focus-visible { color: var(--ui-text); border-color: var(--ui-accent); outline: none; }
+.ledger-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ledger-chip { font: 500 var(--fs-xs) var(--ui-mono); padding: 4px 8px; border-radius: 4px; background: var(--ui-surface-2); border: 1px solid var(--ui-line); color: var(--ui-text-2); }
+.ledger-chip.ok { color: var(--ui-good); border-color: rgba(114, 207, 164, .3); }
+.ledger-chip.warn { color: var(--ui-warn); border-color: rgba(255, 190, 104, .3); }
+.ledger-chip.bad { color: var(--ui-bad); border-color: rgba(244, 121, 117, .3); }
+.ledger-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 14px; }
+.ledger-card { background: var(--ui-surface-2); border: 1px solid var(--ui-line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.ledger-card h2 { margin: 0; font: 500 var(--fs-xs)/1 var(--ui-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ui-text-2); }
+.ledger-big { font: 600 30px/1 var(--ui-mono); color: var(--ui-text); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.ledger-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; padding-top: 10px; border-top: 1px solid var(--ui-line); }
+.ledger-stats dt { font: 500 var(--fs-xs) var(--ui-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ui-text-3); }
+.ledger-stats dd { margin: 3px 0 0; font: 500 var(--fs-md) var(--ui-mono); font-variant-numeric: tabular-nums; color: var(--ui-text); }
+.ledger-settle { background: var(--ui-accent); color: var(--ui-accent-ink); border: 0; padding: 9px 12px; font-weight: 600; }
+.ledger-settle:hover:not(:disabled) { filter: brightness(1.08); }
+.ledger-settle:disabled { background: var(--ui-surface); color: var(--ui-text-3); border: 1px solid var(--ui-line); cursor: not-allowed; }
+.ledger-retry { background: transparent; color: var(--ui-warn); border: 1px solid rgba(255, 190, 104, .35); padding: 3px 8px; font-size: var(--fs-xs); }
+.ledger-note { margin: 0; color: var(--ui-text-3); font-size: var(--fs-sm); line-height: 1.5; }
 .ledger-scroll { overflow-x: auto; }
-.ledger-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
-.ledger-table th { text-align: left; font: 500 .68rem ui-monospace, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; color: #8e9bab; padding: 6px 8px; border-bottom: 1px solid #263140; }
-.ledger-table td { padding: 7px 8px; border-bottom: 1px solid #1d2632; vertical-align: top; }
-.ledger-table .num, .ledger-table .mono, .ledger-block .mono { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
-.ledger-status, .ledger-kind { font: 500 .74rem ui-monospace, Menlo, monospace; padding: 2px 7px; border-radius: 3px; background: #1f2935; white-space: nowrap; }
-.ledger-status.confirmed, .ledger-status.local { color: #72cfa4; }
-.ledger-status.failed { color: #f47975; }
-.ledger-status.pending, .ledger-status.submitted, .ledger-status.disabled { color: #ffbe68; }
-.ledger-kind.settlement, .ledger-kind.elon { color: #54dbe9; }
-.ledger-kind.raid { color: #f47975; }
-.ledger-kind.defense { color: #ffbe68; }
-.ledger-blocks { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
-.ledger-block { flex: 0 0 auto; min-width: 190px; display: grid; gap: 3px; padding: 10px 12px; background: #1a222d; border: 1px solid #263140; border-left: 3px solid #54dbe9; border-radius: 6px; font-size: .82rem; }
-.ledger-block strong { font: 700 1rem ui-monospace, Menlo, monospace; }
-.ledger-block .dim, .ledger-table .dim { color: #8e9bab; }
-.boot-retry { justify-self: center; font: 600 .95rem system-ui, sans-serif; background: #54dbe9; color: #0f141b; border: 0; border-radius: 6px; padding: 9px 16px; cursor: pointer; }
+.ledger-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: var(--fs-sm); } /* scrolls inside its card on phones */
+.ledger-table th { text-align: left; font: 500 var(--fs-xs) var(--ui-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ui-text-3); padding: 6px 8px; border-bottom: 1px solid var(--ui-line); white-space: nowrap; }
+.ledger-table td { padding: 7px 8px; border-bottom: 1px solid rgba(150, 172, 196, .07); vertical-align: top; color: var(--ui-text); }
+.ledger-table td:first-child { color: var(--ui-text-2); white-space: nowrap; }
+.ledger-table tbody tr:hover td { background: rgba(84, 219, 233, .04); }
+.ledger-table .num, .ledger-table .mono, .ledger-block .mono { font-family: var(--ui-mono); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ledger-table .mono { color: var(--ui-text-3); }
+.ledger-status, .ledger-kind { display: inline-block; font: 500 var(--fs-xs)/1.4 var(--ui-mono); padding: 1px 7px; border-radius: 3px; background: rgba(150, 172, 196, .08); color: var(--ui-text-2); white-space: nowrap; }
+.ledger-status.confirmed, .ledger-status.local { color: var(--ui-good); background: rgba(114, 207, 164, .1); }
+.ledger-status.failed { color: var(--ui-bad); background: rgba(244, 121, 117, .1); }
+.ledger-status.pending, .ledger-status.submitted, .ledger-status.disabled { color: var(--ui-warn); background: rgba(255, 190, 104, .1); }
+.ledger-kind.settlement, .ledger-kind.elon { color: var(--ui-accent); background: rgba(84, 219, 233, .1); }
+.ledger-kind.raid { color: var(--ui-bad); background: rgba(244, 121, 117, .1); }
+.ledger-kind.defense { color: var(--ui-warn); background: rgba(255, 190, 104, .1); }
+.ledger-kind.build, .ledger-kind.upgrade, .ledger-kind.research, .ledger-kind.manufacture { color: var(--ui-good); background: rgba(114, 207, 164, .08); }
+.ledger-blocks { list-style: none; margin: 0; padding: 0 0 4px; display: flex; gap: 8px; overflow-x: auto; }
+.ledger-block { flex: 0 0 auto; min-width: 176px; display: grid; gap: 2px; padding: 9px 11px; background: var(--ui-surface); border: 1px solid var(--ui-line); border-left: 2px solid var(--ui-accent); border-radius: 6px; font-size: var(--fs-xs); }
+.ledger-block strong { font: 600 var(--fs-md) var(--ui-mono); color: var(--ui-text); }
+.ledger-block .dim, .ledger-table .dim { color: var(--ui-text-3); }
+.boot-retry { justify-self: center; font: 600 var(--fs-md) var(--ui-font); background: var(--ui-accent); color: var(--ui-accent-ink); border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
 @media (max-width: 760px) { .ledger-grid { grid-template-columns: minmax(0, 1fr); } }
+
+
+/* ======================================================================
+   UI system: consistent sizes and colours across every HUD surface.
+   Rules: numbers in neutral text, labels small mono caps, one cyan accent
+   for actions, semantic colour only for state (shortage, threat, warning).
+   ====================================================================== */
+.game-atlas, .game-atlas button, .game-atlas input { font-family: var(--ui-font); }
+
+/* Top resource bar: compact, neutral numbers. */
+.game-atlas .hud-top { min-height: 32px; padding: 4px 14px; gap: clamp(8px, 1.6vw, 20px); border-top-color: var(--ui-line-2); border-radius: 8px; }
+.game-atlas .hud-top .res { font: 500 var(--fs-md)/1 var(--ui-mono); color: var(--ui-text); gap: 6px; }
+.game-atlas .hud-top .res b { font-weight: 500; color: var(--ui-text); }
+.game-atlas .hud-top .res + .res::before { left: -10px; height: 12px; }
+.game-atlas .hud-top .age b, .game-atlas .hud-top .power b { color: var(--ui-text); }
+.game-atlas .hud-top .pop.full b, .game-atlas .hud-top .power.full b { color: var(--ui-bad); }
+.game-atlas .hud-top .res svg, .game-atlas .hud-top .res .ico { width: 13px; height: 13px; font-size: 12px; }
+
+/* City status chip + ledger button. */
+.home-status { position: absolute; z-index: 35; top: 50px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--ui-line); border-radius: 999px; background: var(--ui-surface); box-shadow: var(--atlas-shadow); backdrop-filter: blur(12px); max-width: calc(100% - 32px); }
+.home-status-text { padding: 3px 10px; font: 500 var(--fs-sm)/1.2 var(--ui-mono); color: var(--ui-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-status-text.short { color: var(--ui-warn); }
+.home-ledger-btn { flex: none; padding: 4px 11px; border: 1px solid transparent; border-radius: 999px; background: rgba(84, 219, 233, .1); color: var(--ui-accent); font: 500 var(--fs-sm)/1.2 var(--ui-font); cursor: pointer; }
+.home-ledger-btn:hover, .home-ledger-btn:focus-visible { background: rgba(84, 219, 233, .18); border-color: rgba(84, 219, 233, .45); outline: none; }
+
+/* The city has no match ledger, impact score or AI council: keep the corners clear. */
+.home-mode .elon-panel, .home-mode .sym-rail, .home-mode .goal-panel { display: none; }
+
+/* Panels: same surface, line and radius everywhere. */
+.game-atlas .command-bar > .cb-left, .game-atlas .command-bar > .cb-center, .game-atlas .minimap-wrap,
+.game-atlas .raid-panel, .game-atlas .quick-dock, .game-atlas .cmd-tip { border-radius: 8px; border-color: var(--ui-line); }
+.game-atlas .act-title, .game-atlas .trade-title { font: 500 var(--fs-xs)/1.2 var(--ui-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ui-text-2); margin-bottom: 8px; }
+.game-atlas .sel-title, .game-atlas .sel-panel .sel-title { font: 600 var(--fs-md)/1.3 var(--ui-font); color: var(--ui-text); }
+.game-atlas .sel-line, .game-atlas .prod-txt { font-size: var(--fs-sm); color: var(--ui-text-2); }
+.game-atlas .hpbar { height: 12px; border-radius: 3px; }
+.game-atlas .hpbar .txt { font: 500 var(--fs-xs)/12px var(--ui-mono); }
+.game-atlas .hpbar .fill { background: var(--ui-good); }
+.game-atlas .prod-fill { background: var(--ui-accent); }
+.game-atlas .prod-fill.age { background: var(--ui-warn); }
+
+/* Command tiles. */
+.game-atlas button.btn.cmd-tile { border-radius: 6px; border-color: var(--ui-line); background: rgba(22, 29, 39, .9); }
+.game-atlas .cmd-tile .ico { font-size: 21px; }
+.game-atlas .cmd-tile:hover:not(.off), .game-atlas .cmd-tile.active { border-color: rgba(84, 219, 233, .6); background: rgba(84, 219, 233, .08); box-shadow: none; }
+.game-atlas .cmd-tile .lvl { font: 500 var(--fs-xs) var(--ui-mono); color: var(--ui-accent); }
+.game-atlas .upgrade-btn, .game-atlas .age-btn { font: 500 var(--fs-sm)/1.35 var(--ui-font); border-radius: 6px; padding: 7px 10px; }
+.game-atlas .cmd-tip .tip-title { font: 600 var(--fs-md)/1.35 var(--ui-font); }
+.game-atlas .cmd-tip .tip-desc { font-size: var(--fs-sm); color: var(--ui-text-2); }
+
+/* Quick dock: neutral buttons; the active one gets the single accent. */
+.game-atlas .quick-dock { padding: 4px; gap: 2px; }
+.game-atlas .quick-action { border-radius: 6px; color: var(--ui-text-2); }
+.game-atlas .quick-action:hover { color: var(--ui-text); background: rgba(150, 172, 196, .08); }
+.game-atlas .quick-action.accent { color: var(--ui-accent); background: rgba(84, 219, 233, .1); }
+.game-atlas .quick-label { font: 500 9.5px/1 var(--ui-mono); letter-spacing: .1em; }
+.game-atlas .quick-icon { font-size: 16px; }
+
+/* Strike panel. */
+.game-atlas .raid-panel { width: 272px; padding: 14px; border-top: 1px solid var(--ui-line); font-size: var(--fs-sm); color: var(--ui-text-2); display: grid; gap: 8px; }
+.game-atlas .raid-panel.hidden { display: none; }
+.game-atlas .raid-kicker { font: 500 var(--fs-xs)/1.3 var(--ui-mono); letter-spacing: .14em; color: var(--ui-accent); }
+.game-atlas .raid-panel h3 { margin: 0; font: 600 var(--fs-lg)/1.25 var(--ui-title); color: var(--ui-text); }
+.game-atlas .raid-muted, .game-atlas .raid-loot { margin: 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--ui-text-2); }
+.game-atlas .raid-loot { color: var(--ui-text); }
+.game-atlas .raid-primary, .game-atlas .raid-target, .game-atlas .raid-unit { width: 100%; text-align: left; border-radius: 6px; padding: 8px 10px; font: 500 var(--fs-sm)/1.2 var(--ui-font); cursor: pointer; }
+.game-atlas .raid-primary { text-align: center; border: 0; background: var(--ui-accent); color: var(--ui-accent-ink); font-weight: 600; }
+.game-atlas .raid-primary:hover:not([disabled]) { filter: brightness(1.08); }
+.game-atlas .raid-target, .game-atlas .raid-unit { border: 1px solid var(--ui-line-2); background: transparent; color: var(--ui-text); }
+.game-atlas .raid-target:hover, .game-atlas .raid-unit:hover { border-color: rgba(84, 219, 233, .5); }
+.game-atlas .raid-unit.active { border-color: var(--ui-accent); background: rgba(84, 219, 233, .08); }
+.game-atlas .raid-army-row { display: grid; grid-template-columns: 1fr 24px 22px 24px; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--ui-text); }
+.game-atlas .raid-army-row button { height: 24px; border: 1px solid var(--ui-line-2); border-radius: 5px; background: transparent; color: var(--ui-text); cursor: pointer; }
+.game-atlas .raid-army-row strong { text-align: center; font: 500 var(--fs-md) var(--ui-mono); }
+.game-atlas .raid-score { font: 600 var(--fs-lg)/1.2 var(--ui-mono); color: var(--ui-text); }
+.game-atlas .raid-result-stars { font-size: 22px; color: var(--ui-warn); letter-spacing: .1em; }
+.game-atlas .raid-result-destruction { font: 600 var(--fs-xl)/1.1 var(--ui-title); color: var(--ui-text); }
+
+/* Chat and toasts. */
+.game-atlas .chat-msg { font-size: var(--fs-sm); }
+.toast { font: 500 var(--fs-sm)/1.4 var(--ui-font) !important; border-radius: 6px !important; }
+
+/* Small screens: the strike panel is a bottom sheet that hides the command bar. */
+@media (max-width: 620px) {
+  .home-status { top: 46px; }
+  .home-status-text { font-size: var(--fs-xs); padding: 3px 8px; }
+  .game-atlas .raid-panel { left: 12px; right: 12px; width: auto; top: auto; bottom: 64px; max-height: 52vh; overflow-y: auto; }
+  .raid-open .command-bar { display: none; }
+  .raid-open .quick-dock { bottom: 10px; }
+}
