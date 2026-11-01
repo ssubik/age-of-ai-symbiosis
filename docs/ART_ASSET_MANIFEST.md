@@ -131,3 +131,33 @@ at 1920×1080 and 1280×720 (vsync-capped; not a low-end hardware figure).
 Open: authored hero assets (e.g. low-poly exports) could replace the
 procedural kit later through the same `drawBuildingArt`/`drawUnitArt` entry
 points; audio; per-unit death and hit animations in the new style.
+
+## Machine civilization v2 concept suite (2026-11-02)
+
+Four original boards now lock the next authored-art direction:
+
+- `client/public/art/age-of-ai-ai-economy-key-art-v2.png` — integrated menu
+  background and master AI-economy/blockchain visual target.
+- `client/public/art/age-of-ai-building-family-v2.png` — six core buildings.
+- `client/public/art/age-of-ai-unit-family-v2.png` — humans, builders, drones,
+  aircraft, mechs and original hero exosuits.
+- `client/public/art/age-of-ai-economy-weapons-v2.png` — three-resource
+  machinery, civic ledger verification and primary weapon language.
+
+The detailed role mapping and production constraints are recorded in
+`docs/art/AI_ECONOMY_VISUAL_SYSTEM.md`; generation IDs and dimensions are in
+`client/public/art/asset-manifest-v2.json`. The original opaque family boards
+remain approved references; their non-destructive transparent derivatives are
+the runtime sources described below.
+
+### Runtime integration
+
+The three approved boards now also have transparent RGBA source-atlas variants.
+`scripts/slice_concept_atlas.swift` deterministically crops them, retains the
+largest connected alpha component, trims padding and writes individual sprites
+to `client/public/sprites/machine-v3/`. `MachineConceptSprites` maps those files
+to existing `BuildingType` and `UnitType` IDs. The renderer uses them only for
+presentation: authoritative footprints, selection, pathfinding, combat, health,
+construction progress and saves are unchanged. Incomplete buildings retain the
+robot-built procedural construction stages; completed mapped buildings swap to
+the authored art. Load failures fall back to the voxel/procedural kit.

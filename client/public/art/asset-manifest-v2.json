@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "visualSystem": "Age of AI machine civilization v2",
+  "generatedAt": "2026-11-02",
+  "sourceTool": "OpenAI built-in image generation",
+  "promptDocument": "docs/art/GENERATION_PROMPTS.md",
+  "normalizationScript": "scripts/slice_concept_atlas.swift",
+  "runtimeSpriteDirectory": "/sprites/machine-v3/",
+  "licenseNote": "Project-generated concept art; confirm current platform disclosure and commercial terms before release.",
+  "assets": [
+    {
+      "id": "ai-economy-key-art-v2",
+      "path": "/art/age-of-ai-ai-economy-key-art-v2.png",
+      "dimensions": "1672x941",
+      "role": "menu background and master visual target",
+      "generationId": "exec-fd6810d2-7de7-490d-abd9-4dbd2dae1075",
+      "status": "integrated-concept"
+    },
+    {
+      "id": "building-family-v2",
+      "path": "/art/age-of-ai-building-family-v2.png",
+      "dimensions": "1536x1024",
+      "role": "six core building family reference",
+      "generationId": "exec-8a829e73-123c-44c1-a14e-673938bad380",
+      "status": "approved-reference"
+    },
+    {
+      "id": "unit-family-v2",
+      "path": "/art/age-of-ai-unit-family-v2.png",
+      "dimensions": "1774x887",
+      "role": "human, builder, drone, mech, aircraft and exosuit reference",
+      "generationId": "exec-d5279b5d-a38f-4440-ad94-f8f56b7abe88",
+      "status": "approved-reference"
+    },
+    {
+      "id": "economy-weapons-v2",
+      "path": "/art/age-of-ai-economy-weapons-v2.png",
+      "dimensions": "1536x1024",
+      "role": "Energy, Alloys, Compute, ledger and weapon reference",
+      "generationId": "exec-43f262e8-9c97-4c37-80ec-f3238ea137c7",
+      "status": "approved-reference"
+    },
+    {
+      "id": "building-family-runtime-v3",
+      "path": "/art/age-of-ai-building-family-runtime-v3.png",
+      "dimensions": "1536x1024 RGBA",
+      "role": "runtime atlas for completed core structures",
+      "generationId": "exec-b3f67e7f-3ca3-47a8-a4f8-1a5df92ac876",
+      "status": "runtime-source-atlas"
+    },
+    {
+      "id": "unit-family-runtime-v3",
+      "path": "/art/age-of-ai-unit-family-runtime-v3.png",
+      "dimensions": "1774x887 RGBA",
+      "role": "runtime atlas for humans, builders, drones, mechs, aircraft and exosuits",
+      "generationId": "exec-c3d9854d-4053-426d-a462-018db80f9ce1",
+      "status": "runtime-source-atlas"
+    },
+    {
+      "id": "economy-weapons-runtime-v4",
+      "path": "/art/age-of-ai-economy-weapons-runtime-v4.png",
+      "dimensions": "1536x1024 RGBA",
+      "role": "runtime atlas for economy, ledger and defense structures",
+      "generationId": "exec-35709292-c380-4079-b167-d9dde734db78",
+      "status": "runtime-source-atlas"
+    }
+  ]
+}

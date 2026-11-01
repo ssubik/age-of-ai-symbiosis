@@ -12,7 +12,7 @@
 // era; sem o arquivo daquela era, usa a era inferior mais próxima e, por fim, o
 // base. Só se tenta carregar as eras em que o prédio pode existir (>= ageReq).
 
-import type { BuildingType } from '@age/shared';
+import type { BuildingType, UnitType } from '@age/shared';
 import { BUILDING_DEFS, MAX_AGE } from '@age/shared';
 
 /** Ajuste de encaixe do sprite no tile (por tipo). Tudo afinável por print. */
@@ -22,6 +22,82 @@ export interface SpriteFit {
   scale: number;
   /** Deslocamento vertical da base, em frações da meia-altura do tile (+ desce). */
   dropY: number;
+}
+
+export interface AtlasSpriteFit {
+  img: HTMLImageElement;
+  source: { x: number; y: number; w: number; h: number };
+  /** Building: footprint-width multiplier. Unit: unit-scale multiplier. */
+  scale: number;
+  /** Buildings only: vertical adjustment at the front footprint corner. */
+  dropY?: number;
+  airborne?: boolean;
+}
+
+type AtlasDef = Pick<AtlasSpriteFit, 'scale' | 'dropY' | 'airborne'> & { file: string };
+
+/** Approved v2 concept boards converted to transparent runtime atlases. These
+ * mappings are presentation-only: simulation footprints and hit geometry stay
+ * entirely data-driven. Closely related facilities may share a family shell. */
+export const CONCEPT_BUILDINGS: Partial<Record<BuildingType, AtlasDef>> = {
+  town_center: { file: 'machine_command_core_v3.png', scale: 1.02, dropY: 0.12 },
+  solar_array: { file: 'machine_energy_generator_v3.png', scale: 1.06, dropY: 0.14 },
+  wind_turbine: { file: 'machine_energy_generator_v3.png', scale: 0.82, dropY: 0.14 },
+  lumber_camp: { file: 'machine_alloy_depot_v3.png', scale: 1.08, dropY: 0.15 },
+  mining_camp: { file: 'machine_alloy_extractor_v3.png', scale: 1.08, dropY: 0.15 },
+  data_center: { file: 'machine_compute_node_v3.png', scale: 1.04, dropY: 0.14 },
+  elon_vault: { file: 'machine_ledger_vault_v3.png', scale: 1.04, dropY: 0.14 },
+  robotics_workshop: { file: 'machine_unit_factory_v3.png', scale: 1.05, dropY: 0.15 },
+  drone_factory: { file: 'machine_unit_factory_v3.png', scale: 1.05, dropY: 0.15 },
+  mech_forge: { file: 'machine_unit_factory_v3.png', scale: 1.05, dropY: 0.15 },
+  exosuit_lab: { file: 'machine_unit_factory_v3.png', scale: 1.05, dropY: 0.15 },
+  point_turret: { file: 'machine_pulse_turret_v3.png', scale: 1.02, dropY: 0.18 },
+  watch_tower: { file: 'machine_rail_turret_v3.png', scale: 0.98, dropY: 0.18 },
+  sensor_tower: { file: 'machine_rail_turret_v3.png', scale: 0.98, dropY: 0.18 },
+  anti_air: { file: 'machine_missile_turret_v3.png', scale: 1.02, dropY: 0.18 },
+};
+
+export const CONCEPT_UNITS: Partial<Record<UnitType, AtlasDef>> = {
+  villager: { file: 'machine_human_engineer_v3.png', scale: 2.1 },
+  designer: { file: 'machine_human_engineer_v3.png', scale: 2.1 },
+  robot: { file: 'machine_builder_robot_v3.png', scale: 3.0 },
+  drone: { file: 'machine_scout_drone_v3.png', scale: 3.35, airborne: true },
+  attack_drone: { file: 'machine_scout_drone_v3.png', scale: 3.35, airborne: true },
+  plasma_tank: { file: 'machine_assault_mech_v3.png', scale: 3.45 },
+  siege_mech: { file: 'machine_siege_walker_v3.png', scale: 4.0 },
+  fighter: { file: 'machine_fighter_v3.png', scale: 4.5, airborne: true },
+  stealth_bomber: { file: 'machine_fighter_v3.png', scale: 4.5, airborne: true },
+  iron_guardian: { file: 'machine_iron_guardian_v3.png', scale: 3.0 },
+  aegis_valkyrie: { file: 'machine_aegis_valkyrie_v3.png', scale: 2.8, airborne: true },
+};
+
+export class MachineConceptSprites {
+  private imgs = new Map<string, HTMLImageElement>();
+
+  preload(base = '/sprites/machine-v3/'): void {
+    const files = new Set([...Object.values(CONCEPT_BUILDINGS), ...Object.values(CONCEPT_UNITS)].flatMap((def) => def ? [def.file] : []));
+    for (const file of files) {
+      const img = new Image();
+      img.onload = () => { this.imgs.set(file, img); };
+      img.onerror = () => { /* retain procedural/legacy fallback */ };
+      img.src = base + file;
+    }
+  }
+
+  private resolve(def: AtlasDef | undefined): AtlasSpriteFit | null {
+    if (!def) return null;
+    const img = this.imgs.get(def.file);
+    return img ? {
+      img,
+      source: { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight },
+      scale: def.scale,
+      dropY: def.dropY,
+      airborne: def.airborne,
+    } : null;
+  }
+
+  getBuilding(type: BuildingType): AtlasSpriteFit | null { return this.resolve(CONCEPT_BUILDINGS[type]); }
+  getUnit(type: UnitType): AtlasSpriteFit | null { return this.resolve(CONCEPT_UNITS[type]); }
 }
 
 /** Exportada pro `scripts/sprite_height_test.ts` conferir contra os PNGs de

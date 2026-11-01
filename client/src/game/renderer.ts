@@ -13,7 +13,7 @@ import { drawBuildingArt, drawUnitArt, drawVoxelBush, drawVoxelMine, drawVoxelTr
 import { isRoadTile, urbanPlanForHub } from '@age/shared';
 
 const SYMBIOSIS_COMBAT: ReadonlySet<string> = new Set(['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian']);
-import { ConstructionSprites, Sprites, SymbiosisCombatSprites, TreeSprites, type SpriteFit } from './sprites';
+import { ConstructionSprites, MachineConceptSprites, Sprites, SymbiosisCombatSprites, TreeSprites, type AtlasSpriteFit, type SpriteFit } from './sprites';
 import type { UIState } from './uistate';
 import { ghostTile, wallLineTiles } from './uistate';
 import { constructionFxPlan } from './constructionFx';
@@ -139,6 +139,7 @@ export class Renderer {
   private trees = new TreeSprites();
   private constructionSprites = new ConstructionSprites();
   private combatSprites = new SymbiosisCombatSprites();
+  private conceptSprites = new MachineConceptSprites();
   /** Campo 0..1 de "chão de floresta" ao redor das árvores (terra + folhas). */
   private forest: Float32Array | null = null;
   private forestSig = '';
@@ -149,6 +150,7 @@ export class Renderer {
     this.trees.preload();
     this.constructionSprites.preload();
     this.combatSprites.preload();
+    this.conceptSprites.preload();
   }
 
   /** Mancha suave de chão de floresta sob/ao redor de cada árvore. Recalculada
@@ -2274,6 +2276,22 @@ export class Renderer {
     return { cx, baseY, topY: baseY - drawH, drawW, drawH };
   }
 
+  private conceptBuildingBox(
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+    b: BuildingSnap,
+    s: number,
+    art: AtlasSpriteFit,
+  ): { cx: number; baseY: number; topY: number; drawW: number; drawH: number } {
+    const hw = 2 * hh;
+    const drawW = 2 * s * hw * art.scale;
+    const drawH = drawW * (art.source.h / art.source.w);
+    const cx = px(b.tileX + s / 2, b.tileY + s / 2);
+    const baseY = py(b.tileX + s, b.tileY + s) + hh * (art.dropY ?? 0.15);
+    return { cx, baseY, topY: baseY - drawH, drawW, drawH };
+  }
+
   /** Caixa do sprite de um prédio PRONTO, ou `null` quando ele não está sendo
    *  desenhado por PNG — em obra (mostra o andaime procedural) ou sem arte.
    *  Use nos passes de FX que precisam do alto do prédio, pra não recravar
@@ -2284,8 +2302,11 @@ export class Renderer {
     hh: number,
     b: BuildingSnap,
   ): { cx: number; baseY: number; topY: number; drawW: number; drawH: number } | null {
-    if ((b.progress ?? 1) < 1 || hasVoxelArt(b.type)) return null;
+    if ((b.progress ?? 1) < 1) return null;
     const s = BUILDING_DEFS[b.type]?.size ?? 1;
+    const concept = this.conceptSprites.getBuilding(b.type);
+    if (concept) return this.conceptBuildingBox(px, py, hh, b, s, concept);
+    if (hasVoxelArt(b.type)) return null;
     const age = Math.min(4, Math.max(1, this.gs.playerSnaps.get(b.owner)?.age ?? 1));
     const spr = this.sprites.get(b.type, age);
     return spr ? this.buildingSpriteBox(px, py, hh, b, s, spr.img, spr.fit) : null;
@@ -2308,6 +2329,24 @@ export class Renderer {
     const prevSmooth = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(img, cx - drawW / 2, topY, drawW, drawH);
+    ctx.imageSmoothingEnabled = prevSmooth;
+    return topY;
+  }
+
+  private drawConceptBuildingSprite(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+    b: BuildingSnap,
+    s: number,
+    art: AtlasSpriteFit,
+  ): number {
+    const { cx, topY, drawW, drawH } = this.conceptBuildingBox(px, py, hh, b, s, art);
+    const q = art.source;
+    const prevSmooth = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(art.img, q.x, q.y, q.w, q.h, cx - drawW / 2, topY, drawW, drawH);
     ctx.imageSmoothingEnabled = prevSmooth;
     return topY;
   }
@@ -2349,14 +2388,17 @@ export class Renderer {
     // sombra no chão (fantasma não projeta sombra)
     if (alphaMul >= 1) this.poly(ctx, [T, R, B, L], 'rgba(0,0,0,0.13)');
 
-    const voxel = hasVoxelArt(b.type);
+    const concept = under ? null : this.conceptSprites.getBuilding(b.type);
+    const voxel = !concept && hasVoxelArt(b.type);
     ctx.globalAlpha = (under && !voxel ? 0.6 : 1) * alphaMul;
     let topY: number;
     // Tech-diorama voxel art for every structure (construction stages come
     // from authoritative progress inside the kit). The old PNG sprites stay
     // only as a fallback for painters the kit does not cover.
     const spr = under || voxel ? null : this.sprites.get(b.type, age);
-    if (voxel) {
+    if (concept) {
+      topY = this.drawConceptBuildingSprite(ctx, px, py, hh, b, s, concept);
+    } else if (voxel) {
       const friendly = b.owner === this.gs.you || this.gs.alliedOwners.has(b.owner);
       topY = drawBuildingArt(ctx, { px, py, hh }, {
         type: b.type, size: s, tileX: b.tileX, tileY: b.tileY, progress: under ? prog : 1,
@@ -3764,6 +3806,36 @@ export class Renderer {
     return Math.min(4, Math.max(1, this.gs.playerSnaps.get(owner)?.age ?? 1));
   }
 
+  private drawConceptUnit(
+    ctx: CanvasRenderingContext2D,
+    u: UnitSnap,
+    sx: number,
+    sy: number,
+    U: number,
+    now: number,
+    face: 1 | -1,
+  ): boolean {
+    const art = this.conceptSprites.getUnit(u.type);
+    if (!art) return false;
+    const q = art.source;
+    const drawW = U * art.scale;
+    const drawH = drawW * (q.h / q.w);
+    const bob = art.airborne ? Math.sin(now * 0.004 + u.id) * U * 0.12 : 0;
+    const topY = sy - drawH + U * (art.airborne ? 0.35 : 0.15) + bob;
+    const prevSmooth = ctx.imageSmoothingEnabled;
+    ctx.save();
+    if (face === -1) {
+      ctx.translate(sx, 0);
+      ctx.scale(-1, 1);
+      ctx.translate(-sx, 0);
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(art.img, q.x, q.y, q.w, q.h, sx - drawW / 2, topY, drawW, drawH);
+    ctx.restore();
+    ctx.imageSmoothingEnabled = prevSmooth;
+    return true;
+  }
+
   private figSymbiosisCombat(ctx: CanvasRenderingContext2D, u: UnitSnap, sx: number, sy: number, U: number, now: number): void {
     if (!['attack_drone', 'fighter', 'rocket_launcher', 'siege_mech', 'stealth_bomber', 'plasma_tank', 'iron_guardian', 'aegis_valkyrie'].includes(u.type)) return;
     const img = this.combatSprites.get(u.type as import('./sprites').SymbiosisCombatSprite);
@@ -3832,6 +3904,7 @@ export class Renderer {
     const skin = '#e2b48a';
     const steel = '#c9ccd2';
     const age = this.ownerAge(u.owner);
+    if (this.drawConceptUnit(ctx, u, sx, sy, U, now, 1)) return;
     if (u.type !== 'aegis_valkyrie' && drawUnitArt(ctx, { type: u.type, sx, sy, U, team: color, face: 1, now, id: u.id, moving: false, attacking: false })) return;
     if (u.type === 'villager' || u.type === 'designer') this.figVillager(ctx, sx, sy, U, u.type === 'designer' ? '#58c9d4' : color, dark, skin, u, now, false, 1, null, age);
     else if (u.type === 'swordsman') this.figSwordsman(ctx, sx, sy, U, color, dark, skin, steel, age);
@@ -4282,10 +4355,13 @@ export class Renderer {
     // Voxel figures are drawn larger than the old painted ones so every unit
     // class stays identifiable at gameplay zoom (spec §8.10): machines most.
     const voxelScale = SYMBIOSIS_COMBAT.has(u.type) ? 1.55 : u.type === 'robot' || u.type === 'drone' ? 1.35 : 1.2;
-    const voxelDrawn = u.type !== 'aegis_valkyrie' && drawUnitArt(ctx, {
+    const conceptDrawn = this.drawConceptUnit(ctx, u, sx, sy, U, now, face === -1 ? -1 : 1);
+    const voxelDrawn = !conceptDrawn && u.type !== 'aegis_valkyrie' && drawUnitArt(ctx, {
       type: u.type, sx, sy, U: U * voxelScale, team: color, face: face === -1 ? -1 : 1, now, id: u.id, moving, attacking,
     });
-    if (voxelDrawn) {
+    if (conceptDrawn) {
+      if (u.type === 'drone') this.drawDroneBeam(ctx, px, py, sx, sy, U, u, now);
+    } else if (voxelDrawn) {
       if (u.type === 'drone') this.drawDroneBeam(ctx, px, py, sx, sy, U, u, now);
     } else if (u.type === 'robot') {
       this.figRobot(ctx, sx, sy, U, color, u, now, moving, face);

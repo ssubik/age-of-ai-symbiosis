@@ -136,8 +136,8 @@ input.txt:focus { border-color: var(--gold); }
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(120deg, rgba(6, 18, 15, 0.9), rgba(12, 30, 25, 0.62) 48%, rgba(58, 35, 22, 0.55)),
-    url('/symbiosis-valley-v1.png') center / cover no-repeat, #07100d;
+    linear-gradient(110deg, rgba(5, 14, 18, 0.94), rgba(8, 24, 29, 0.62) 47%, rgba(23, 20, 17, 0.48)),
+    url('/art/age-of-ai-ai-economy-key-art-v2.png') center / cover no-repeat, #071217;
   pointer-events: none;
 }
 
