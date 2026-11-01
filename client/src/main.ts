@@ -248,6 +248,10 @@ function dispatch(msg: ServerMessage): void {
       gameScreen?.setPaused(msg.paused, msg.by);
       break;
     }
+    case 'focus': {
+      gameScreen?.focus(msg.x, msg.y);
+      break;
+    }
     case 'ping': {
       gameScreen?.state.pings.push({ x: msg.x, y: msg.y, at: performance.now(), color: msg.color });
       break;

@@ -803,7 +803,7 @@ export class Game {
         if (amount < 1 || amount > 1_000_000) return 'Amount must be 1–1000000.';
         for (const k of Object.keys(p.resources) as ResourceType[]) p.resources[k] += amount;
         this.dev = true;
-        return `+${amount} food, wood, gold, and stone.`;
+        return `+${amount} energy, alloys, and compute.`;
       }
       case 'build': {
         let done = 0;
@@ -828,8 +828,11 @@ export class Game {
       case 'perfectbase':
       case 'maxbase':
         return this.homeMode ? this.createPerfectCity(playerId) : this.createPerfectBase(playerId);
+      case 'assault':
+        if (this.homeMode || this.raidMode) return 'Start a Skirmish (⚔ Skirmish in your city), then type /assault there.';
+        return this.devAssault(playerId, Math.floor(n ?? 1));
       default:
-        return 'Dev commands: /perfectbase, /age [n], /res [n], /build, /power [n], /whoami';
+        return 'Dev commands: /assault [1-4], /perfectbase, /age [n], /res [n], /build, /power [n], /whoami';
     }
   }
 
@@ -1004,6 +1007,66 @@ export class Game {
     }
     this.dev = true;
     return `Perfect base ready: level 5, ${placed} facilities, ${created} units, full ELON/resources, all upgrades.`;
+  }
+
+  /** Visual test: turns the nearest enemy camp into a complete, defended base,
+   *  stages a strike force 16 tiles out and orders the assault through the
+   *  commander (so the decision log and battle report cover it too). */
+  private devAssault(playerId: number, size: number): string {
+    const p = this.players.get(playerId)!;
+    if (size < 1 || size > 4) return 'Size must be 1–4.';
+    const myCore = this.coreOf(playerId);
+    const enemyCores = [...this.buildings.values()].filter((b) => b.type === 'town_center' && !this.allied(b.owner, playerId)
+      && !this.players.get(b.owner)?.defeated);
+    const from = myCore ? this.centerOf(myCore) : { x: this.grid.size / 2, y: this.grid.size / 2 };
+    enemyCores.sort((a, b) => Math.hypot(a.tileX - from.x, a.tileY - from.y) - Math.hypot(b.tileX - from.x, b.tileY - from.y) || a.id - b.id);
+    const target = enemyCores[0];
+    if (!target) return 'No enemy Command Core to attack.';
+    const enemy = this.players.get(target.owner)!;
+
+    // 1. A base camp worth attacking: full facilities, towers and defenders,
+    //    then a normal stockpile so the defender does not out-produce the demo.
+    let built = '';
+    const standing = [...this.buildings.values()].filter((b) => b.owner === enemy.id && b.progress >= 1).length;
+    if (standing < 12) {
+      this.createPerfectBase(enemy.id);
+      enemy.resources = { energy: 3000, alloys: 3000, compute: 3000 };
+      built = `${enemy.name}'s camp built out with defenses. `;
+    }
+    // Both sides may fight regardless of the Level-5 rule.
+    p.cityPath = 'command';
+    enemy.cityPath = 'command';
+    if (p.age < 3) p.age = 3;
+
+    // 2. Stage the strike force between the two cores.
+    const core = this.centerOf(target);
+    const dx = from.x - core.x;
+    const dy = from.y - core.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const stage = { x: Math.round(core.x + (dx / len) * 16), y: Math.round(core.y + (dy / len) * 16) };
+    const roster: [UnitType, number][] = [
+      ['plasma_tank', 4], ['siege_mech', 3], ['attack_drone', 4], ['rocket_launcher', 2], ['fighter', 2], ['iron_guardian', 1],
+    ];
+    let spawned = 0;
+    for (const [type, per] of roster) {
+      for (let i = 0; i < per * size; i++) {
+        const angle = spawned * 2.399963;
+        const radius = 1 + Math.sqrt(spawned) * 0.9;
+        const spot = nearestWalkableTile(this.gridForType(type as keyof RaidArmy), Math.floor(stage.x + Math.cos(angle) * radius), Math.floor(stage.y + Math.sin(angle) * radius));
+        if (!spot) continue;
+        const u = createUnit(this.nextId++, playerId, type, spot.x + 0.5, spot.y + 0.5);
+        u.hp = this.unitMaxHp(u);
+        this.units.set(u.id, u);
+        spawned++;
+      }
+    }
+    this.dev = true;
+
+    // 3. The assault is a strategic order, executed by the commander.
+    this.cmdCommanderOrder(playerId, { kind: 'attack_target', targetId: target.id });
+    this.send(playerId, { type: 'focus', x: stage.x, y: stage.y });
+    this.send(playerId, { type: 'ping', x: core.x, y: core.y, color: '#f47975' });
+    return `${built}${spawned} strike units staged 16 tiles out and ordered to assault ${enemy.name}'s Command Core.`;
   }
 
   /** One decision cycle of need: housing (people waiting for homes count as

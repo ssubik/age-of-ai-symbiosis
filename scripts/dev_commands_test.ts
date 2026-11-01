@@ -86,6 +86,34 @@ async function main(): Promise<void> {
   assert.ok(!outDev.some((m) => m.text?.includes('someone-else')), '/whoami is private');
 
   g2.stop();
+
+  // --- /assault: a staged attack on a fully built enemy camp, for visualizing combat ---
+  {
+    const sent: { to: number; msg: { type: string; x?: number; y?: number } }[] = [];
+    const arena = new Game(
+      [{ id: 1, name: 'Dev', color: '#4ad' }, { id: 2, name: 'Bot', color: '#d54', isBot: true, difficulty: 'easy' }],
+      (to, msg) => sent.push({ to, msg: msg as { type: string } }), () => {}, 'normal', 'classic', 'symbiosis', 'assault-test', { skirmish: true, mapSeed: 5 },
+    ) as Game & { step(): void };
+    const before = [...arena.units.values()].filter((u) => u.owner === 1).length;
+    const reply = arena.devCommand(1, '/assault 2');
+    assert.match(reply, /built out with defenses/, 'the enemy camp is built out first');
+    assert.match(reply, /strike units staged/);
+    const enemyBuildings = [...arena.buildings.values()].filter((b) => b.owner === 2);
+    assert.ok(enemyBuildings.length >= 12 && enemyBuildings.some((b) => b.type === 'watch_tower'), 'the target is a defended base camp');
+    const mine = [...arena.units.values()].filter((u) => u.owner === 1);
+    assert.ok(mine.length - before >= 30, 'a size-2 strike force is staged');
+    assert.ok(sent.some((s) => s.to === 1 && s.msg.type === 'focus'), "the player's camera is moved to the staging area");
+    assert.ok(arena.devMatch, 'an assault flags the match as a dev match');
+    assert.match(arena.devCommand(1, '/assault 9'), /Size must be 1–4/);
+    const lost = (): number => [...arena.buildings.values()].filter((b) => b.owner === 2).length;
+    const start = lost();
+    for (let i = 0; i < 900; i++) arena.step();
+    assert.ok(lost() < start, 'the assault destroys enemy structures within 90 seconds');
+    arena.stop();
+  }
+  const home = new Game([{ id: 1, name: 'Mayor', color: '#fff' }], () => {}, () => {}, 'normal', 'classic', 'symbiosis', 'f'.repeat(64), { session: 'home' });
+  assert.match(home.devCommand(1, '/assault'), /Start a Skirmish/, 'in the city, /assault explains where it works');
+
   console.log('Developer commands, allowlist gate, private replies, and dev-match flag: PASS');
   process.exit(0);
 }

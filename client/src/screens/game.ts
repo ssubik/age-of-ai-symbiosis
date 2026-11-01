@@ -560,6 +560,11 @@ export class GameScreen {
     return dock;
   }
 
+  /** Centers the camera on a world point (developer tools). */
+  focus(x: number, y: number): void {
+    this.cam.centerOn(x, y);
+  }
+
   private orderAssault(): void {
     const mine = this.state.myTownCenter();
     let target: { id: number; d: number } | undefined;

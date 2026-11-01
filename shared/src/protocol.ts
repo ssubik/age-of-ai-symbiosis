@@ -213,5 +213,7 @@ export type ServerMessage =
   | { type: 'gamePaused'; paused: boolean; by: string }
   // Sinalização no minimapa (só chega aos ALIADOS do autor). `color` = cor do autor.
   | { type: 'ping'; x: number; y: number; color: string }
+  // Developer tools: center this player's camera on a world point.
+  | { type: 'focus'; x: number; y: number }
   // Symbiosis: the finished match's archive/ledger commitment and its chain receipt.
   | { type: 'matchProof'; proof: MatchCommitment };

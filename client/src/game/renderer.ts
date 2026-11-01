@@ -103,6 +103,56 @@ function hash01(x: number, y: number): number {
 /** Ruído de valor suave (interpolação bilinear de hash01), 0..1.
  * Varia devagar no espaço, então tiles vizinhos têm cor quase igual
  * (sem o efeito de xadrez do hash por tile). */
+/** Tileable 160 px surface-detail texture: short strokes and speckles drawn
+ *  with wrap-around so the pattern has no seams. Transparent except the marks,
+ *  so it modulates whatever base colour the tile already has. */
+function makeSurfaceTexture(kind: 'grass' | 'pave' | 'asphalt'): HTMLCanvasElement {
+  const N = 160;
+  const c = document.createElement('canvas');
+  c.width = N; c.height = N;
+  const g = c.getContext('2d')!;
+  let seed = kind === 'grass' ? 11 : kind === 'pave' ? 23 : 37;
+  const rnd = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const wrap = (fn: (ox: number, oy: number) => void): void => {
+    for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) fn(ox, oy);
+  };
+  if (kind === 'grass') {
+    // Blades: dark undersides and sunlit tips, leaning with the wind.
+    for (let i = 0; i < 2600; i++) {
+      const x = rnd() * N; const y = rnd() * N;
+      const len = 2 + rnd() * 4.5; const lean = (rnd() - 0.35) * 2.2;
+      const light = rnd() < 0.45;
+      g.strokeStyle = light ? `rgba(206,228,140,${0.1 + rnd() * 0.16})` : `rgba(18,38,12,${0.14 + rnd() * 0.2})`;
+      g.lineWidth = 0.6 + rnd() * 0.7;
+      wrap((ox, oy) => { g.beginPath(); g.moveTo(x + ox, y + oy); g.lineTo(x + ox + lean, y + oy - len); g.stroke(); });
+    }
+    // Soil showing through and a few pebbles.
+    for (let i = 0; i < 260; i++) {
+      const x = rnd() * N; const y = rnd() * N; const r = 0.5 + rnd() * 1.4;
+      g.fillStyle = rnd() < 0.7 ? `rgba(74,58,34,${0.12 + rnd() * 0.16})` : `rgba(190,184,160,${0.2 + rnd() * 0.2})`;
+      wrap((ox, oy) => { g.beginPath(); g.ellipse(x + ox, y + oy, r, r * 0.6, 0, 0, Math.PI * 2); g.fill(); });
+    }
+  } else {
+    const dark = kind === 'asphalt' ? 'rgba(0,0,0,' : 'rgba(10,14,20,';
+    const light = kind === 'asphalt' ? 'rgba(170,176,186,' : 'rgba(205,214,226,';
+    for (let i = 0; i < (kind === 'asphalt' ? 3200 : 1800); i++) {
+      const x = rnd() * N; const y = rnd() * N; const r = 0.4 + rnd() * (kind === 'asphalt' ? 0.9 : 1.3);
+      g.fillStyle = (rnd() < 0.55 ? dark : light) + (0.06 + rnd() * 0.14) + ')';
+      wrap((ox, oy) => g.fillRect(x + ox, y + oy, r, r));
+    }
+    // Hairline cracks and wear.
+    for (let i = 0; i < (kind === 'asphalt' ? 14 : 8); i++) {
+      let x = rnd() * N; let y = rnd() * N;
+      g.strokeStyle = `rgba(0,0,0,${0.12 + rnd() * 0.12})`;
+      g.lineWidth = 0.6;
+      g.beginPath(); g.moveTo(x, y);
+      for (let k = 0; k < 6; k++) { x += (rnd() - 0.5) * 14; y += (rnd() - 0.5) * 14; g.lineTo(x, y); }
+      g.stroke();
+    }
+  }
+  return c;
+}
+
 function vnoise(x: number, y: number): number {
   const xi = Math.floor(x);
   const yi = Math.floor(y);
@@ -137,6 +187,8 @@ export class Renderer {
   private ambient: Ambient;
   private sprites = new Sprites();
   private trees = new TreeSprites();
+  /** World-anchored surface detail (grass blades, paving grain, asphalt), built once. */
+  private surface: Partial<Record<'grass' | 'pave' | 'asphalt', CanvasPattern>> = {};
   private constructionSprites = new ConstructionSprites();
   private combatSprites = new SymbiosisCombatSprites();
   private conceptSprites = new MachineConceptSprites();
@@ -230,6 +282,38 @@ export class Renderer {
     const homePlan = homeHub ? urbanPlanForHub(homeHub.tileX, homeHub.tileY) : null;
     const isWater = (x: number, y: number): boolean =>
       x >= 0 && y >= 0 && x < size && y < size && tiles[y * size + x] === TILE_WATER;
+    // Surface detail is anchored to the world origin, so it scrolls and zooms
+    // with the ground instead of sliding over it.
+    const anchor = new DOMMatrix([z * 0.9, 0, 0, z * 0.9, cx, cy]);
+    for (const kind of ['grass', 'pave', 'asphalt'] as const) {
+      let pat = this.surface[kind];
+      if (!pat) {
+        pat = ctx.createPattern(makeSurfaceTexture(kind), 'repeat') ?? undefined;
+        if (pat) this.surface[kind] = pat;
+      }
+      pat?.setTransform(anchor);
+    }
+    const detail = (kind: 'grass' | 'pave' | 'asphalt', alpha: number): void => {
+      const pat = this.surface[kind];
+      if (!pat) return;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = pat;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+    // Natural grass: large-scale biome hue, soft light/shadow undulation that
+    // reads as gentle relief, and no tile checker.
+    const grassFill = (tx: number, ty: number): string => {
+      const n = vnoise(tx / 6.5, ty / 6.5);
+      const bio = vnoise(tx / 24 + 71, ty / 24 + 71);
+      const dryT = clamp01((0.42 - bio) * 2.4);
+      const lushT = clamp01((bio - 0.62) * 2.6);
+      const relief = vnoise(tx / 13 + 5, ty / 13 + 9) - 0.5;
+      const hue = 90 + lushT * 8 - dryT * 34;
+      const sat = 30 + lushT * 6 - dryT * 4;
+      const lit = 29 + n * 4 + relief * 9 + dryT * 9;
+      return `hsl(${hue.toFixed(1)}, ${sat.toFixed(1)}%, ${lit.toFixed(1)}%)`;
+    };
     // Losango levemente expandido: as bordas se sobrepõem e escondem as
     // emendas de anti-aliasing entre tiles (some a "grade").
     const ex = hw + 0.75;
@@ -283,17 +367,18 @@ export class Renderer {
             const checker = (tx + ty) & 1;
             // Tech-diorama ground: dark asphalt lanes, slate panel pavement,
             // bright grass plots; open land outside is checkered voxel grass.
+            void checker;
             ctx.fillStyle = road
-              ? `hsl(220, 14%, ${15 + n * 2}%)`
+              ? `hsl(218, 8%, ${17 + n * 3}%)`
               : park
-                ? `hsl(92, 44%, ${40 + checker * 3 + n * 4}%)`
-                : district
-                  ? `hsl(217, 15%, ${25 + checker * 1.5 + n * 3}%)`
-                  : `hsl(94, 30%, ${31 + checker * 2 + n * 4}%)`;
+                ? grassFill(tx, ty)
+                : `hsl(214, 9%, ${30 + n * 4}%)`;
             ctx.fill();
-            if (district && !road) {
-              ctx.strokeStyle = park ? 'rgba(40,70,30,.25)' : 'rgba(150,170,195,.12)';
-              ctx.lineWidth = 1;
+            detail(road ? 'asphalt' : park ? 'grass' : 'pave', road ? 0.9 : park ? 1 : 0.75);
+            if (district && !road && !park) {
+              // Paving joints: thin seams, not a glowing grid.
+              ctx.strokeStyle = 'rgba(12,16,22,.22)';
+              ctx.lineWidth = 0.7;
               ctx.stroke();
             }
             continue;
@@ -308,17 +393,16 @@ export class Renderer {
           const bio = vnoise(tx / 24 + 71, ty / 24 + 71);
           const dryT = clamp01((0.42 - bio) * 2.4);
           const lushT = clamp01((bio - 0.62) * 2.6);
-          // Voxel grass: a gentle two-tone checker keeps tiles legible as blocks.
-          const checker = (tx + ty) & 1;
-          void n2; void dryT;
-          ctx.fillStyle = `hsl(${92 + lushT * 6}, ${32 + lushT * 6}%, ${30 + checker * 2 + n * 5}%)`;
+          void n; void n2; void dryT; void lushT;
+          ctx.fillStyle = grassFill(tx, ty);
           // manchas de terra batida (noise de baixa freq., borda suave)
           const dn = vnoise(tx / 8.5 + 40, ty / 8.5 + 40);
-          void dn;
+          dirtT = clamp01((dn - 0.72) * 2.2) * 0.55;
           // chão de floresta: terra escura e folhas sob as árvores
           forestT = forest[ty * size + tx];
         }
         ctx.fill();
+        if (v !== TILE_WATER && v !== TILE_SHALLOW) detail('grass', 1);
         if (dirtT > 0) {
           ctx.fillStyle = `rgba(150,118,74,${dirtT})`;
           ctx.fill();
@@ -974,7 +1058,9 @@ export class Renderer {
     // sombra (só árvore/arbusto — as minas têm a própria mancha de brita,
     // e a elipse escura por baixo parecia um buraco no chão)
     if (n.type === 'tree' || n.type === 'berry_bush') {
-      this.blob(ctx, sx, sy, U * 0.9, U * 0.42, 'rgba(0,0,0,0.2)');
+      // Key light comes from the upper left: shadows fall to the lower right.
+      const tall = n.type === 'tree' ? 1 : 0.45;
+      this.softShadow(ctx, sx + U * 0.9 * tall, sy + U * 0.1, U * (1.1 + tall * 0.7), U * (0.38 + tall * 0.16), 0.32);
     }
 
     // destaque de seleção: losango na base do recurso (como no AoE2)
@@ -989,9 +1075,15 @@ export class Renderer {
       // sprite (se houver) ancorado com a BASE do tronco em (sx, sy); variação
       // estável sorteada pela posição. Sem sprite → árvore procedural.
       const timg = this.trees.get(n.tileX * 7 + n.tileY * 13);
-      void timg;
       const paint = (): void => {
-        drawVoxelTree(ctx, { px, py, hh: U }, n.tileX, n.tileY, hash01(n.tileX * 3 + 1, n.tileY * 5 + 2));
+        if (timg) {
+          // Painted tree, anchored at the trunk base; size varies a little per tile.
+          const drawW = U * (3.3 + hash01(n.tileX * 3 + 1, n.tileY * 5 + 2) * 0.8);
+          const drawH = drawW * (timg.height / timg.width);
+          ctx.drawImage(timg, sx - drawW / 2, sy - drawH * 0.97, drawW, drawH);
+        } else {
+          drawVoxelTree(ctx, { px, py, hh: U }, n.tileX, n.tileY, hash01(n.tileX * 3 + 1, n.tileY * 5 + 2));
+        }
       };
       if (chopped) {
         // balança de leve enquanto está sendo cortada (pivô na base)
@@ -1006,11 +1098,406 @@ export class Renderer {
         paint();
       }
     } else if (n.type === 'berry_bush') {
-      drawVoxelBush(ctx, { px, py, hh: U }, n.tileX, n.tileY);
+      this.drawShrub(ctx, sx, sy, U, n.tileX, n.tileY);
     } else if (n.type === 'gold_mine' || n.type === 'stone_mine') {
-      drawVoxelMine(ctx, { px, py, hh: U }, n.tileX, n.tileY, n.type === 'gold_mine' ? 'gold' : 'stone', hash01(n.tileX, n.tileY));
+      this.drawDeposit(ctx, sx, sy, U, n.tileX, n.tileY, n.type === 'gold_mine' ? 'rare' : 'ore', now);
     } else if (n.type === 'fish') {
       this.drawFishSchool(ctx, sx, sy, U, n.tileX, n.tileY, now);
+    }
+  }
+
+  /** Mineral outcrop: a gravel stain and 3–5 faceted boulders lit from the upper
+   *  left. Rare-earth (compute) carries glinting veins; ore (alloys) rust streaks. */
+  private drawDeposit(ctx: CanvasRenderingContext2D, sx: number, sy: number, U: number, tx: number, ty: number, kind: 'rare' | 'ore', now: number): void {
+    const stain = ctx.createRadialGradient(sx, sy - U * 0.1, U * 0.1, sx, sy - U * 0.1, U * 1.5);
+    stain.addColorStop(0, kind === 'rare' ? 'rgba(96,84,62,0.55)' : 'rgba(92,92,90,0.5)');
+    stain.addColorStop(1, 'rgba(92,92,90,0)');
+    ctx.fillStyle = stain;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - U * 0.1, U * 1.5, U * 0.75, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const count = 3 + Math.floor(hash01(tx * 11, ty * 7) * 3);
+    const rocks: { x: number; y: number; r: number; seed: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = hash01(tx + i * 5, ty * 3 + i) * Math.PI * 2;
+      const d = i === 0 ? 0 : U * (0.35 + hash01(tx * 3 + i, ty + i * 2) * 0.35);
+      rocks.push({ x: sx + Math.cos(a) * d * 1.3, y: sy - U * 0.15 + Math.sin(a) * d * 0.55, r: U * (i === 0 ? 0.62 : 0.32 + hash01(tx + i, ty + i * 9) * 0.22), seed: i });
+    }
+    rocks.sort((a, b) => a.y - b.y); // back to front
+    for (const rock of rocks) {
+      const { x, y, r } = rock;
+      this.softShadow(ctx, x + r * 0.45, y + r * 0.18, r * 1.25, r * 0.42, 0.38);
+      // Irregular faceted outline, taller than wide so it reads as a boulder.
+      const pts: [number, number][] = [];
+      const sides = 8;
+      for (let k = 0; k < sides; k++) {
+        const ang = (k / sides) * Math.PI * 2;
+        const jitter = 0.78 + hash01(tx * 7 + k, ty * 13 + rock.seed) * 0.36;
+        pts.push([x + Math.cos(ang) * r * jitter, y - r * 0.55 + Math.sin(ang) * r * 0.82 * jitter]);
+      }
+      const body = ctx.createLinearGradient(x - r, y - r * 1.3, x + r, y + r * 0.2);
+      if (kind === 'rare') {
+        body.addColorStop(0, '#9d9284'); body.addColorStop(0.55, '#6b6153'); body.addColorStop(1, '#3a332b');
+      } else {
+        body.addColorStop(0, '#a8adb2'); body.addColorStop(0.55, '#727880'); body.addColorStop(1, '#3d4248');
+      }
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (const [px2, py2] of pts.slice(1)) ctx.lineTo(px2, py2);
+      ctx.closePath();
+      ctx.fillStyle = body;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(20,18,15,0.45)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.save();
+      ctx.clip();
+      // Sunlit upper facet.
+      ctx.fillStyle = 'rgba(255,250,235,0.16)';
+      ctx.beginPath();
+      ctx.ellipse(x - r * 0.3, y - r * 1.0, r * 0.55, r * 0.3, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Veins.
+      for (let v = 0; v < 3; v++) {
+        const vx = x + (hash01(tx + v * 3, ty + rock.seed) - 0.5) * r * 1.2;
+        const vy = y - r * (0.25 + hash01(tx + rock.seed, ty + v) * 0.7);
+        ctx.strokeStyle = kind === 'rare' ? `rgba(240,196,74,${0.75 - v * 0.15})` : `rgba(150,82,44,${0.55 - v * 0.12})`;
+        ctx.lineWidth = kind === 'rare' ? 1.4 : 1.1;
+        ctx.beginPath();
+        ctx.moveTo(vx - r * 0.3, vy);
+        ctx.lineTo(vx, vy - r * 0.12);
+        ctx.lineTo(vx + r * 0.32, vy + r * 0.05);
+        ctx.stroke();
+      }
+      ctx.restore();
+      if (kind === 'rare') {
+        // A slow glint so compute deposits catch the eye.
+        const tw = 0.5 + 0.5 * Math.sin(now * 0.003 + hash01(tx, ty + rock.seed) * 6.28);
+        ctx.fillStyle = `rgba(255,236,160,${0.25 + tw * 0.55})`;
+        ctx.beginPath();
+        ctx.arc(x - r * 0.15, y - r * 0.8, U * 0.05 + tw * U * 0.03, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  /** Deaths, destruction, burning structures and hit sparks. Purely visual:
+   *  driven by snapshot diffs, so it can never disagree with the simulation. */
+  private drawDestructionFx(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+    now: number,
+    onScreen: (sx: number, sy: number) => boolean,
+    fogVis: (wx: number, wy: number) => boolean,
+  ): void {
+    const still = Renderer.reducedMotion();
+    const rnd = (a: number, b: number): number => hash01(a * 7.13 + 1, b * 3.71 + 2);
+
+    // --- burning structures: smoke below 60 % integrity, fire below 35 % ---
+    for (const b of this.gs.buildings.values()) {
+      if ((b.progress ?? 1) < 1) continue;
+      const ratio = b.hp / Math.max(1, buildingMaxHp(b.type, b.level));
+      if (ratio >= 0.6) continue;
+      const s = BUILDING_DEFS[b.type]?.size ?? 1;
+      if (!fogVis(b.tileX + s / 2, b.tileY + s / 2)) continue;
+      const sx = px(b.tileX + s / 2, b.tileY + s / 2);
+      const sy = py(b.tileX + s / 2, b.tileY + s / 2);
+      if (!onScreen(sx, sy)) continue;
+      const U = hh * Math.max(1, s * 0.75);
+      const spots = ratio < 0.35 ? 2 : 1;
+      for (let k = 0; k < spots; k++) {
+        const fx = sx + (rnd(b.id, k) - 0.5) * U * 1.4;
+        const fy = sy - U * (0.7 + rnd(k, b.id) * 0.6);
+        this.smokeColumn(ctx, fx, fy, U, now, b.id * 3 + k, ratio < 0.35 ? 0.75 : 0.55, still);
+        if (ratio < 0.35) this.flame(ctx, fx, fy + U * 0.1, U * 0.85, now, b.id + k, still);
+      }
+    }
+
+    // --- unit deaths: machines explode, people fall ---
+    for (const d of this.gs.deaths) {
+      const u = d.unit;
+      const t = (now - d.at) / 1000;
+      if (t < 0 || t >= 3) continue;
+      if (!fogVis(u.x, u.y)) continue;
+      const sx = px(u.x, u.y);
+      const sy = py(u.x, u.y);
+      if (!onScreen(sx, sy)) continue;
+      const human = u.type === 'villager' || u.type === 'designer' || u.type === 'swordsman' || u.type === 'archer' || u.type === 'knight';
+      const U = hh * (u.type === 'knight' ? 1.15 : u.type === 'villager' || u.type === 'designer' ? 0.82 : 0.95);
+      if (human) {
+        const age = t / 1.1;
+        if (age >= 1) continue;
+        const bloodA = 0.5 * (1 - age) * Math.min(1, age * 6);
+        ctx.fillStyle = `rgba(120,22,20,${bloodA})`;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, U * (0.5 + age * 0.9), U * (0.22 + age * 0.4), 0, 0, Math.PI * 2);
+        ctx.fill();
+        const ease = 1 - (1 - Math.min(1, age * 2.2)) ** 2; // tomba rápido, depois some
+        const dir = u.id & 1 ? 1 : -1;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, 1 - Math.max(0, age - 0.45) / 0.55);
+        ctx.translate(sx, sy);
+        // ~49° (não 86°): lê como corpo caindo, não "cabeça no chão".
+        ctx.rotate(dir * ease * 0.85);
+        ctx.translate(-sx, -sy);
+        this.drawUnitBody(ctx, u, sx, sy, U, now);
+        ctx.restore();
+        continue;
+      }
+      const heavy = (UNIT_DEFS[u.type]?.hp ?? 60) >= 150;
+      const R = U * (heavy ? 1.5 : 1.0);
+      this.scorch(ctx, sx, sy, R * 0.9, 0.42 * (1 - t / 3));
+      if (t < 1.2) this.explosion(ctx, sx, sy - U * 0.4, R, t, u.id, still);
+    }
+    ctx.globalAlpha = 1;
+
+    // --- destroyed structures: blast, flying debris, then rubble and a smoke column ---
+    for (const w of this.gs.wrecks) {
+      const b = w.building;
+      const t = (now - w.at) / 1000;
+      if (t < 0 || t >= 6) continue;
+      const s = BUILDING_DEFS[b.type]?.size ?? 1;
+      if (!fogVis(b.tileX + s / 2, b.tileY + s / 2)) continue;
+      const sx = px(b.tileX + s / 2, b.tileY + s / 2);
+      const sy = py(b.tileX + s / 2, b.tileY + s / 2);
+      if (!onScreen(sx, sy)) continue;
+      const U = hh * s;
+      const fade = 1 - t / 6;
+      this.scorch(ctx, sx, sy, U * 1.25, 0.5 * fade);
+      ctx.globalAlpha = Math.min(1, fade * 1.6);
+      this.rock(ctx, sx - U * 0.45, sy - U * 0.1, U * 0.5, U * 0.36, '#4d4a46', '#6f6b64');
+      this.rock(ctx, sx + U * 0.42, sy - U * 0.02, U * 0.46, U * 0.32, '#47443f', '#69655e');
+      this.rock(ctx, sx, sy + U * 0.06, U * 0.55, U * 0.38, '#53504b', '#77736b');
+      this.rock(ctx, sx - U * 0.1, sy - U * 0.28, U * 0.4, U * 0.3, '#3f3c38', '#5f5b55');
+      ctx.globalAlpha = 1;
+      if (t < 1.6) this.explosion(ctx, sx, sy - U * 0.45, U * 1.3, t, b.id, still);
+      this.smokeColumn(ctx, sx, sy - U * 0.3, U, now, b.id, 0.7 * fade, still);
+      if (t < 4.5) {
+        this.flame(ctx, sx + U * 0.2, sy - U * 0.2, U * 0.7 * (1 - t / 4.5), now, b.id, still);
+        this.flame(ctx, sx - U * 0.35, sy - U * 0.1, U * 0.5 * (1 - t / 4.5), now, b.id + 9, still);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // --- hit sparks where shots land ---
+    if (!still) {
+      for (const h of this.gs.hits) {
+        const t = (now - h.at) / 240;
+        if (t < 0 || t >= 1) continue;
+        if (!fogVis(h.x, h.y)) continue;
+        const sx = px(h.x, h.y);
+        const sy = py(h.x, h.y) - hh * 0.55;
+        if (!onScreen(sx, sy)) continue;
+        const seed = Math.round(h.at);
+        ctx.lineCap = 'round';
+        for (let k = 0; k < 6; k++) {
+          const ang = rnd(seed, k) * Math.PI * 2;
+          const r0 = hh * 0.12 + t * hh * 0.5;
+          const r1 = r0 + hh * (0.18 + rnd(k, seed) * 0.22) * (1 - t);
+          ctx.strokeStyle = `rgba(255,${200 + Math.round(rnd(seed + k, 1) * 50)},120,${0.9 * (1 - t)})`;
+          ctx.lineWidth = Math.max(1, hh * 0.07);
+          ctx.beginPath();
+          ctx.moveTo(sx + Math.cos(ang) * r0, sy + Math.sin(ang) * r0 * 0.7);
+          ctx.lineTo(sx + Math.cos(ang) * r1, sy + Math.sin(ang) * r1 * 0.7);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      }
+    }
+  }
+
+  /** Fireball, shock ring, sparks and tumbling debris over `t` seconds (0..~1.5). */
+  private explosion(ctx: CanvasRenderingContext2D, x: number, y: number, R: number, t: number, seed: number, still: boolean): void {
+    const rnd = (k: number): number => hash01(seed * 1.37 + k, k * 2.11 + seed);
+    // Shock ring.
+    if (!still && t < 0.45) {
+      const q = t / 0.45;
+      ctx.strokeStyle = `rgba(255,236,200,${0.55 * (1 - q)})`;
+      ctx.lineWidth = Math.max(1, R * 0.08 * (1 - q));
+      ctx.beginPath();
+      ctx.ellipse(x, y + R * 0.35, R * (0.4 + q * 1.8), R * (0.18 + q * 0.8), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Sooty smoke ball left behind by the fireball.
+    if (t > 0.2 && t < 1.6) {
+      const q = (t - 0.2) / 1.4;
+      const r = R * (0.6 + q * 0.9);
+      const cy = y - q * R * 0.9;
+      const g = ctx.createRadialGradient(x, cy, 0, x, cy, r);
+      g.addColorStop(0, `rgba(42,38,36,${0.62 * (1 - q)})`);
+      g.addColorStop(1, 'rgba(42,38,36,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Fireball: white-hot core cooling to orange, drawn additively so it glows.
+    if (t < 1.0) {
+      const q = Math.min(1, t / 0.25);
+      const fade = 1 - Math.max(0, t - 0.35) / 0.65;
+      const r = R * (0.5 + q * 1.0);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(255,250,225,${fade})`);
+      g.addColorStop(0.28, `rgba(255,196,80,${0.95 * fade})`);
+      g.addColorStop(0.62, `rgba(232,86,24,${0.75 * fade})`);
+      g.addColorStop(1, 'rgba(120,30,10,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (still) return;
+    // Sparks: fast streaks falling under gravity.
+    ctx.lineCap = 'round';
+    for (let k = 0; k < 12; k++) {
+      if (t > 0.9) break;
+      const ang = rnd(k) * Math.PI * 2;
+      const v = R * (1.6 + rnd(k + 20) * 2.4);
+      const sx = x + Math.cos(ang) * v * t;
+      const sy = y + Math.sin(ang) * v * t * 0.6 - v * t * 0.8 + R * 3.2 * t * t;
+      ctx.strokeStyle = `rgba(255,${190 + Math.round(rnd(k + 40) * 60)},90,${1 - t / 0.9})`;
+      ctx.lineWidth = Math.max(1, R * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx - Math.cos(ang) * R * 0.12, sy - (Math.sin(ang) * 0.6 - 0.8) * R * 0.12);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+    // Debris: dark chunks thrown up and falling back, spinning.
+    for (let k = 0; k < 11; k++) {
+      if (t > 1.3) break;
+      const ang = -Math.PI * (0.15 + rnd(k + 60) * 0.7);
+      const v = R * (1.4 + rnd(k + 80) * 1.6);
+      const dx = Math.cos(ang) * v * t;
+      const dy = Math.sin(ang) * v * t * 1.1 + R * 2.6 * t * t;
+      if (dy > R * 0.5) continue; // landed
+      const size = R * (0.09 + rnd(k + 90) * 0.12);
+      ctx.save();
+      ctx.translate(x + dx, y + dy);
+      ctx.rotate(t * (6 + rnd(k) * 10));
+      ctx.fillStyle = rnd(k + 5) < 0.5 ? '#2f2c29' : '#4a4540';
+      ctx.fillRect(-size, -size * 0.7, size * 2, size * 1.4);
+      ctx.restore();
+    }
+  }
+
+  /** Rising, drifting smoke: a stable loop of puffs per seed. */
+  private smokeColumn(ctx: CanvasRenderingContext2D, x: number, y: number, U: number, now: number, seed: number, alpha: number, still: boolean): void {
+    if (alpha <= 0.01) return;
+    const puffs = 8;
+    for (let i = 0; i < puffs; i++) {
+      const t = still ? (i + 0.5) / puffs : ((now / 3200) + i / puffs + hash01(seed, i) * 0.15) % 1;
+      const a = Math.min(0.85, alpha * 1.4) * Math.min(1, t * 5) * (1 - t) ** 0.8;
+      if (a <= 0.01) continue;
+      const drift = t * U * 1.1 + Math.sin(t * 5 + seed) * U * 0.15;
+      const cy = y - t * U * 3.6;
+      const r = U * (0.3 + t * 0.85);
+      const g = ctx.createRadialGradient(x + drift - r * 0.2, cy - r * 0.2, 0, x + drift, cy, r);
+      g.addColorStop(0, `rgba(74,70,66,${a})`);
+      g.addColorStop(0.55, `rgba(44,41,38,${a * 0.75})`);
+      g.addColorStop(1, 'rgba(40,38,36,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x + drift, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /** Flickering flame: layered teardrops, hot core inside. */
+  private flame(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, now: number, seed: number, still: boolean): void {
+    if (size <= 1) return;
+    const flick = still ? 0.5 : 0.5 + 0.5 * Math.sin(now / 70 + seed * 1.7) * Math.sin(now / 113 + seed);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = ctx.createRadialGradient(x, y - size * 0.4, 0, x, y - size * 0.4, size * 1.6);
+    glow.addColorStop(0, `rgba(255,140,50,${0.35 + flick * 0.15})`);
+    glow.addColorStop(1, 'rgba(255,90,20,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y - size * 0.4, size * 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    const layers: [number, string][] = [[1, 'rgba(232,84,28,0.75)'], [0.68, 'rgba(255,170,52,0.85)'], [0.38, 'rgba(255,240,180,0.9)']];
+    for (const [k, color] of layers) {
+      const h = size * k * (1.3 + flick * 0.35);
+      const w = size * k * 0.55;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x, y - h);
+      ctx.bezierCurveTo(x + w, y - h * 0.45, x + w * 0.9, y, x, y);
+      ctx.bezierCurveTo(x - w * 0.9, y, x - w, y - h * 0.45, x, y - h);
+      ctx.fill();
+    }
+  }
+
+  /** Burnt ground left by an explosion. */
+  private scorch(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, alpha: number): void {
+    if (alpha <= 0.01) return;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1, 0.5);
+    const g = ctx.createRadialGradient(0, 0, r * 0.1, 0, 0, r);
+    g.addColorStop(0, `rgba(18,14,10,${alpha})`);
+    g.addColorStop(0.7, `rgba(30,24,16,${alpha * 0.5})`);
+    g.addColorStop(1, 'rgba(30,24,16,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Soft-edged ground shadow (radial falloff instead of a hard ellipse). */
+  private softShadow(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, alpha: number): void {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, ry / rx);
+    const g = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx);
+    g.addColorStop(0, `rgba(8,14,6,${alpha})`);
+    g.addColorStop(0.6, `rgba(8,14,6,${alpha * 0.45})`);
+    g.addColorStop(1, 'rgba(8,14,6,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Biomass shrub: overlapping leaf clumps lit from the upper left, with
+   *  small fruit. Clump layout is stable per tile. */
+  private drawShrub(ctx: CanvasRenderingContext2D, sx: number, sy: number, U: number, tx: number, ty: number): void {
+    const clumps = 7;
+    for (let i = 0; i < clumps; i++) {
+      const a = (i / clumps) * Math.PI * 2 + hash01(tx + i, ty) * 0.8;
+      const r = i === clumps - 1 ? 0 : U * (0.28 + hash01(tx, ty + i) * 0.18);
+      const cx = sx + Math.cos(a) * r * 1.3;
+      const cy = sy - U * 0.5 + Math.sin(a) * r * 0.55 - (i === clumps - 1 ? U * 0.22 : 0);
+      const rr = U * (0.34 + hash01(tx + i * 3, ty + i) * 0.14);
+      const g = ctx.createRadialGradient(cx - rr * 0.35, cy - rr * 0.45, rr * 0.1, cx, cy, rr);
+      const h = 96 + hash01(tx * 2 + i, ty) * 18;
+      g.addColorStop(0, `hsl(${h}, 42%, 42%)`);
+      g.addColorStop(0.65, `hsl(${h + 6}, 46%, 25%)`);
+      g.addColorStop(1, `hsl(${h + 10}, 50%, 14%)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rr, rr * 0.86, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let i = 0; i < 9; i++) {
+      const bx = sx + (hash01(tx * 5 + i, ty * 3) - 0.5) * U * 1.25;
+      const by = sy - U * (0.32 + hash01(tx, ty * 7 + i) * 0.55);
+      const g = ctx.createRadialGradient(bx - U * 0.03, by - U * 0.03, 0, bx, by, U * 0.08);
+      g.addColorStop(0, '#ff8a7a');
+      g.addColorStop(1, '#8e1f2a');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(bx, by, U * 0.075, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -2389,13 +2876,13 @@ export class Renderer {
     if (alphaMul >= 1) this.poly(ctx, [T, R, B, L], 'rgba(0,0,0,0.13)');
 
     const concept = under ? null : this.conceptSprites.getBuilding(b.type);
-    const voxel = !concept && hasVoxelArt(b.type);
+    // Finished structures prefer rendered art: machine concept sprites, then the
+    // illustrated facility sprites. Voxel art remains for construction stages
+    // (they show authoritative build progress) and for types without art.
+    const spr = under || concept ? null : this.sprites.get(b.type, age);
+    const voxel = !concept && !spr && hasVoxelArt(b.type);
     ctx.globalAlpha = (under && !voxel ? 0.6 : 1) * alphaMul;
     let topY: number;
-    // Tech-diorama voxel art for every structure (construction stages come
-    // from authoritative progress inside the kit). The old PNG sprites stay
-    // only as a fallback for painters the kit does not cover.
-    const spr = under || voxel ? null : this.sprites.get(b.type, age);
     if (concept) {
       topY = this.drawConceptBuildingSprite(ctx, px, py, hh, b, s, concept);
     } else if (voxel) {
@@ -3506,61 +3993,7 @@ export class Renderer {
     const fogVis = (wx: number, wy: number): boolean =>
       this.gs.fog.isVisible(Math.floor(wx), Math.floor(wy));
 
-    // --- mortes: poça de sangue no chão + boneco tombando e sumindo ---
-    for (const d of this.gs.deaths) {
-      const u = d.unit;
-      const age = (now - d.at) / 1100;
-      if (age < 0 || age >= 1) continue;
-      if (!fogVis(u.x, u.y)) continue;
-      const sx = px(u.x, u.y);
-      const sy = py(u.x, u.y);
-      if (!onScreen(sx, sy)) continue;
-      const U = hh * (u.type === 'knight' ? 1.15 : u.type === 'villager' || u.type === 'designer' ? 0.82 : 0.95);
-      const bloodA = 0.5 * (1 - age) * Math.min(1, age * 6);
-      ctx.fillStyle = `rgba(120,22,20,${bloodA})`;
-      ctx.beginPath();
-      ctx.ellipse(sx, sy, U * (0.5 + age * 0.9), U * (0.22 + age * 0.4), 0, 0, Math.PI * 2);
-      ctx.fill();
-      const ease = 1 - (1 - Math.min(1, age * 2.2)) ** 2; // tomba rápido, depois some
-      const dir = u.id & 1 ? 1 : -1;
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, 1 - Math.max(0, age - 0.45) / 0.55);
-      ctx.translate(sx, sy);
-      // ~49° (não 86°): lê como corpo caindo, não "cabeça no chão".
-      ctx.rotate(dir * ease * 0.85);
-      ctx.translate(-sx, -sy);
-      this.drawUnitBody(ctx, u, sx, sy, U, now);
-      ctx.restore();
-    }
-    ctx.globalAlpha = 1;
-
-    // --- prédios destruídos: escombros + baforadas de fumaça subindo ---
-    for (const w of this.gs.wrecks) {
-      const b = w.building;
-      const age = (now - w.at) / 2300;
-      if (age < 0 || age >= 1) continue;
-      const s = BUILDING_DEFS[b.type]?.size ?? 1;
-      if (!fogVis(b.tileX + s / 2, b.tileY + s / 2)) continue;
-      const sx = px(b.tileX + s / 2, b.tileY + s / 2);
-      const sy = py(b.tileX + s / 2, b.tileY + s / 2);
-      if (!onScreen(sx, sy)) continue;
-      const U = hh * s;
-      ctx.globalAlpha = 1 - age;
-      this.rock(ctx, sx - U * 0.3, sy - U * 0.08, U * 0.34, U * 0.26, '#7d7a74', '#9c988f');
-      this.rock(ctx, sx + U * 0.28, sy, U * 0.3, U * 0.22, '#726f69', '#948f86');
-      this.rock(ctx, sx, sy - U * 0.02, U * 0.36, U * 0.26, '#83807a', '#a6a199');
-      ctx.globalAlpha = 1;
-      for (let i = 0; i < 3; i++) {
-        const t = (age + i * 0.33) % 1;
-        const smA = 0.32 * (1 - t) * Math.min(1, t * 5) * (1 - age);
-        if (smA <= 0) continue;
-        ctx.fillStyle = `rgba(70,66,60,${smA})`;
-        ctx.beginPath();
-        ctx.ellipse(sx + (i - 1) * U * 0.22, sy - t * U * 2.4 - U * 0.3, U * (0.28 + t * 0.4), U * (0.24 + t * 0.36), 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.globalAlpha = 1;
+    this.drawDestructionFx(ctx, px, py, hh, now, onScreen, fogVis);
 
     // --- flechas em voo (arco parabólico) — desenha uma flecha em progresso p ---
     const flight = 280;

@@ -88,7 +88,7 @@ export const B_H: Partial<Record<BuildingType, number>> = {
   mining_camp: 0.8, dock: 0.9, solar_array: 0.6, wind_turbine: 4.2,
   robotics_workshop: 2.2,
   design_studio: 1.6,
-  data_center: 1.6, elon_vault: 1.6, army_camp: 1.8,
+  data_center: 1.6, elon_vault: 1.6, army_camp: 1.1,
   drone_factory: 2.0, aerospace_hangar: 2.0, missile_foundry: 2.0,
   mech_forge: 2.0, exosuit_lab: 2.2,
 };
@@ -279,8 +279,9 @@ export class GameState {
     }
     // envelhece as listas de efeitos (curtas — nada acumula)
     if (this.hits.length) this.hits = this.hits.filter((h) => h.at > now - 850);
-    if (this.deaths.length) this.deaths = this.deaths.filter((d) => d.at > now - 1200);
-    if (this.wrecks.length) this.wrecks = this.wrecks.filter((w) => w.at > now - 2400);
+    // Kept long enough for scorch marks to fade out (the body/fireball ends at ~1.1 s).
+    if (this.deaths.length) this.deaths = this.deaths.filter((d) => d.at > now - 3200);
+    if (this.wrecks.length) this.wrecks = this.wrecks.filter((w) => w.at > now - 6200);
     for (const [id, t] of this.lastHit) if (t <= now - 220) this.lastHit.delete(id);
 
     this.units.clear();

@@ -55,6 +55,9 @@ export const CONCEPT_BUILDINGS: Partial<Record<BuildingType, AtlasDef>> = {
   watch_tower: { file: 'machine_rail_turret_v3.png', scale: 0.98, dropY: 0.18 },
   sensor_tower: { file: 'machine_rail_turret_v3.png', scale: 0.98, dropY: 0.18 },
   anti_air: { file: 'machine_missile_turret_v3.png', scale: 1.02, dropY: 0.18 },
+  // Late AI factories share the factory family silhouette.
+  aerospace_hangar: { file: 'machine_unit_factory_v3.png', scale: 1.05, dropY: 0.15 },
+  missile_foundry: { file: 'machine_unit_factory_v3.png', scale: 1.05, dropY: 0.15 },
 };
 
 export const CONCEPT_UNITS: Partial<Record<UnitType, AtlasDef>> = {
@@ -136,6 +139,9 @@ export const BUILDING_SPRITES: Partial<Record<BuildingType, SpriteFit>> = {
   // pro lado), então escala um pouco maior. Calibrado por print no jogo.
   dock: { file: 'symbiosis_river_terminal_v1.png', scale: 1.12, dropY: 0.2 },
   farm: { file: 'symbiosis_hydroponic_farm_v1.png', scale: 1.04, dropY: 0.12 },
+  // Model Lab: comms tower and server cabinets (the workshop draws its machine concept art).
+  design_studio: { file: 'symbiosis_robotics_workshop_v1.png', scale: 1.06, dropY: 0.16 },
+  army_camp: { file: 'symbiosis_mobility_command_v1.png', scale: 1.03, dropY: 0.16 },
   // The protection wall stays procedural because repeated 1×1 segments must
   // connect in every direction; a single bitmap cannot preserve those joins.
 };
