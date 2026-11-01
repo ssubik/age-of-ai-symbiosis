@@ -3,6 +3,7 @@
 // renderiza os snapshots que recebe.
 
 import type { MatchCommitment } from './proof-types';
+import type { CommanderAutonomy, CommanderPersona, StrategicObjective } from './commander';
 import type {
   BuildingSnap,
   ChainSnap,
@@ -45,6 +46,9 @@ export type GameCommand =
   | { kind: 'cancelTrain'; buildingId: number; index: number }
   | { kind: 'attack'; unitIds: number[]; targetId: number }
   | { kind: 'setRally'; buildingId: number; x: number; y: number }
+  | { kind: 'setCommander'; persona: CommanderPersona; autonomy: CommanderAutonomy }
+  | { kind: 'commanderOrder'; objective: StrategicObjective }
+  | { kind: 'cancelCommanderOrder' }
   // pesquisar a próxima era no Centro da Cidade
   | { kind: 'advanceAge' }
   // Home: physically upgrade a completed building one level (Hub = City Level).

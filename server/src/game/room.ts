@@ -120,6 +120,9 @@ import type {
   RaidOutcome,
   RaidPhase,
   RaidReport,
+  CommanderAutonomy,
+  CommanderPersona,
+  StrategicObjective,
 } from '@age/shared';
 import { DIFFICULTY, runBotAI } from './ai';
 import { generateHomeMap, generateMap } from './mapgen';
@@ -128,6 +131,7 @@ import { MatchLedger } from '../chain/ledger';
 import { needElon, rankStandings, reliabilityBonus, reliabilityPpm, stewardshipValue, type NeedSample } from './stewardship';
 import { createUnit, type Building, type GamePlayer, type ResNode, type Sheep, type Unit } from './state';
 import type { HomeProgression, HomeRaidData, HomeSave } from '../home/types';
+import { CommanderBrain, type CommanderFacts } from './commander';
 import { inDeployZone, snapshotChecksum } from '../raid/snapshot';
 import { newChainState, recordTx, sealBlock, verifyLedger, LEDGER_MAX_SETTLEMENTS, type HomeChainState } from '../home/ledger';
 import { createHash } from 'node:crypto';
@@ -252,6 +256,7 @@ export class Game {
   private knownAges = new Map<number, number>();
   private raids = new Map<number, ActiveRaid>();
   private nextRaidId = 1;
+  private commanders = new Map<number, CommanderBrain>();
   readonly homeMode: boolean;
   readonly raidMode: boolean;
   private raidSim: RaidSim | null = null;
@@ -338,6 +343,7 @@ export class Game {
         needServed: 0,
       });
       if (m.isBot) this.botIds.add(m.id);
+      this.commanders.set(m.id, new CommanderBrain());
     });
 
     // Unidades/prédios gerados vêm com owner = índice do jogador (0..n-1); remapeia para playerId real.
@@ -475,6 +481,7 @@ export class Game {
         if (bp && !bp.defeated) runBotAI(this, id);
       }
     }
+    if (!this.homeMode && !this.raidMode && this.tick % 10 === 0) this.updateCommanders();
 
     this.applyQueuedCommands();
     this.updateRaids();
@@ -564,6 +571,7 @@ export class Game {
         armyUsed: this.armyUsedOf(p.id),
         armyCapacity: this.armyCapacityOf(p.id),
         elonEvents: this.elonEvents.filter((e) => e.playerId === p.id).slice(-5),
+        ...(!this.homeMode && !this.raidMode ? { commander: this.commanders.get(p.id)?.view() } : {}),
         ...(this.symbiosis ? { power: { ...this.powerOf(p.id) }, score: this.liveScore(p.id) } : {}),
       });
     }
@@ -1241,6 +1249,15 @@ export class Game {
       case 'setRally':
         this.cmdSetRally(playerId, cmd.buildingId, cmd.x, cmd.y);
         break;
+      case 'setCommander':
+        this.cmdSetCommander(playerId, cmd.persona, cmd.autonomy);
+        break;
+      case 'commanderOrder':
+        this.cmdCommanderOrder(playerId, cmd.objective);
+        break;
+      case 'cancelCommanderOrder':
+        this.commanders.get(playerId)?.cancel();
+        break;
       case 'upgradeBuilding':
         if (this.homeMode) this.cmdUpgradeBuilding(playerId, cmd.buildingId);
         break;
@@ -1589,6 +1606,118 @@ export class Game {
   private gridFor(u: Unit): Grid {
     if (isFlyingUnit(u.type)) return this.airGrid;
     return isNavalUnit(u.type) ? this.navalGrid : this.grid;
+  }
+
+  private cmdSetCommander(playerId: number, persona: CommanderPersona, autonomy: CommanderAutonomy): void {
+    if (this.homeMode || this.raidMode) return;
+    this.commanders.get(playerId)?.configure(persona, autonomy);
+  }
+
+  private cmdCommanderOrder(playerId: number, objective: StrategicObjective): void {
+    if (this.homeMode || this.raidMode) return;
+    if ('x' in objective && (!Number.isFinite(objective.x) || !Number.isFinite(objective.y)
+      || objective.x < 0 || objective.y < 0 || objective.x >= this.grid.size || objective.y >= this.grid.size)) return;
+    if (objective.kind === 'attack_target') {
+      const unit = this.units.get(objective.targetId);
+      const building = this.buildings.get(objective.targetId);
+      const owner = unit?.owner ?? building?.owner;
+      if (owner === undefined || this.allied(owner, playerId)) return;
+    }
+    const brain = this.commanders.get(playerId);
+    if (!brain) return;
+    brain.issue(objective);
+    const evaluation = brain.evaluate(this.commanderFacts(playerId), true);
+    if (evaluation?.objective) this.applyCommanderObjective(playerId, evaluation.objective);
+  }
+
+  private updateCommanders(): void {
+    for (const player of this.players.values()) {
+      if (player.defeated || player.difficulty) continue;
+      const brain = this.commanders.get(player.id);
+      const evaluation = brain?.evaluate(this.commanderFacts(player.id));
+      if (evaluation?.objective) this.applyCommanderObjective(player.id, evaluation.objective);
+    }
+  }
+
+  private commanderArmy(playerId: number): Unit[] {
+    return [...this.units.values()].filter((unit) => unit.owner === playerId
+      && UNIT_DEFS[unit.type].attack > 0
+      && !isBuilderUnit(unit.type));
+  }
+
+  private commanderFacts(playerId: number): CommanderFacts {
+    const player = this.players.get(playerId)!;
+    const coreBuilding = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
+    const core = coreBuilding ? {
+      id: coreBuilding.id,
+      x: coreBuilding.tileX + BUILDING_DEFS.town_center.size / 2,
+      y: coreBuilding.tileY + BUILDING_DEFS.town_center.size / 2,
+    } : undefined;
+    const enemyCores = [...this.buildings.values()].filter((b) => b.type === 'town_center' && !this.allied(b.owner, playerId));
+    enemyCores.sort((a, b) => {
+      if (!core) return a.id - b.id;
+      const da = Math.hypot(a.tileX - core.x, a.tileY - core.y);
+      const db = Math.hypot(b.tileX - core.x, b.tileY - core.y);
+      return da - db || a.id - b.id;
+    });
+    const enemy = enemyCores[0];
+    const enemyCore = enemy ? {
+      id: enemy.id,
+      x: enemy.tileX + BUILDING_DEFS.town_center.size / 2,
+      y: enemy.tileY + BUILDING_DEFS.town_center.size / 2,
+    } : undefined;
+    const army = this.commanderArmy(playerId);
+    const armyHealth = army.length > 0
+      ? army.reduce((sum, unit) => sum + Math.min(1, unit.hp / Math.max(1, UNIT_DEFS[unit.type].hp)), 0) / army.length
+      : 1;
+    const recent = this.recentAttacks.get(playerId);
+    const entries = (Object.entries(player.resources) as [ResourceType, number][]).sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+    return {
+      tick: this.tick,
+      ...(core ? { core } : {}),
+      ...(enemyCore ? { enemyCore } : {}),
+      ...(recent && this.tick - recent.tick <= 100 ? { recentAttack: { x: recent.x, y: recent.y } } : {}),
+      armyReadiness: Math.min(1, army.length / 6),
+      armyHealth,
+      idleWorkers: [...this.units.values()].filter((u) => u.owner === playerId && u.type === 'villager' && u.state === 'idle').length,
+      lowestResource: entries[0]?.[0] ?? 'food',
+    };
+  }
+
+  private applyCommanderObjective(playerId: number, objective: StrategicObjective): void {
+    const army = this.commanderArmy(playerId);
+    const ids = army.map((unit) => unit.id);
+    const core = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
+    switch (objective.kind) {
+      case 'attack_target':
+        this.cmdAttack(playerId, ids, objective.targetId);
+        break;
+      case 'defend_area': {
+        const hostile = [...this.units.values()]
+          .filter((unit) => !this.allied(unit.owner, playerId) && Math.hypot(unit.x - objective.x, unit.y - objective.y) <= 10)
+          .sort((a, b) => Math.hypot(a.x - objective.x, a.y - objective.y) - Math.hypot(b.x - objective.x, b.y - objective.y))[0];
+        if (hostile) this.cmdAttack(playerId, ids, hostile.id);
+        else this.cmdMove(playerId, ids, objective.x, objective.y);
+        break;
+      }
+      case 'capture_zone':
+        this.cmdMove(playerId, ids, objective.x, objective.y);
+        break;
+      case 'prepare_offensive':
+      case 'retreat_regroup':
+        if (core) this.cmdMove(playerId, ids, core.tileX + 4.5, core.tileY + 4.5);
+        break;
+      case 'prioritize_resource': {
+        const workers = [...this.units.values()].filter((unit) => unit.owner === playerId && unit.type === 'villager' && unit.state === 'idle');
+        const candidates = [...this.nodes.values()].filter((node) => NODE_DEFS[node.type].resource === objective.resource);
+        for (const worker of workers) {
+          const target = candidates.reduce<ResNode | undefined>((best, node) => !best
+            || Math.hypot(node.tileX - worker.x, node.tileY - worker.y) < Math.hypot(best.tileX - worker.x, best.tileY - worker.y) ? node : best, undefined);
+          if (target) this.cmdGather(playerId, [worker.id], target.id);
+        }
+        break;
+      }
+    }
   }
 
   private cmdMove(playerId: number, unitIds: number[], x: number, y: number, queue = false): void {

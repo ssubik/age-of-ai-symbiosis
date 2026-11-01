@@ -5,6 +5,8 @@
 //  - Ids de unidades, prédios e nós de recurso vêm de um contador único
 //    (um id nunca se repete entre categorias — comandos usam targetId genérico).
 
+import type { CommanderView } from './commander';
+
 export type ResourceType = 'food' | 'wood' | 'gold' | 'stone';
 export type CityPath = 'command' | 'space';
 export type UnitType =
@@ -180,6 +182,8 @@ export interface PlayerSnap {
   power?: PowerSnap;
   /** Live stewardship score (Symbiosis). */
   score?: { stewardship: number; reliabilityPpm: number; bonus: number; score: number };
+  /** Player-facing strategic AI commander; absent for spectators and legacy servers. */
+  commander?: CommanderView;
 }
 
 /** Persistent Home-only status. The world still uses ordinary PlayerSnap,

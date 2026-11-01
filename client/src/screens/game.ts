@@ -1,6 +1,6 @@
 // Tela 4: Jogo — canvas fullscreen + HUD, câmera, input e renderização.
 
-import type { BuildingType, ExperienceMode, GameCommand, MapData, PlayerInfo, RaidAction, RaidArmy, ResourceType, UnitType } from '@age/shared';
+import type { BuildingType, CommanderAutonomy, CommanderDecision, CommanderPersona, ExperienceMode, GameCommand, MapData, PlayerInfo, RaidAction, RaidArmy, ResourceType, StrategicObjective, UnitType } from '@age/shared';
 import { AGE_COSTS, AGE_NAMES, BUILDING_DEFS, MAX_AGE, SYMBIOSIS_COMBAT_UNITS, buildingsToAdvance, countsForAgeUp, isBuilderUnit } from '@age/shared';
 import { GameState } from '../state';
 import { el } from '../ui';
@@ -152,10 +152,10 @@ export class GameScreen {
 
     if (experience === 'symbiosis' && !spectating) {
       this.el.classList.add('symbiosis-mode');
-      const council = el('aside', 'council-panel collapsed');
+      const council = el('aside', 'council-panel commander-panel');
       const head = el('button', 'council-head');
       head.appendChild(el('span', 'council-dot'));
-      head.appendChild(el('span', '', t('council.title')));
+      head.appendChild(el('span', '', 'AI COMMANDER'));
       head.appendChild(el('span', 'council-chevron', '▾'));
       this.councilText = el('div', 'council-text', t('council.waiting'));
       head.addEventListener('click', () => council.classList.toggle('collapsed'));
@@ -900,6 +900,18 @@ export class GameScreen {
       const txt = t('elon.score', { score: me.score.score.toFixed(1), rel: (me.score.reliabilityPpm / 10000).toFixed(0) });
       if (this.elonScore.textContent !== txt) this.elonScore.textContent = txt;
     }
+    if (me.commander) {
+      const last = me.commander.decisions[me.commander.decisions.length - 1];
+      const selectedTarget = [...this.state.selection].find((id) => {
+        const owner = this.state.units.get(id)?.owner ?? this.state.buildings.get(id)?.owner;
+        return owner !== undefined && !this.state.alliedOwners.has(owner);
+      });
+      const signature = `${me.commander.persona}:${me.commander.autonomy}:${me.commander.objective?.kind ?? ''}:${last?.id ?? 0}:${selectedTarget ?? 0}`;
+      if (signature === this.councilLastId) return;
+      this.councilLastId = signature;
+      this.renderCommander(me.commander.persona, me.commander.autonomy, me.commander.decisions, selectedTarget, me.resources);
+      return;
+    }
     let villagers = 0;
     let idleVillagers = 0;
     for (const unit of this.state.units.values()) {
@@ -927,6 +939,68 @@ export class GameScreen {
     this.councilText.innerHTML = '';
     this.councilText.appendChild(el('strong', '', t(`council.${advice.id}.action`)));
     this.councilText.appendChild(el('span', '', t(`council.${advice.id}.why`)));
+  }
+
+  private renderCommander(
+    persona: CommanderPersona,
+    autonomy: CommanderAutonomy,
+    decisions: CommanderDecision[],
+    selectedTarget: number | undefined,
+    resources: NonNullable<ReturnType<GameState['me']>>['resources'],
+  ): void {
+    if (!this.councilText) return;
+    this.councilText.innerHTML = '';
+    const title = persona === 'vanguard' ? 'VANGUARD · AGGRESSIVE' : persona === 'sentinel' ? 'SENTINEL · DEFENSIVE' : 'ARCHITECT · ECONOMIC';
+    this.councilText.appendChild(el('strong', 'commander-identity', title));
+    const group = (label: string): HTMLElement => {
+      const wrap = el('div', 'commander-group');
+      wrap.appendChild(el('span', 'commander-label', label));
+      this.councilText!.appendChild(wrap);
+      return wrap;
+    };
+    const personaRow = group('PERSONALITY');
+    for (const value of ['vanguard', 'sentinel', 'architect'] as CommanderPersona[]) {
+      const button = el('button', `commander-chip${value === persona ? ' active' : ''}`, value) as HTMLButtonElement;
+      button.addEventListener('click', () => this.deps.onCommand({ kind: 'setCommander', persona: value, autonomy }));
+      personaRow.appendChild(button);
+    }
+    const autonomyRow = group('AUTONOMY');
+    for (const value of ['manual', 'assisted', 'autonomous'] as CommanderAutonomy[]) {
+      const button = el('button', `commander-chip${value === autonomy ? ' active' : ''}`, value) as HTMLButtonElement;
+      button.addEventListener('click', () => this.deps.onCommand({ kind: 'setCommander', persona, autonomy: value }));
+      autonomyRow.appendChild(button);
+    }
+    const send = (label: string, objective: StrategicObjective, disabled = false): HTMLButtonElement => {
+      const button = el('button', 'commander-order', label) as HTMLButtonElement;
+      button.disabled = disabled;
+      button.addEventListener('click', () => this.deps.onCommand({ kind: 'commanderOrder', objective }));
+      return button;
+    };
+    const orders = group('STRATEGIC ORDERS');
+    orders.append(
+      send('Defend view', { kind: 'defend_area', x: this.cam.x, y: this.cam.y }),
+      send('Attack selected', { kind: 'attack_target', targetId: selectedTarget ?? -1 }, selectedTarget === undefined),
+      send('Capture view', { kind: 'capture_zone', x: this.cam.x, y: this.cam.y }),
+      send('Prepare', { kind: 'prepare_offensive' }),
+      send('Retreat', { kind: 'retreat_regroup' }),
+    );
+    const economy = group('PRODUCTION PRIORITY');
+    const alloyResource: ResourceType = (resources?.wood ?? 0) <= (resources?.stone ?? 0) ? 'wood' : 'stone';
+    economy.append(
+      send('Energy', { kind: 'prioritize_resource', resource: 'food' }),
+      send('Alloys', { kind: 'prioritize_resource', resource: alloyResource }),
+      send('Compute', { kind: 'prioritize_resource', resource: 'gold' }),
+    );
+    const recent = decisions.slice(-3).reverse();
+    const log = group('RECENT DECISIONS');
+    if (recent.length === 0) log.appendChild(el('span', 'commander-empty', 'Awaiting battlefield observations.'));
+    for (const decision of recent) {
+      const row = el('div', `commander-decision ${decision.outcome}`);
+      row.appendChild(el('b', '', decision.action));
+      row.appendChild(el('span', '', decision.reason));
+      row.title = decision.observation;
+      log.appendChild(row);
+    }
   }
 
   private updateLedger(): void {
