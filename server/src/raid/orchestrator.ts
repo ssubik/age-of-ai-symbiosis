@@ -105,12 +105,7 @@ export function replayOf(record: RaidSessionRecord): RaidReplay {
  *  destruction; a zero-star raid earns RAID_LOSS_REWARD_SHARE of that. */
 export function rewardFor(offer: Resources, outcome: RaidOutcome): Resources {
   const scale = (outcome.destruction / 100) * (outcome.stars > 0 ? 1 : RAID_LOSS_REWARD_SHARE);
-  return {
-    food: Math.floor(offer.food * scale),
-    wood: Math.floor(offer.wood * scale),
-    gold: Math.floor(offer.gold * scale),
-    stone: Math.floor(offer.stone * scale),
-  };
+  return { energy: Math.floor(offer.energy * scale), alloys: Math.floor(offer.alloys * scale), compute: Math.floor(offer.compute * scale) };
 }
 
 /** Applies a finished raid to Home exactly once. Re-running it for an already
@@ -152,8 +147,9 @@ export function settleRaid(home: Game, record: RaidSessionRecord, now: number): 
     replay: replayOf(record),
   };
   home.recordRaidSettlement(record.id, report);
+  home.markMilestone('firstRaid');
   home.recordHomeEvent('raid', `Raid on ${report.label}: ${report.stars}★ ${report.destruction}%`,
-    report.reward.food + report.reward.wood + report.reward.gold + report.reward.stone);
+    report.reward.energy + report.reward.alloys + report.reward.compute);
   // A player defender learns about it (and gets a shield) via the outbox, in
   // this same atomic save; delivery is retried until it lands (spec §6.6).
   if (record.defenderProfileId) {

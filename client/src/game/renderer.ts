@@ -4,7 +4,7 @@
 // substituídos por arte dedicada nas próximas etapas.
 
 import type { BuildingSnap, BuildingType, NodeSnap, NodeType, ResourceType, SheepSnap, UnitSnap } from '@age/shared';
-import { BUILDING_DEFS, buildingMaxHp, DEFENSE_DEFS, SHEEP_FOOD, TILE_GRASS, TILE_SHALLOW, TILE_WATER, UNIT_DEFS, isNavalUnit, techBonus } from '@age/shared';
+import { BUILDING_DEFS, buildingMaxHp, buildingRange, DEFENSE_DEFS, SHEEP_FOOD, TILE_GRASS, TILE_SHALLOW, TILE_WATER, UNIT_DEFS, isNavalUnit, techBonus } from '@age/shared';
 import type { GameState } from '../state';
 import type { Camera } from './camera';
 import { ISO_HH, ISO_HW } from './camera';
@@ -19,10 +19,9 @@ import { ghostTile, wallLineTiles } from './uistate';
 import { constructionFxPlan } from './constructionFx';
 
 export const RESOURCE_COLORS: Record<ResourceType, string> = {
-  food: '#d3625c',
-  wood: '#8b5e34',
-  gold: '#ecc73e',
-  stone: '#a8adb4',
+  energy: '#f2c14e',
+  alloys: '#9fb1c2',
+  compute: '#a98bfa',
 };
 
 export const MINIMAP_NODE_COLORS: Record<NodeType, string> = {
@@ -458,6 +457,9 @@ export class Renderer {
       ctx.drawImage(fogCanvas, 0, 0);
       ctx.restore();
     }
+
+    // --- attack range of selected ranged units and defenses ---
+    this.drawRangeRings(ctx, px, py, hh);
 
     // --- bandeiras de reunião ---
     for (const id of this.gs.selection) {
@@ -4682,6 +4684,60 @@ export class Renderer {
     this.drawGhostAt(ctx, px, py, hh, type, t.x, t.y, now);
   }
 
+  /** A world-space circle of `r` tiles, projected to the iso ground plane. */
+  private rangeRing(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+    cx: number,
+    cy: number,
+    r: number,
+    own: boolean,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(px(cx, cy), py(cx, cy), r * 2 * hh * Math.SQRT2, r * hh * Math.SQRT2, 0, 0, Math.PI * 2);
+    ctx.fillStyle = own ? 'rgba(84,219,233,0.06)' : 'rgba(244,121,117,0.07)';
+    ctx.fill();
+    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = own ? 'rgba(84,219,233,0.75)' : 'rgba(244,121,117,0.8)';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Attack range for every selected ranged unit (> 1.5 tiles) and defense. */
+  private drawRangeRings(
+    ctx: CanvasRenderingContext2D,
+    px: (x: number, y: number) => number,
+    py: (x: number, y: number) => number,
+    hh: number,
+  ): void {
+    const now = performance.now();
+    let drawn = 0;
+    for (const id of this.gs.selection) {
+      if (drawn >= 24) break; // a huge box-selection should not paint the map
+      const u = this.gs.units.get(id);
+      if (u) {
+        const techs = this.gs.playerSnaps.get(u.owner)?.techs;
+        const range = (UNIT_DEFS[u.type]?.range ?? 0) + (techs ? techBonus(techs, u.type).range : 0);
+        if (range <= 1.5) continue;
+        const pos = this.gs.unitPos(u, now);
+        this.rangeRing(ctx, px, py, hh, pos.x, pos.y, range, u.owner === this.gs.you || this.gs.alliedOwners.has(u.owner));
+        drawn++;
+        continue;
+      }
+      const b = this.gs.buildings.get(id);
+      if (!b || !DEFENSE_DEFS[b.type]) continue;
+      const owner = this.gs.playerSnaps.get(b.owner);
+      const size = BUILDING_DEFS[b.type]?.size ?? 1;
+      this.rangeRing(ctx, px, py, hh, b.tileX + size / 2, b.tileY + size / 2, buildingRange(b.type, owner?.age ?? 1, owner?.techs),
+        b.owner === this.gs.you || this.gs.alliedOwners.has(b.owner));
+      drawn++;
+    }
+  }
+
   /** Um fantasma de posicionamento num tile: diamante verde/vermelho + o prédio
    *  translúcido em cima. */
   private drawGhostAt(
@@ -4697,6 +4753,11 @@ export class Renderer {
     const def = BUILDING_DEFS[type];
     if (!def) return;
     const valid = this.gs.canPlace(type, tileX, tileY);
+    if (DEFENSE_DEFS[type]) {
+      // Coverage preview: where this defense will shoot once it stands.
+      const me = this.gs.playerSnaps.get(this.gs.you);
+      this.rangeRing(ctx, px, py, hh, tileX + def.size / 2, tileY + def.size / 2, buildingRange(type, me?.age ?? 1, me?.techs), true);
+    }
 
     // terreno ocupado (embaixo do prédio, mostra válido/inválido)
     this.isoDiamond(ctx, px, py, tileX, tileY, def.size);

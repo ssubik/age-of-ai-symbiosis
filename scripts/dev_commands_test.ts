@@ -23,9 +23,9 @@ async function main(): Promise<void> {
   assert.match(game.devCommand(1, '/age 9'), /Age must be/);
   assert.equal(game.devMatch, true, 'using a command flags the match');
 
-  const wood = p.resources.wood;
+  const wood = p.resources.alloys;
   game.devCommand(1, '/res 1234');
-  assert.equal(p.resources.wood, wood + 1234);
+  assert.equal(p.resources.alloys, wood + 1234);
   assert.match(game.devCommand(1, '/res abc'), /Not a number/);
 
   const first = [...game.buildings.values()][0];
@@ -74,10 +74,10 @@ async function main(): Promise<void> {
   assert.ok(outDev.some((m) => m.type === 'chat' && m.from === 'DEV' && /Age set to 3/.test(m.text)), 'dev gets a private reply');
   assert.ok(!outGuest.some((m) => m.type === 'chat'), 'other players never see dev commands');
 
-  const guestFood = g2.players.get(guest.id)!.resources.food;
+  const guestFood = g2.players.get(guest.id)!.resources.energy;
   outGuest.length = 0;
   lobby.handleMessage(guest.id, { type: 'chat', text: '/res 99999' });
-  assert.equal(g2.players.get(guest.id)!.resources.food, guestFood, 'other browsers cannot use dev commands');
+  assert.equal(g2.players.get(guest.id)!.resources.energy, guestFood, 'other browsers cannot use dev commands');
   assert.ok(outGuest.some((m) => m.type === 'chat' && m.from === 'guest'), 'their slash text is ordinary chat');
 
   outGuest.length = 0;

@@ -12,12 +12,12 @@ const symbiosisRoom: ServerMessage = { ...classicRoom, experience: 'symbiosis' }
 assert.equal(symbiosisRoom.experience, 'symbiosis');
 
 const observation = {
-  food: 250, wood: 250, gold: 100, stone: 100,
+  energy: 250, alloys: 350, compute: 100,
   population: 3, populationCap: 5, villagers: 3, age: 1, idleVillagers: 3,
 };
 assert.deepEqual(recommend(observation), recommend(observation), 'advisor must be deterministic');
 assert.equal(recommend(observation).id, 'housing', 'population safety has highest priority');
 assert.equal(recommend({ ...observation, populationCap: 10 }).id, 'workers');
-assert.equal(recommend({ ...observation, populationCap: 10, villagers: 6, food: 90 }).id, 'food');
+assert.equal(recommend({ ...observation, populationCap: 10, villagers: 6, energy: 90 }).id, 'energy');
 
 console.log('symbiosis compatibility and advisor determinism: PASS');

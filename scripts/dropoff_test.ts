@@ -27,17 +27,20 @@ const check = (label: string, got: { id: number; type: string } | null, wantId: 
 };
 
 // aldeão perto da origem (4,4) carregando cada recurso
-check('madeira -> Madeireira', g.findNearestDropOff(1, 4, 4, 'wood'), lumber.id);
-check('comida  -> Moinho', g.findNearestDropOff(1, 4, 4, 'food'), mill.id);
-check('ouro    -> Campo de Mineração', g.findNearestDropOff(1, 4, 4, 'gold'), mining.id);
-check('pedra   -> Campo de Mineração', g.findNearestDropOff(1, 4, 4, 'stone'), mining.id);
+check('madeira -> Madeireira', g.findNearestDropOff(1, 4, 4, 'alloys'), lumber.id);
+check('comida  -> Moinho', g.findNearestDropOff(1, 4, 4, 'energy'), mill.id);
+check('ouro    -> Campo de Mineração', g.findNearestDropOff(1, 4, 4, 'compute'), mining.id);
+// Ligas (antiga madeira + pedra) também são aceitas no Campo de Mineração: vale o mais perto.
+check('ligas perto da mina -> Campo de Mineração', g.findNearestDropOff(1, 4, 8, 'alloys'), mining.id);
 
 // mesmo com o Moinho MAIS PERTO, madeira NÃO vai pro Moinho (especializado)
-check('madeira ignora Moinho perto -> Madeireira', g.findNearestDropOff(1, 6, 5, 'wood'), lumber.id);
+check('madeira ignora Moinho perto -> Madeireira', g.findNearestDropOff(1, 6, 5, 'alloys'), lumber.id);
 
 // sem Madeireira: madeira cai no Centro da Cidade (aceita tudo), não no Moinho
 g.buildings.delete(lumber.id);
-check('madeira sem Madeireira -> Centro da Cidade', g.findNearestDropOff(1, 4, 4, 'wood'), tc.id);
+check('ligas sem Madeireira -> Campo de Mineração', g.findNearestDropOff(1, 4, 4, 'alloys'), mining.id);
+g.buildings.delete(mining.id);
+check('ligas sem depósitos -> Centro da Cidade', g.findNearestDropOff(1, 4, 4, 'alloys'), tc.id);
 
 console.log(fail === 0 ? '\nTODOS OS TESTES DE DROP-OFF PASSARAM' : `\n${fail} FALHA(S)`);
 process.exit(fail === 0 ? 0 : 1);

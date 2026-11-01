@@ -58,6 +58,9 @@ export interface HomeProgression {
   /** defenseSignature() of the last published snapshot. */
   publishedSignature: string;
   publishedSnapshotId?: string;
+  /** Telemetry: when the city was founded and first reached each milestone (ms). */
+  foundedAt?: number;
+  milestones?: Partial<Record<'level2' | 'level3' | 'level4' | 'level5' | 'firstRaid' | 'firstSettlement' | 'firstUnit', number>>;
 }
 
 /** Durable, engine-neutral-enough capture of one Home simulation. Live timers,
@@ -99,7 +102,12 @@ export interface HomeSaveV4 extends Omit<HomeSaveV3, 'version'> {
   chain: HomeChainState | null;
 }
 
-export type HomeSave = HomeSaveV4;
+/** V5 moves every resource record to the Energy / Alloys / Compute economy. */
+export interface HomeSaveV5 extends Omit<HomeSaveV4, 'version'> {
+  version: 5;
+}
+
+export type HomeSave = HomeSaveV5;
 
 export interface HomeLoadResult {
   save: HomeSave | null;

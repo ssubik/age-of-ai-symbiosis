@@ -34,7 +34,7 @@ type Internals = {
   developmentPointsOf(id: number): number;
   armyCapacityOf(id: number): number;
   queueSlotsOf(b: Building): number;
-  storageCapsOf(id: number): { wood: number };
+  storageCapsOf(id: number): { alloys: number };
   raidDefenseDamage(b: Building, base: number, target: unknown): number;
   raidDefenseRange(b: Building, base: number): number;
   tick: number;
@@ -102,7 +102,7 @@ async function progression(): Promise<void> {
   const g = newHome();
   const p = g.players.get(member.id)!;
   p.age = 2;
-  p.resources = { food: 9_000, wood: 9_000, gold: 9_000, stone: 9_000 };
+  p.resources = { energy: 9_000, alloys: 18000, compute: 9_000 };
   place(g, 'robotics_workshop');
   for (let i = 0; i < 5; i++) place(g, 'solar_array');
   const camp = place(g, 'army_camp');
@@ -118,28 +118,28 @@ async function progression(): Promise<void> {
   // Diminishing development for duplicates: 5 arrays are worth less than 5×.
   // Stock above capacity is kept; production simply stops (spec §3.1).
   for (let i = 0; i < 5; i++) io(g).step();
-  assert.equal(p.resources.gold, 9_000, 'stock above capacity is never destroyed');
+  assert.equal(p.resources.compute, 9_000, 'stock above capacity is never destroyed');
   const devBefore = io(g).developmentPointsOf(member.id);
   place(g, 'solar_array');
   const sixth = io(g).developmentPointsOf(member.id) - devBefore;
   assert.ok(sixth > 0 && sixth < 50 * 0.4, `6th solar array adds a diminished ${sixth}`);
 
   // Physical upgrade: paid once, building keeps working, level only on completion.
-  const woodBefore = p.resources.wood;
-  const capBefore = io(g).storageCapsOf(member.id).wood;
+  const woodBefore = p.resources.alloys;
+  const capBefore = io(g).storageCapsOf(member.id).alloys;
   g.enqueueCommand(member.id, { kind: 'upgradeBuilding', buildingId: lumber.id });
   io(g).step();
   assert.equal(lumber.upgradeTargetLevel, 2);
   assert.equal(lumber.progress, 1, 'upgrading building stays complete and working');
-  assert.ok(Math.abs(woodBefore - p.resources.wood - (homeUpgradeCost('lumber_camp', 2).wood ?? 0)) < 2, 'upgrade cost paid once');
+  assert.ok(Math.abs(woodBefore - p.resources.alloys - (homeUpgradeCost('lumber_camp', 2).alloys ?? 0)) < 2, 'upgrade cost paid once');
   g.enqueueCommand(member.id, { kind: 'upgradeBuilding', buildingId: lumber.id });
   io(g).step();
-  assert.ok(Math.abs(woodBefore - p.resources.wood - (homeUpgradeCost('lumber_camp', 2).wood ?? 0)) < 2, 'duplicate upgrade rejected');
-  assert.equal(io(g).storageCapsOf(member.id).wood, capBefore, 'no level effect before completion');
+  assert.ok(Math.abs(woodBefore - p.resources.alloys - (homeUpgradeCost('lumber_camp', 2).alloys ?? 0)) < 2, 'duplicate upgrade rejected');
+  assert.equal(io(g).storageCapsOf(member.id).alloys, capBefore, 'no level effect before completion');
   const builder = [...g.units.values()].find((u) => u.type === 'robot')!;
   stepUntil(g, () => builder.state === 'building' || levelOf(lumber) === 2);
   stepUntil(g, () => levelOf(lumber) === 2);
-  assert.ok(io(g).storageCapsOf(member.id).wood > capBefore, 'L2 depot stores more');
+  assert.ok(io(g).storageCapsOf(member.id).alloys > capBefore, 'L2 depot stores more');
 
   // Buildings cannot outgrow their city; camps grow capacity per level.
   const capacityL1 = io(g).armyCapacityOf(member.id);
@@ -353,7 +353,7 @@ async function playerSnapshots(): Promise<void> {
     for (let i = 0; i < 2_000 && !raid.raidOutcome; i++) raid.advance();
     const report = B.raidData.reports[0];
     assert.equal(report.raidId, record.id);
-    for (const k of ['food', 'wood', 'gold', 'stone'] as const) assert.ok(report.reward[k] <= report.earned[k], 'credit never exceeds what was earned');
+    for (const k of ['energy', 'alloys', 'compute'] as const) assert.ok(report.reward[k] <= report.earned[k], 'credit never exceeds what was earned');
     // Delivery runs right after the settlement save; wait for it to land.
     for (let i = 0; i < 50 && B.raidData.outbox.length; i++) await new Promise((r) => setTimeout(r, 20));
     assert.equal(B.raidData.outbox.length, 0, 'outbox drained after delivery');

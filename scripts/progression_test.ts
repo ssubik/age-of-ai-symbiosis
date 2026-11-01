@@ -16,7 +16,7 @@ const g: any = new Game(members as any, (_pid: number, msg: { type: string; code
 
 const p = g.players.get(1);
 p.age = 1;
-p.resources = { food: 9999, wood: 9999, gold: 9999, stone: 9999 };
+p.resources = { energy: 9999, alloys: 19998, compute: 9999 };
 g.buildings.clear();
 let id = 100;
 const addB = (type: string) => { const b = { id: ++id, owner: 1, type, tileX: 5, tileY: 5, hp: 999, progress: 1, queue: [] }; g.buildings.set(b.id, b); return b; };
@@ -45,7 +45,10 @@ check('2 casas: NÃO avança (casa não conta)', !tryAdvance());
 
 // 1 prédio elegível (quartel) basta pra sair da era 1 (estilo AoM)
 addB('barracks');
-check('1 quartel: AVANÇA (era 1 pede 1)', tryAdvance());
+// Camadas da IA: sair da camada de Energia exige um gerador concluído.
+check('1 quartel sem gerador: NÃO avança (camada de energia)', !tryAdvance());
+addB('solar_array');
+check('1 quartel + gerador: AVANÇA (era 1 pede 1)', tryAdvance());
 p.ageResearch = undefined;
 
 // era 2 pede 2 DIFERENTES: 2 arquearias não bastam; arquearia + ferraria sim
@@ -53,7 +56,9 @@ p.age = 2;
 addB('archery_range'); addB('archery_range');
 check('era 2 com 2 arquearias: NÃO avança (mesmo tipo vale 1)', !tryAdvance());
 addB('blacksmith');
-check('era 2 com arquearia + ferraria: AVANÇA', tryAdvance());
+check('era 2 sem Nó de Computação: NÃO avança (camada de computação)', !tryAdvance());
+addB('data_center');
+check('era 2 com arquearia + ferraria + computação: AVANÇA', tryAdvance());
 p.age = 1; p.ageResearch = undefined;
 for (const b of [...g.buildings.values()]) if (b.type === 'archery_range' || b.type === 'blacksmith') g.buildings.delete(b.id);
 addB('mill');

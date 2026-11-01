@@ -12,6 +12,29 @@ function safeProfileId(value: string): string {
   return value;
 }
 
+const LEGACY_RESOURCE: Record<string, 'energy' | 'alloys' | 'compute'> = { food: 'energy', wood: 'alloys', stone: 'alloys', gold: 'compute' };
+const LEGACY_RESOURCE_FIELDS = new Set(['carryType', 'gatherResource', 'resource']);
+
+/** Rewrites every legacy resource record in a save: objects made only of
+ *  numeric food/wood/gold/stone keys become energy/alloys/compute (wood and
+ *  stone are summed into alloys), and resource-typed string fields are renamed.
+ *  Nothing else changes, so hashed data (snapshots, ledger) keeps its hashes. */
+export function migrateLegacyResources(value: unknown, field = ''): unknown {
+  if (typeof value === 'string') return LEGACY_RESOURCE_FIELDS.has(field) && value in LEGACY_RESOURCE ? LEGACY_RESOURCE[value] : value;
+  if (Array.isArray(value)) return value.map((item) => migrateLegacyResources(item));
+  if (!value || typeof value !== 'object') return value;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 0 && entries.every(([k, v]) => k in LEGACY_RESOURCE && typeof v === 'number')) {
+    const out: Record<string, number> = {};
+    for (const [k, v] of entries) {
+      const next = LEGACY_RESOURCE[k];
+      out[next] = (out[next] ?? 0) + (v as number);
+    }
+    return out;
+  }
+  return Object.fromEntries(entries.map(([k, v]) => [k, migrateLegacyResources(v, k)]));
+}
+
 /** Ordered schema migrations, oldest first. Each takes version N to N+1. */
 const MIGRATIONS: Record<number, (record: Record<string, unknown>) => Record<string, unknown>> = {
   1: (v1) => ({ ...v1, version: 2, raid: { trophies: 0, scoutCounter: 0, active: null, reports: [], settled: [] } }),
@@ -33,8 +56,10 @@ const MIGRATIONS: Record<number, (record: Record<string, unknown>) => Record<str
   },
   // The city ledger starts (with a genesis block) the first time the save loads.
   3: (v3) => ({ ...v3, version: 4, chain: null }),
+  // Energy / Alloys / Compute economy (food → energy, wood + stone → alloys, gold → compute).
+  4: (v4) => ({ ...(migrateLegacyResources(v4) as Record<string, unknown>), version: 5 }),
 };
-const CURRENT_VERSION = 4;
+const CURRENT_VERSION = 5;
 
 export function migrateHomeSave(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;

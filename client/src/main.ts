@@ -12,6 +12,8 @@ import { getClientId, getSavedName, saveName } from './identity';
 import { GameScreen } from './screens/game';
 import { SettingsOverlay } from './screens/settings';
 import { LedgerPage } from './screens/ledger';
+import { SkirmishLauncher, savedSkirmishOptions, type SkirmishOptions } from './screens/skirmish';
+import { BattleReport } from './screens/report';
 import './style.css';
 import './watt.css';
 import './atlas.css';
@@ -35,6 +37,24 @@ let gamePaused = false;
 let gameSession: 'arena' | 'home' | 'raid' = 'home';
 // A short network hiccup reconnects on its own; only a lasting drop is shown.
 let connLostTimer: number | null = null;
+let lastSettlements: number | null = null;
+let myId = -1;
+let lastSkirmish: SkirmishOptions = savedSkirmishOptions();
+let reportView: BattleReport | null = null;
+
+// ---------------------------------------------------------------- skirmish
+
+function startSkirmish(options: SkirmishOptions): void {
+  lastSkirmish = options;
+  net.send({ type: 'startSkirmish', ...options });
+}
+const skirmishLauncher = new SkirmishLauncher(startSkirmish);
+document.body.appendChild(skirmishLauncher.el);
+function returnToCity(): void {
+  reportView?.el.remove();
+  reportView = null;
+  net.send({ type: 'enterHome' });
+}
 
 // ---------------------------------------------------------------- ledger page
 
@@ -66,8 +86,11 @@ const settingsOverlay = new SettingsOverlay({
     settingsOverlay.retranslate();
     ledgerPage.retranslate();
   },
-  // There is nothing to leave: the city is the game.
-  onLeaveRoom: () => settingsOverlay.hide(),
+  // In the city there is nothing to leave; in a skirmish, leaving concedes.
+  onLeaveRoom: () => {
+    settingsOverlay.hide();
+    if (gameSession === 'arena') returnToCity();
+  },
 });
 document.body.appendChild(settingsOverlay.el);
 
@@ -192,6 +215,9 @@ function dispatch(msg: ServerMessage): void {
       teardownGame();
       gamePaused = false;
       gameSession = msg.session ?? 'home';
+      myId = msg.you;
+      reportView?.el.remove();
+      reportView = null;
       gameScreen = new GameScreen(msg.map, msg.players, msg.you, {
         onCommand: (cmd: GameCommand) => net.send({ type: 'cmd', cmd }),
         onChat: (text) => net.send({ type: 'chat', text }),
@@ -199,10 +225,22 @@ function dispatch(msg: ServerMessage): void {
         onPing: (x, y) => net.send({ type: 'ping', x, y }),
         onRaid: (action) => net.send({ type: 'raid', action }),
         onOpenLedger: openLedger,
+        onSkirmish: () => skirmishLauncher.show(),
         // Reload the city (connection-lost overlay, raid views): back home.
         onBackToLobby: () => net.send(gameSession === 'raid' ? { type: 'raid', action: { kind: 'return' } } : { type: 'enterHome' }),
       }, false, false, 'symbiosis', gameSession);
       showScreen('game');
+      settingsOverlay.setLeaveContext(gameSession === 'arena', gameSession === 'arena');
+      break;
+    }
+    case 'gameOver': {
+      if (gameSession !== 'arena') break;
+      if (msg.report) {
+        reportView = new BattleReport(msg.report, myId, !!msg.won, { onHome: returnToCity, onRematch: () => startSkirmish(lastSkirmish) });
+        document.body.appendChild(reportView.el);
+      } else {
+        toast(msg.won ? 'Victory!' : 'Defeat.', 'info');
+      }
       break;
     }
     case 'gamePaused': {
@@ -231,7 +269,10 @@ function dispatch(msg: ServerMessage): void {
       break;
     }
     case 'ledger': {
-      ledgerPage.render(msg.view as HomeLedgerView);
+      const view = msg.view as HomeLedgerView;
+      if (lastSettlements !== null && view.settlements.length > lastSettlements) gameScreen?.playSettleCue();
+      lastSettlements = view.settlements.length;
+      ledgerPage.render(view);
       break;
     }
     default:

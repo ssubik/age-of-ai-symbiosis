@@ -7,7 +7,7 @@ const members = [{ id: 1, name: 'A', color: '#f00' }];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const g: any = new Game(members as any, () => {}, () => {});
 const p = g.players.get(1);
-p.resources = { food: 9999, wood: 9999, gold: 9999, stone: 9999 };
+p.resources = { energy: 9999, alloys: 19998, compute: 9999 };
 
 g.buildings.clear(); g.units.clear(); g.nodes.clear();
 const tc = { id: 1, owner: 1, type: 'town_center', tileX: 5, tileY: 5, hp: 1000, progress: 1, queue: [] as unknown[] };
@@ -37,15 +37,15 @@ const trial = (rx: number, ry: number) => {
 
 // centro do arbusto (12.5) — o caso que quebrava: round(12.5)=13 (nó não existe)
 let v = trial(12.5, 12.5);
-check('rally no centro (12.5): aldeão colhe COMIDA', !!v && v.gatherResource === 'food' && v.gatherTargetId === bush.id);
+check('rally no centro (12.5): aldeão colhe COMIDA', !!v && v.gatherResource === 'energy' && v.gatherTargetId === bush.id);
 
 // metade direita/baixo (12.8) — round arredondava pra 13 e falhava
 v = trial(12.8, 12.9);
-check('rally na borda (12.8): aldeão colhe COMIDA', !!v && v.gatherResource === 'food' && v.gatherTargetId === bush.id);
+check('rally na borda (12.8): aldeão colhe COMIDA', !!v && v.gatherResource === 'energy' && v.gatherTargetId === bush.id);
 
 // metade esquerda/cima (12.1) — já funcionava, mas confirma que não quebrou
 v = trial(12.1, 12.2);
-check('rally na borda (12.1): aldeão colhe COMIDA', !!v && v.gatherResource === 'food' && v.gatherTargetId === bush.id);
+check('rally na borda (12.1): aldeão colhe COMIDA', !!v && v.gatherResource === 'energy' && v.gatherTargetId === bush.id);
 
 // rally num ponto SEM recurso: aldeão só anda (não inventa coleta)
 v = trial(30.5, 30.5);
@@ -62,10 +62,10 @@ check('rally em chão vazio: NÃO tenta colher', !!v && v.gatherResource === und
 // errado ele (corretamente) nao inventa coleta — e e por isso que o cliente
 // PRECISA mandar o tile do recurso, nao o ponto do clique.
 v = trial(20.5, 20.5);
-check('rally no centro da ARVORE: aldeao corta LENHA', !!v && v.gatherResource === 'wood' && v.gatherTargetId === tree.id);
+check('rally no centro da ARVORE: aldeao corta LENHA', !!v && v.gatherResource === 'alloys' && v.gatherTargetId === tree.id);
 
 v = trial(20.9, 20.1);
-check('rally na borda da ARVORE: aldeao corta LENHA', !!v && v.gatherResource === 'wood' && v.gatherTargetId === tree.id);
+check('rally na borda da ARVORE: aldeao corta LENHA', !!v && v.gatherResource === 'alloys' && v.gatherTargetId === tree.id);
 
 // o tile VIZINHO (o que o clique na copa produzia): sem no, nao colhe — prova de
 // que mandar o ponto cru do clique era mesmo o que quebrava.
@@ -76,17 +76,17 @@ check('rally no tile VIZINHO da arvore: NAO colhe (era o bug do clique na copa)'
 // cliente e' generico pro tipo), entao ja deveriam funcionar sem mudanca nenhuma
 // aqui no servidor. Travando com teste pra nao virar suposicao. -------------
 v = trial(45.5, 45.5);
-check('rally no centro do OURO: aldeao minera OURO', !!v && v.gatherResource === 'gold' && v.gatherTargetId === gold.id);
+check('rally no centro do OURO: aldeao minera OURO', !!v && v.gatherResource === 'compute' && v.gatherTargetId === gold.id);
 
 v = trial(50.5, 50.5);
-check('rally no centro da PEDRA: aldeao minera PEDRA', !!v && v.gatherResource === 'stone' && v.gatherTargetId === stone.id);
+check('rally no centro da PEDRA: aldeao minera PEDRA', !!v && v.gatherResource === 'alloys' && v.gatherTargetId === stone.id);
 
 // --- OVELHA: a unica lacuna real (kind:'sheep' e' separado de kind:'node' no
 // pickAt do cliente, e o servidor nao tinha busca de ovelha no ponto de reuniao).
 // Ovelha nao tem tileX/tileY (e passavel, posicao continua) -> tile e' o floor. -
 sheep.owner = -1; // reseta: startGatherSheep muda o dono na hora
 v = trial(40.5, 40.5);
-check('rally na OVELHA: aldeao sai abatendo (comida)', !!v && v.gatherResource === 'food' && v.gatherTargetId === sheep.id);
+check('rally na OVELHA: aldeao sai abatendo (comida)', !!v && v.gatherResource === 'energy' && v.gatherTargetId === sheep.id);
 check('rally na OVELHA: ela vira do jogador na hora (abate)', sheep.owner === 1);
 
 // tile VIZINHO da ovelha: sem ovelha ali, nao inventa coleta

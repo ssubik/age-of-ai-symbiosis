@@ -397,6 +397,79 @@ export class Sfx {
     this.tone(690, 0.28, { type: 'triangle', gain: 0.2, glideTo: 430, delay: 0.43 });
   }
 
+  // ---------------------------------------------------------------- city weapons (spec §8.7)
+
+  private weaponWindowStart = 0;
+  private weaponWindowCount = 0;
+
+  /** At most 6 weapon cues per quarter second: a big fight stays readable. */
+  private weaponBudget(): boolean {
+    const now = performance.now();
+    if (now - this.weaponWindowStart > 250) { this.weaponWindowStart = now; this.weaponWindowCount = 0; }
+    return ++this.weaponWindowCount <= 6;
+  }
+
+  /** One shot of a weapon family; `gain` already includes distance falloff. */
+  weapon(kind: 'pulse' | 'cannon' | 'rocket' | 'plasma' | 'bomb' | 'arc' | 'turret' | 'slam', gain: number): void {
+    if (gain < 0.04 || !this.weaponBudget()) return;
+    const g = Math.min(1, gain);
+    switch (kind) {
+      case 'pulse': // crisp electronic burst
+        this.tone(1650, 0.06, { type: 'square', gain: 0.07 * g, glideTo: 1100 });
+        this.tone(2400, 0.04, { type: 'sine', gain: 0.05 * g, delay: 0.05, glideTo: 1500 });
+        break;
+      case 'cannon': // mechanical rhythmic shots
+        for (let i = 0; i < 3; i++) {
+          this.noise(0.035, { filter: 2600, type: 'bandpass', gain: 0.12 * g, delay: i * 0.07 });
+          this.tone(180, 0.04, { type: 'square', gain: 0.05 * g, delay: i * 0.07, glideTo: 120 });
+        }
+        break;
+      case 'rocket': // thump, flight hiss
+        this.tone(90, 0.16, { type: 'sine', gain: 0.22 * g, glideTo: 50 });
+        this.noise(0.55, { filter: 900, filterTo: 3200, type: 'bandpass', gain: 0.09 * g, delay: 0.04 });
+        break;
+      case 'plasma': // charging hum, bass impact
+        this.tone(140, 0.32, { type: 'sawtooth', gain: 0.06 * g, glideTo: 520, attack: 0.25 });
+        this.tone(60, 0.22, { type: 'sine', gain: 0.24 * g, delay: 0.3, glideTo: 38 });
+        break;
+      case 'bomb': // falling tone, heavy boom
+        this.tone(1300, 0.5, { type: 'sine', gain: 0.06 * g, glideTo: 260 });
+        this.noise(0.55, { filter: 600, filterTo: 90, gain: 0.32 * g, delay: 0.5 });
+        this.tone(55, 0.5, { type: 'sine', gain: 0.3 * g, delay: 0.5, glideTo: 32 });
+        break;
+      case 'arc': // snap crackle with a decaying tail
+        for (let i = 0; i < 4; i++) this.noise(0.03, { filter: 5200 - i * 900, type: 'highpass', gain: (0.14 - i * 0.03) * g, delay: i * 0.035 });
+        this.tone(3100, 0.12, { type: 'square', gain: 0.03 * g, glideTo: 900 });
+        break;
+      case 'turret': // point turret report
+        this.noise(0.07, { filter: 1800, type: 'bandpass', gain: 0.16 * g });
+        this.tone(230, 0.09, { type: 'square', gain: 0.07 * g, glideTo: 140 });
+        break;
+      case 'slam': // siege breaching arm
+        this.tone(70, 0.2, { type: 'sine', gain: 0.26 * g, glideTo: 42 });
+        this.clink(320, 0.08 * g);
+        break;
+    }
+  }
+
+  /** Low blast for a rocket/bomb impact or a destroyed structure. */
+  blast(gain: number): void {
+    if (gain < 0.04 || !this.weaponBudget()) return;
+    this.noise(0.45, { filter: 900, filterTo: 160, gain: 0.28 * Math.min(1, gain) });
+    this.tone(64, 0.36, { type: 'sine', gain: 0.22 * Math.min(1, gain), glideTo: 36 });
+  }
+
+  /** ELON settled into the ledger: a short ascending chime. */
+  settle(): void {
+    [660, 880, 1320].forEach((f, i) => this.tone(f, 0.32, { type: 'triangle', gain: 0.12, delay: i * 0.08 }));
+  }
+
+  /** A raid star secured. */
+  raidStar(): void {
+    this.tone(523, 0.18, { type: 'triangle', gain: 0.16, glideTo: 784 });
+    this.tone(1046, 0.3, { type: 'sine', gain: 0.1, delay: 0.12 });
+  }
+
   /** Pio sem formantes de voz: assobio senoidal com vibrato irregular e ar. */
   private owlWhistle(delay: number, dur: number, freq: number, gain: number): void {
     if (this.muted) return;

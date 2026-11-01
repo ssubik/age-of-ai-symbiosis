@@ -62,7 +62,7 @@ const farm: Building = {
 };
 game.buildings.set(farm.id, farm);
 internals.blockFootprint(farm.tileX, farm.tileY, BUILDING_DEFS.farm.size);
-game.players.get(member.id)!.resources.food = 0;
+game.players.get(member.id)!.resources.energy = 0;
 
 const temp = await mkdtemp(path.join(os.tmpdir(), 'age-home-'));
 try {
@@ -74,7 +74,7 @@ try {
   const restored = new Game([member], () => undefined, () => undefined, 'normal', 'classic', 'symbiosis', profileId, {
     session: 'home', homeState: loaded.save!, now: () => clock,
   });
-  assert.equal(restored.players.get(member.id)!.resources.food, 1_600, 'offline production is capped at eight hours');
+  assert.equal(restored.players.get(member.id)!.resources.energy, 1_600, 'offline production is capped at eight hours');
   assert.equal(restored.buildings.get(solar.id)!.progress, pausedSolarProgress, 'offline work requires an assigned builder');
   await repo.save(restored.captureHomeState(profileId));
   assert.ok((await repo.load(profileId)).save?.revision);

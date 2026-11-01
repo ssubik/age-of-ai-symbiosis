@@ -152,12 +152,12 @@ async function managerLoop(): Promise<void> {
     const act = (action: RaidAction) => manager.raid(11, action);
 
     // Scout: free, isolated raid view, ±1 City Level, pinned immutable snapshot.
-    const goldBefore = home.players.get(11)!.resources.gold;
+    const goldBefore = home.players.get(11)!.resources.compute;
     await act({ kind: 'scout' });
     assert.equal(lastSession(inbox)?.session, 'raid', 'scouting opens the raid view');
-    assert.equal(home.players.get(11)!.resources.gold, goldBefore, 'first scout is free');
+    assert.equal(home.players.get(11)!.resources.compute, goldBefore, 'first scout is free');
     await act({ kind: 'next' });
-    assert.equal(home.players.get(11)!.resources.gold, goldBefore - RAID_NEXT_SCOUT_GOLD, 'Next costs gold once');
+    assert.equal(home.players.get(11)!.resources.compute, goldBefore - RAID_NEXT_SCOUT_GOLD, 'Next costs gold once');
     const record = home.raidData.active as RaidSessionRecord;
     assert.equal(record.state, 'SCOUTING');
     assert.ok(Math.abs(record.snapshot.cityLevel - home.homeLevel) <= 1, 'matchmaking within ±1 level');
@@ -214,7 +214,7 @@ async function managerLoop(): Promise<void> {
     assert.equal(count(home, 'attack_drone'), 4, '2 at Home + 2 returned; 6 consumed');
     assert.equal(count(home, 'siege_mech'), 1, '1 returned; 1 consumed');
     const offer = RAID_REWARD_BY_LEVEL[record.snapshot.cityLevel];
-    for (const key of ['food', 'wood', 'gold', 'stone'] as const) {
+    for (const key of ['energy', 'alloys', 'compute'] as const) {
       assert.ok(report.reward[key] >= 0 && report.reward[key] <= offer[key], `reward ${key} bounded by pinned offer`);
       assert.ok(Math.abs(home.players.get(11)!.resources[key] - resourcesBefore[key] - report.reward[key]) < 1, `reward ${key} credited once`);
     }
@@ -325,7 +325,7 @@ async function managerLoop(): Promise<void> {
 function migration(): void {
   const v1 = { version: 1, profileId: 'd'.repeat(64) };
   const migrated = migrateHomeSave(v1) as { version: number; raid: unknown; progression: unknown };
-  assert.equal(migrated.version, 4, 'v1 migrates through every step to current');
+  assert.equal(migrated.version, 5, 'v1 migrates through every step to current');
   assert.deepEqual(migrated.raid, { trophies: 0, scoutCounter: 0, active: null, reports: [], settled: [], outbox: [] });
   assert.deepEqual(migrated.progression, { research: {}, shieldUntil: 0, defenseReports: [], publishedSignature: '' });
 }

@@ -16,7 +16,7 @@ export const RELIABILITY_BONUS_MAX = 50;
 /** Facility stewardship weight: a fixed share of its build cost. */
 export function stewardshipValue(type: BuildingType): number {
   const cost = BUILDING_DEFS[type].cost as Partial<Resources>;
-  const total = (cost.food ?? 0) + (cost.wood ?? 0) + (cost.gold ?? 0) + (cost.stone ?? 0);
+  const total = (cost.energy ?? 0) + (cost.alloys ?? 0) + (cost.compute ?? 0);
   return Math.max(1, Math.ceil(total / 25));
 }
 

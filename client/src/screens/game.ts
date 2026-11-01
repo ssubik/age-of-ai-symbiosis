@@ -1,7 +1,8 @@
 // Tela 4: Jogo — canvas fullscreen + HUD, câmera, input e renderização.
 
-import type { BuildingType, CommanderAutonomy, CommanderDecision, CommanderPersona, ExperienceMode, GameCommand, MapData, PlayerInfo, RaidAction, RaidArmy, ResourceType, StrategicObjective, UnitType } from '@age/shared';
-import { AGE_COSTS, AGE_NAMES, BUILDING_DEFS, MAX_AGE, SYMBIOSIS_COMBAT_UNITS, buildingsToAdvance, countsForAgeUp, isBuilderUnit } from '@age/shared';
+import type { BuildingType, Resources, CommanderAutonomy, CommanderPersona, CommanderPolicy, CommanderView, ExperienceMode, GameCommand, MapData, PlayerInfo, RaidAction, RaidArmy, ResourceType, StrategicObjective, UnitType } from '@age/shared';
+import { AGE_COSTS, AGE_NAMES, LAYER_GATE, layerGateMet, BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, MAX_AGE, SYMBIOSIS_COMBAT_UNITS, TICK_RATE, buildingsToAdvance, countsForAgeUp, isBuilderUnit } from '@age/shared';
+import { COMMANDER_INFO, OBJECTIVE_LABEL, OUTCOME_LABEL, clock, type CommanderPanel } from '../game/commanderui';
 import { GameState } from '../state';
 import { el } from '../ui';
 import { BUILDING_NAMES, RESOURCE_NAMES, t, UNIT_NAMES } from '../i18n';
@@ -27,6 +28,8 @@ export interface GameScreenDeps {
   onBackToLobby: () => void;
   /** Opens the city ledger page (activity log and ELON settlement). */
   onOpenLedger?: () => void;
+  /** Home: open the skirmish launcher. */
+  onSkirmish?: () => void;
   /** Persistent-Home raid requests (Home and raid sessions only). */
   onRaid?: (action: RaidAction) => void;
 }
@@ -55,6 +58,9 @@ export class GameScreen {
   private specEndOverlay: HTMLElement | null = null;
   private councilText: HTMLElement | null = null;
   private councilLastId = '';
+  private commanderPanel: CommanderPanel | null = null;
+  private commanderTarget: number | undefined;
+  private commanderPolicyEditedAt = 0;
   private elonValue: HTMLElement | null = null;
   private elonScore: HTMLElement | null = null;
   private chainHeight: HTMLElement | null = null;
@@ -70,6 +76,9 @@ export class GameScreen {
   private attackBtn: HTMLButtonElement | null = null;
   private goalPanel: HTMLElement | null = null;
   private homeBadge: HTMLElement | null = null;
+  private guideEl: HTMLElement | null = null;
+  private guideSig = '';
+  private guideCollapsed = false;
   private goalSig = '';
   private productionCycle = 0;
 
@@ -121,8 +130,15 @@ export class GameScreen {
       const ledger = el('button', 'home-ledger-btn', '⛓ Ledger');
       ledger.title = 'Open the city ledger: activity log and ELON settlement';
       ledger.addEventListener('click', () => this.deps.onOpenLedger?.());
-      bar.append(this.homeBadge, ledger);
+      const skirmish = el('button', 'home-ledger-btn home-skirmish-btn', '⚔ Skirmish');
+      skirmish.title = 'Leave the city for a 1v1 match with your AI commander (your city is saved)';
+      skirmish.addEventListener('click', () => this.deps.onSkirmish?.());
+      bar.append(this.homeBadge, ledger, skirmish);
       root.appendChild(bar);
+      this.guideEl = el('aside', 'city-guide');
+      this.guideEl.setAttribute('aria-label', 'City guide');
+      try { this.guideCollapsed = localStorage.getItem('ageofai:guideCollapsed') === '1'; } catch { /* storage blocked */ }
+      root.appendChild(this.guideEl);
     }
 
     this.canvas = el('canvas');
@@ -159,6 +175,8 @@ export class GameScreen {
       head.appendChild(el('span', 'council-chevron', '▾'));
       this.councilText = el('div', 'council-text', t('council.waiting'));
       head.addEventListener('click', () => council.classList.toggle('collapsed'));
+      // On phones the battlefield comes first: the commander opens on demand.
+      if (window.matchMedia?.('(max-width: 620px)').matches) council.classList.add('collapsed');
       council.appendChild(head);
       council.appendChild(this.councilText);
       const rail = el('div', 'sym-rail');
@@ -364,6 +382,83 @@ export class GameScreen {
     this.cam.centerOn(tc.tileX + size / 2, tc.tileY + size / 2);
   }
 
+  /** Selects and centres the player's first completed building of a type. */
+  private selectOwnBuilding(type: BuildingType): boolean {
+    const b = [...this.state.buildings.values()].find((x) => x.owner === this.state.you && x.type === type && (x.progress ?? 1) >= 1);
+    if (!b) return false;
+    const size = BUILDING_DEFS[b.type].size;
+    this.state.selection.clear();
+    this.state.selection.add(b.id);
+    this.cam.centerOn(b.tileX + size / 2, b.tileY + size / 2);
+    return true;
+  }
+
+  /** First-session guide. Every step is derived from authoritative state, so
+   *  it resumes after a reload and never disagrees with the city. */
+  private guideSteps(): { title: string; hint: string; done: boolean; show: () => void }[] {
+    const me = this.state.me();
+    const home = this.state.home;
+    const has = (type: BuildingType) => [...this.state.buildings.values()].some((b) => b.owner === this.state.you && b.type === type && (b.progress ?? 1) >= 1);
+    const build = (type: BuildingType) => () => { this.openBuildFlow(); this.input.startPlacement(type); };
+    const level = me?.age ?? 1;
+    return [
+      { title: 'Power the grid', hint: 'Place a Solar Field on an empty plot. Roads stay clear.', done: has('solar_array') || has('wind_turbine'), show: build('solar_array') },
+      { title: 'Build a Robotics Workshop', hint: 'It trains builders and runs unit research.', done: has('robotics_workshop'), show: build('robotics_workshop') },
+      { title: 'Reach City Level 2', hint: 'Select the Civic Hub and upgrade it once its checklist is complete.', done: level >= 2, show: () => this.selectTownCenter() },
+      { title: 'Build a Drone Factory', hint: 'Your first weapons plant.', done: has('drone_factory'), show: build('drone_factory') },
+      { title: 'Build an Army Camp', hint: 'Finished units dock here; a full camp pauses the factory.', done: has('army_camp'), show: build('army_camp') },
+      { title: 'Manufacture an Attack Drone', hint: 'Select the Drone Factory and queue a drone.', done: [...this.state.units.values()].some((u) => u.owner === this.state.you && u.type === 'attack_drone') || !!home?.lastReport, show: () => { this.selectOwnBuilding('drone_factory'); } },
+      { title: 'Raid a base', hint: 'Open Attack, scout a base, reserve your drones and deploy them in the cyan band.', done: !!home?.lastReport, show: () => { this.raidOpen = true; this.raidSig = ''; } },
+      { title: 'Research Attack Drone', hint: 'Select the Robotics Workshop and start drone research.', done: (home?.research.attack_drone ?? 0) >= 1, show: () => { this.selectOwnBuilding('robotics_workshop'); } },
+      { title: 'Settle ELON', hint: 'Open the ledger and settle your ELON into a sealed block.', done: (home?.elonSettled ?? 0) > 0, show: () => this.deps.onOpenLedger?.() },
+    ];
+  }
+
+  private updateGuide(): void {
+    const box = this.guideEl;
+    if (!box || !this.state.home) return;
+    const steps = this.guideSteps();
+    const doneCount = steps.filter((x) => x.done).length;
+    const current = steps.find((x) => !x.done);
+    const sig = `${doneCount}:${current?.title}:${this.guideCollapsed}`;
+    if (sig === this.guideSig) return;
+    this.guideSig = sig;
+    box.innerHTML = '';
+    box.classList.toggle('collapsed', this.guideCollapsed || !current);
+    const toggle = (collapsed: boolean) => {
+      this.guideCollapsed = collapsed;
+      try { localStorage.setItem('ageofai:guideCollapsed', collapsed ? '1' : '0'); } catch { /* storage blocked */ }
+      this.guideSig = '';
+    };
+    if (!current) {
+      box.appendChild(el('span', 'city-guide-done', '✓ City guide complete'));
+      return;
+    }
+    if (this.guideCollapsed) {
+      const open = el('button', 'city-guide-pill', `Guide · ${doneCount}/${steps.length}`);
+      open.addEventListener('click', () => toggle(false));
+      box.appendChild(open);
+      return;
+    }
+    const head = el('div', 'city-guide-head');
+    head.appendChild(el('span', 'city-guide-kicker', `City guide · ${doneCount + 1} of ${steps.length}`));
+    const hide = el('button', 'city-guide-hide', 'Hide');
+    hide.setAttribute('aria-label', 'Hide the city guide');
+    hide.addEventListener('click', () => toggle(true));
+    head.appendChild(hide);
+    box.appendChild(head);
+    const bar = el('div', 'city-guide-bar');
+    const fill = el('div', 'city-guide-fill');
+    fill.style.width = `${(doneCount / steps.length) * 100}%`;
+    bar.appendChild(fill);
+    box.appendChild(bar);
+    box.appendChild(el('strong', 'city-guide-title', current.title));
+    box.appendChild(el('p', 'city-guide-hint', current.hint));
+    const show = el('button', 'city-guide-show', 'Show me');
+    show.addEventListener('click', () => current.show());
+    box.appendChild(show);
+  }
+
   private selectTownCenter(): void {
     const tc = this.state.myTownCenter();
     if (!tc) return;
@@ -395,8 +490,11 @@ export class GameScreen {
       return { r, n, ok: owned >= n, have: owned };
     });
     const researching = me.ageProgress !== undefined;
-    const ready = have.size >= need && res.every((x) => x.ok);
-    const sig = `${age}:${researching ? Math.round((me.ageProgress ?? 0) * 100) : -1}:${have.size}:${res.map((x) => `${x.have >= x.n ? 'y' : x.have}`).join(',')}`;
+    const completed: BuildingType[] = [];
+    for (const b of this.state.buildings.values()) if (b.owner === this.state.you && b.progress >= 1) completed.push(b.type);
+    const layerOk = layerGateMet(age, completed);
+    const ready = have.size >= need && layerOk && res.every((x) => x.ok);
+    const sig = `${age}:${researching ? Math.round((me.ageProgress ?? 0) * 100) : -1}:${have.size}:${layerOk}:${res.map((x) => `${x.have >= x.n ? 'y' : x.have}`).join(',')}`;
     if (sig === this.goalSig) return;
     this.goalSig = sig;
     panel.classList.remove('hidden');
@@ -426,6 +524,8 @@ export class GameScreen {
       row.appendChild(body);
       panel.appendChild(row);
     };
+    const gate = LAYER_GATE[age];
+    if (gate) step(layerOk, t('goal.layer', { building: gate.map((type) => BUILDING_NAMES[type] ?? type).join(' / ') }), t(`goal.layer_why.${age}`));
     step(have.size >= need, t(need > 1 ? 'goal.build_many' : 'goal.build_one', { need, have: Math.min(have.size, need) }), options.length ? t('goal.examples', { list: options.join(', ') }) : undefined);
     for (const x of res) {
       const name = RESOURCE_NAMES[x.r];
@@ -448,10 +548,27 @@ export class GameScreen {
     add('＋', 'Build', () => this.openBuildFlow(), true);
     add('⚙', 'Produce', () => this.openProductionFlow());
     add('✦', 'Army', () => this.selectAllMilitary());
+    if (this.session === 'arena') {
+      // Skirmish: a strategic order — the commander assaults the enemy Command Core.
+      this.attackBtn = add('➤', 'Assault', () => this.orderAssault());
+      this.attackBtn.title = 'Order your commander to assault the enemy Command Core';
+      return dock;
+    }
     // highlighted only once raids are unlocked (level 5 Command Metropolis)
     this.attackBtn = add('➤', 'Attack', () => { this.raidOpen = !this.raidOpen; this.raidSig = ''; });
     this.attackBtn.title = 'Raids unlock at level 5 with a Command Metropolis';
     return dock;
+  }
+
+  private orderAssault(): void {
+    const mine = this.state.myTownCenter();
+    let target: { id: number; d: number } | undefined;
+    for (const b of this.state.buildings.values()) {
+      if (b.type !== 'town_center' || b.owner === this.state.you || this.state.alliedOwners.has(b.owner)) continue;
+      const d = mine ? Math.hypot(b.tileX - mine.tileX, b.tileY - mine.tileY) : 0;
+      if (!target || d < target.d) target = { id: b.id, d };
+    }
+    if (target) this.deps.onCommand({ kind: 'commanderOrder', objective: { kind: 'attack_target', targetId: target.id } });
   }
 
   private openBuildFlow(): void {
@@ -521,9 +638,53 @@ export class GameScreen {
 
   /** Toca sons de eventos detectando mudanças entre snapshots (era, pesquisa,
    *  treino concluído). Comparação barata por frame. */
+  /** Last projectile phase per shooter, to hear each launch exactly once. */
+  private shotPhase = new Map<number, number>();
+  private lastRaidStars = 0;
+
+  /** Weapon cues follow the same deterministic launch phase the renderer draws. */
+  private playWeaponSounds(now: number): void {
+    const ear = (x: number, y: number) => Math.max(0, 1 - Math.hypot(x - this.cam.x, y - this.cam.y) / 16);
+    const fired = (id: number, cooldownMs: number) => {
+      const phase = (now + id * 137) % cooldownMs;
+      const prev = this.shotPhase.get(id);
+      this.shotPhase.set(id, phase);
+      return prev !== undefined && phase < prev;
+    };
+    const UNIT_WEAPON: Partial<Record<UnitType, Parameters<Sfx['weapon']>[0]>> = {
+      attack_drone: 'pulse', fighter: 'cannon', rocket_launcher: 'rocket', plasma_tank: 'plasma',
+      stealth_bomber: 'bomb', aegis_valkyrie: 'arc', siege_mech: 'slam', iron_guardian: 'pulse',
+    };
+    for (const u of this.state.units.values()) {
+      const kind = UNIT_WEAPON[u.type];
+      if (!kind || u.state !== 'attacking') continue;
+      if (!fired(u.id, UNIT_DEFS[u.type].attackCooldown * 1000)) continue;
+      const p = this.state.unitPos(u, now);
+      this.sfx.weapon(kind, ear(p.x, p.y));
+    }
+    for (const b of this.state.buildings.values()) {
+      const def = DEFENSE_DEFS[b.type];
+      if (!def || b.targetId == null) continue;
+      if (!fired(b.id, def.cooldown * 1000)) continue;
+      const size = BUILDING_DEFS[b.type].size;
+      const kind = b.type === 'anti_air' ? 'rocket' : b.type === 'point_turret' ? 'turret' : 'pulse';
+      this.sfx.weapon(kind, ear(b.tileX + size / 2, b.tileY + size / 2) * 0.8);
+    }
+    const stars = this.state.raid?.stars ?? 0;
+    if (stars > this.lastRaidStars) this.sfx.raidStar();
+    this.lastRaidStars = stars;
+  }
+
+  /** Ledger settlement chime (called by the app when a settlement lands). */
+  playSettleCue(): void {
+    this.sfx.settle();
+  }
+
   private playEventSounds(now: number): void {
-    // coruja cruzando o céu: pio ocasional (~1x/min)
-    if (this.nextOwl === 0) this.nextOwl = now + 25000 + Math.random() * 35000;
+    if (this.session !== 'arena') this.playWeaponSounds(now);
+    // coruja cruzando o céu: pio ocasional (~1x/min) — só no Arena; a cidade é robótica
+    if (this.session !== 'arena') { /* no wildlife in the city */ }
+    else if (this.nextOwl === 0) this.nextOwl = now + 25000 + Math.random() * 35000;
     else if (now >= this.nextOwl) {
       this.sfx.owl();
       // Em média uma vez por minuto, mas nunca num intervalo mecânico.
@@ -643,6 +804,7 @@ export class GameScreen {
       this.updateRaidPanel();
       this.updateGoal();
       this.updateHomeStatus();
+      this.updateGuide();
       this.updateWatchBadge();
       this.checkDefeat();
       if (this.ctx) {
@@ -688,6 +850,7 @@ export class GameScreen {
     this.el.classList.toggle('raid-open', !panel.classList.contains('hidden'));
     if (this.session === 'home') { this.updateHomeRaidPanel(panel); return; }
     if (this.session === 'raid') { this.updateRaidSessionPanel(panel); return; }
+    if (this.session === 'arena') { panel.classList.add('hidden'); return; }
     const r = this.state.raid;
     const me = this.state.me();
     const sig = r
@@ -758,7 +921,7 @@ export class GameScreen {
     }
     panel.appendChild(el('div', 'raid-result-stars', r.stars ? '★'.repeat(r.stars) : 'NO STARS'));
     panel.appendChild(el('div', 'raid-result-destruction', `${r.destruction}% destroyed`));
-    panel.appendChild(el('p', 'raid-loot', `Loot  ${r.loot.food} food · ${r.loot.wood} materials · ${r.loot.gold} credits · ${r.loot.stone} minerals`));
+    panel.appendChild(el('p', 'raid-loot', `Loot  ${r.loot.energy} energy · ${r.loot.alloys} alloys · ${r.loot.compute} compute`));
     if (r.phase === 'replay') {
       const timeline = el('ol', 'raid-timeline');
       for (const event of r.events) timeline.appendChild(el('li', '', `${event.at.toFixed(1)}s  ${event.label}`));
@@ -781,7 +944,7 @@ export class GameScreen {
     const report = home?.lastReport;
     const defense = home?.defenseReports ?? [];
     const shieldMin = Math.ceil((home?.shieldSeconds ?? 0) / 60);
-    const sig = `home:${this.raidOpen}:${home?.trophies}:${report?.raidId}:${armySize}:${me?.resources?.gold}:${shieldMin}:${defense[0]?.raidId}`;
+    const sig = `home:${this.raidOpen}:${home?.trophies}:${report?.raidId}:${armySize}:${me?.resources?.compute}:${shieldMin}:${defense[0]?.raidId}`;
     this.attackBtn?.classList.toggle('accent', armySize > 0);
     this.attackBtn?.classList.toggle('locked', false);
     if (this.attackBtn) this.attackBtn.title = 'Scout a base and raid it with your manufactured army';
@@ -795,7 +958,7 @@ export class GameScreen {
     if (shieldMin > 0) panel.appendChild(el('p', 'raid-muted', 'Your city is shielded from raids. Deploying in a raid of your own breaks the shield.'));
     // Defense log: what attackers were paid by the system; nothing was taken from you.
     for (const d of defense.slice(0, 3)) {
-      panel.appendChild(el('p', 'raid-loot', `🛡 ${d.attacker} raided you · ${d.stars ? '★'.repeat(d.stars) : 'no stars'} · ${d.destruction}% · they earned ${d.attackerReward.gold} gold (system-funded)`));
+      panel.appendChild(el('p', 'raid-loot', `🛡 ${d.attacker} raided you · ${d.stars ? '★'.repeat(d.stars) : 'no stars'} · ${d.destruction}% · they earned ${d.attackerReward.compute} compute (system-funded)`));
     }
     if (report) {
       panel.appendChild(el('p', 'raid-loot', `Last: ${report.label} · ${report.stars ? '★'.repeat(report.stars) : 'no stars'} · ${report.destruction}% · ${report.trophiesDelta >= 0 ? '+' : ''}${report.trophiesDelta} 🏆`));
@@ -832,7 +995,7 @@ export class GameScreen {
       b.addEventListener('click', () => { this.raidDeploy = null; this.deps.onRaid?.(action); });
       panel.appendChild(b);
     };
-    const res = (x: { food: number; wood: number; gold: number; stone: number }) => `${x.food} food · ${x.wood} wood · ${x.gold} gold · ${x.stone} stone`;
+    const res = (x: Resources) => `${x.energy} energy · ${x.alloys} alloys · ${x.compute} compute`;
 
     if (v.report || r.phase === 'result') {
       const rep = v.report;
@@ -842,7 +1005,7 @@ export class GameScreen {
         const why = { timer: 'Time ran out', destroyed: 'Base destroyed', eliminated: 'Strike force lost', surrender: 'Surrendered' }[rep.reason];
         panel.appendChild(el('p', 'raid-muted', why));
         panel.appendChild(el('p', 'raid-loot', `Reward ${res(rep.reward)}`));
-        const lost = (['food', 'wood', 'gold', 'stone'] as const).filter((k) => (rep.earned?.[k] ?? 0) > rep.reward[k]);
+        const lost = (['energy', 'alloys', 'compute'] as const).filter((k) => (rep.earned?.[k] ?? 0) > rep.reward[k]);
         if (lost.length) panel.appendChild(el('p', 'raid-muted', `Storage full: ${lost.map((k) => `${(rep.earned[k] ?? 0) - rep.reward[k]} ${k}`).join(' · ')} could not be stored. Upgrade depots to hold more.`));
         panel.appendChild(el('p', 'raid-loot', `${rep.trophiesDelta >= 0 ? '+' : ''}${rep.trophiesDelta} 🏆 · ${rep.deployed} deployed · ${rep.returned} returned to camp`));
       }
@@ -870,7 +1033,7 @@ export class GameScreen {
       if (!any) panel.appendChild(el('p', 'raid-muted', 'No manufactured units at Home. Build a Drone Factory and an Army Camp.'));
       const chosen = Object.values(this.raidDraft).reduce((a, b) => a + b, 0);
       button('raid-primary', `Reserve ${chosen} unit${chosen === 1 ? '' : 's'}`, { kind: 'reserve', army: { ...this.raidDraft } }, chosen < 1);
-      button('raid-target', `Next base · ${v.nextScoutGold} gold`, { kind: 'next' }, (this.state.me()?.resources?.gold ?? 0) < v.nextScoutGold);
+      button('raid-target', `Next base · ${v.nextScoutGold} compute`, { kind: 'next' }, (this.state.me()?.resources?.compute ?? 0) < v.nextScoutGold);
       button('raid-target', 'Back home', { kind: 'cancel' });
       return;
     }
@@ -901,15 +1064,11 @@ export class GameScreen {
       if (this.elonScore.textContent !== txt) this.elonScore.textContent = txt;
     }
     if (me.commander) {
-      const last = me.commander.decisions[me.commander.decisions.length - 1];
-      const selectedTarget = [...this.state.selection].find((id) => {
+      this.commanderTarget = [...this.state.selection].find((id) => {
         const owner = this.state.units.get(id)?.owner ?? this.state.buildings.get(id)?.owner;
         return owner !== undefined && !this.state.alliedOwners.has(owner);
       });
-      const signature = `${me.commander.persona}:${me.commander.autonomy}:${me.commander.objective?.kind ?? ''}:${last?.id ?? 0}:${selectedTarget ?? 0}`;
-      if (signature === this.councilLastId) return;
-      this.councilLastId = signature;
-      this.renderCommander(me.commander.persona, me.commander.autonomy, me.commander.decisions, selectedTarget, me.resources);
+      this.renderCommander(me.commander);
       return;
     }
     let villagers = 0;
@@ -941,65 +1100,156 @@ export class GameScreen {
     this.councilText.appendChild(el('span', '', t(`council.${advice.id}.why`)));
   }
 
-  private renderCommander(
-    persona: CommanderPersona,
-    autonomy: CommanderAutonomy,
-    decisions: CommanderDecision[],
-    selectedTarget: number | undefined,
-    resources: NonNullable<ReturnType<GameState['me']>>['resources'],
-  ): void {
-    if (!this.councilText) return;
-    this.councilText.innerHTML = '';
-    const title = persona === 'vanguard' ? 'VANGUARD · AGGRESSIVE' : persona === 'sentinel' ? 'SENTINEL · DEFENSIVE' : 'ARCHITECT · ECONOMIC';
-    this.councilText.appendChild(el('strong', 'commander-identity', title));
+  /** Builds the commander controls once; later snapshots only update them, so a
+   *  slider being dragged is never rebuilt under the pointer. */
+  private buildCommanderPanel(): CommanderPanel {
+    const root = this.councilText!;
+    root.innerHTML = '';
+    const identity = el('strong', 'commander-identity');
+    const blurb = el('span', 'commander-blurb');
+    root.append(identity, blurb);
     const group = (label: string): HTMLElement => {
       const wrap = el('div', 'commander-group');
       wrap.appendChild(el('span', 'commander-label', label));
-      this.councilText!.appendChild(wrap);
+      root.appendChild(wrap);
       return wrap;
     };
+    const personaBtns = new Map<CommanderPersona, HTMLButtonElement>();
     const personaRow = group('PERSONALITY');
     for (const value of ['vanguard', 'sentinel', 'architect'] as CommanderPersona[]) {
-      const button = el('button', `commander-chip${value === persona ? ' active' : ''}`, value) as HTMLButtonElement;
-      button.addEventListener('click', () => this.deps.onCommand({ kind: 'setCommander', persona: value, autonomy }));
+      const button = el('button', 'commander-chip', COMMANDER_INFO[value].name);
+      button.title = COMMANDER_INFO[value].blurb;
+      button.addEventListener('click', () => this.deps.onCommand({ kind: 'setCommander', persona: value, autonomy: this.state.me()?.commander?.autonomy ?? 'assisted' }));
+      personaBtns.set(value, button);
       personaRow.appendChild(button);
     }
+    const autonomyBtns = new Map<CommanderAutonomy, HTMLButtonElement>();
     const autonomyRow = group('AUTONOMY');
+    const autonomyHelp: Record<CommanderAutonomy, string> = {
+      manual: 'Acts only on your strategic orders.',
+      assisted: 'Handles low-risk tasks (defense, idle workers, retreats) and recommends the rest.',
+      autonomous: 'Chooses objectives and spends within your limits. Your orders still override it.',
+    };
     for (const value of ['manual', 'assisted', 'autonomous'] as CommanderAutonomy[]) {
-      const button = el('button', `commander-chip${value === autonomy ? ' active' : ''}`, value) as HTMLButtonElement;
-      button.addEventListener('click', () => this.deps.onCommand({ kind: 'setCommander', persona, autonomy: value }));
+      const button = el('button', 'commander-chip', value);
+      button.title = autonomyHelp[value];
+      button.addEventListener('click', () => this.deps.onCommand({ kind: 'setCommander', persona: this.state.me()?.commander?.persona ?? 'sentinel', autonomy: value }));
+      autonomyBtns.set(value, button);
       autonomyRow.appendChild(button);
     }
-    const send = (label: string, objective: StrategicObjective, disabled = false): HTMLButtonElement => {
-      const button = el('button', 'commander-order', label) as HTMLButtonElement;
-      button.disabled = disabled;
-      button.addEventListener('click', () => this.deps.onCommand({ kind: 'commanderOrder', objective }));
+    const policyRow = group('AUTHORITY');
+    const sliders = {} as CommanderPanel['sliders'];
+    const sliderDefs: [keyof CommanderPolicy, string, string][] = [
+      ['risk', 'Risk', 'Low: attack only with a clear advantage. High: accept even fights.'],
+      ['aggression', 'Offense', 'Low: defensive posture. High: offensive posture.'],
+      ['spendLimit', 'Spending', 'Share of your stockpile the commander may spend each production cycle.'],
+    ];
+    for (const [key, label, help] of sliderDefs) {
+      const row = el('label', 'commander-slider');
+      row.title = help;
+      const input = el('input');
+      input.type = 'range';
+      input.min = '0';
+      input.max = '100';
+      input.step = '5';
+      const out = el('output');
+      input.addEventListener('input', () => { out.textContent = `${input.value}%`; });
+      input.addEventListener('change', () => {
+        this.commanderPolicyEditedAt = performance.now();
+        this.deps.onCommand({
+          kind: 'setCommanderPolicy',
+          policy: { risk: +sliders.risk.value / 100, aggression: +sliders.aggression.value / 100, spendLimit: +sliders.spendLimit.value / 100 },
+        });
+      });
+      row.append(el('span', '', label), input, out);
+      sliders[key] = input;
+      policyRow.appendChild(row);
+    }
+    const send = (label: string, help: string, objective: () => StrategicObjective): HTMLButtonElement => {
+      const button = el('button', 'commander-order', label);
+      button.title = help;
+      button.addEventListener('click', () => this.deps.onCommand({ kind: 'commanderOrder', objective: objective() }));
       return button;
     };
     const orders = group('STRATEGIC ORDERS');
+    const attack = send('Attack selected', 'Concentrate the army on the selected enemy unit or building.', () => ({ kind: 'attack_target', targetId: this.commanderTarget ?? -1 }));
     orders.append(
-      send('Defend view', { kind: 'defend_area', x: this.cam.x, y: this.cam.y }),
-      send('Attack selected', { kind: 'attack_target', targetId: selectedTarget ?? -1 }, selectedTarget === undefined),
-      send('Capture view', { kind: 'capture_zone', x: this.cam.x, y: this.cam.y }),
-      send('Prepare', { kind: 'prepare_offensive' }),
-      send('Retreat', { kind: 'retreat_regroup' }),
+      send('Defend here', 'Secure the sector at the center of your view.', () => ({ kind: 'defend_area', x: this.cam.x, y: this.cam.y })),
+      send('Protect core', 'Recall the army to guard your Command Core.', () => ({ kind: 'protect_core' })),
+      attack,
+      send('Capture here', 'Move to and hold the resource zone at the center of your view.', () => ({ kind: 'capture_zone', x: this.cam.x, y: this.cam.y })),
+      send('Prepare assault', 'Assemble the army at the Command Core.', () => ({ kind: 'prepare_offensive' })),
+      send('Retreat', 'Break contact and regroup at the Command Core.', () => ({ kind: 'retreat_regroup' })),
     );
-    const economy = group('PRODUCTION PRIORITY');
-    const alloyResource: ResourceType = (resources?.wood ?? 0) <= (resources?.stone ?? 0) ? 'wood' : 'stone';
-    economy.append(
-      send('Energy', { kind: 'prioritize_resource', resource: 'food' }),
-      send('Alloys', { kind: 'prioritize_resource', resource: alloyResource }),
-      send('Compute', { kind: 'prioritize_resource', resource: 'gold' }),
-    );
-    const recent = decisions.slice(-3).reverse();
-    const log = group('RECENT DECISIONS');
-    if (recent.length === 0) log.appendChild(el('span', 'commander-empty', 'Awaiting battlefield observations.'));
+    const economy = group('WORKER PRIORITY');
+    for (const resource of ['energy', 'alloys', 'compute'] as ResourceType[]) {
+      economy.appendChild(send(resource, `Move idle workers and a third of the others to ${resource}.`, () => ({ kind: 'prioritize_resource', resource })));
+    }
+    const status = group('CURRENT OBJECTIVE');
+    const active = el('span', 'commander-active', 'None');
+    const cancel = el('button', 'commander-order commander-cancel', 'Cancel order');
+    cancel.addEventListener('click', () => this.deps.onCommand({ kind: 'cancelCommanderOrder' }));
+    status.append(active, cancel);
+    const log = group('DECISION LOG');
+    const record = el('span', 'commander-record');
+    root.appendChild(record);
+    return { identity, blurb, personaBtns, autonomyBtns, sliders, attack, active, cancel, log, record, logSig: '' };
+  }
+
+  private renderCommander(view: CommanderView): void {
+    if (!this.councilText) return;
+    const panel = (this.commanderPanel ??= this.buildCommanderPanel());
+    const info = COMMANDER_INFO[view.persona];
+    panel.identity.textContent = `${info.name.toUpperCase()} · ${info.style}`;
+    panel.blurb.textContent = info.blurb;
+    for (const [value, button] of panel.personaBtns) button.classList.toggle('active', value === view.persona);
+    for (const [value, button] of panel.autonomyBtns) button.classList.toggle('active', value === view.autonomy);
+    // Server values win, except right after the player moved a slider (the echo is in flight).
+    const editing = performance.now() - this.commanderPolicyEditedAt < 1500;
+    for (const key of ['risk', 'aggression', 'spendLimit'] as (keyof CommanderPolicy)[]) {
+      const input = panel.sliders[key];
+      if (editing || document.activeElement === input) continue;
+      const value = String(Math.round(view.policy[key] * 100));
+      if (input.value !== value) input.value = value;
+      const out = input.nextElementSibling as HTMLOutputElement | null;
+      if (out) out.textContent = `${value}%`;
+    }
+    panel.attack.disabled = this.commanderTarget === undefined;
+    const run = view.active;
+    const seconds = run ? Math.max(0, Math.floor((this.state.tick - run.sinceTick) / TICK_RATE)) : 0;
+    panel.active.textContent = run
+      ? `${OBJECTIVE_LABEL[run.objective.kind]} · ${run.source === 'player' ? 'your order' : 'commander'} · ${seconds}s`
+      : view.objective ? `${OBJECTIVE_LABEL[view.objective.kind]} · queued` : 'None — holding.';
+    panel.cancel.hidden = !(run?.source === 'player' || view.objective);
+    const r = view.record;
+    panel.record.textContent = `${r.completed} completed · ${r.failed} failed · ${r.superseded} superseded · ${r.suggestions} suggestions`;
+    const sig = view.decisions.map((d) => `${d.id}:${d.outcome}`).join(',');
+    if (sig === panel.logSig) return;
+    panel.logSig = sig;
+    panel.log.querySelectorAll('.commander-decision, .commander-empty').forEach((node) => node.remove());
+    const recent = view.decisions.slice(-4).reverse();
+    if (recent.length === 0) panel.log.appendChild(el('span', 'commander-empty', 'Awaiting battlefield observations.'));
     for (const decision of recent) {
       const row = el('div', `commander-decision ${decision.outcome}`);
-      row.appendChild(el('b', '', decision.action));
-      row.appendChild(el('span', '', decision.reason));
-      row.title = decision.observation;
-      log.appendChild(row);
+      const head = el('div', 'commander-decision-head');
+      head.append(
+        el('span', 'commander-badge', OUTCOME_LABEL[decision.outcome]),
+        el('span', '', `${clock(decision.tick)} · ${decision.source === 'player' ? 'your order' : decision.commander}`),
+      );
+      row.append(head, el('b', '', decision.action), el('span', '', decision.reason));
+      row.appendChild(el('span', 'commander-expect', `Expected: ${decision.expected}`));
+      if (decision.result) row.appendChild(el('span', 'commander-result', `Result: ${decision.result}`));
+      row.title = `Observed: ${decision.observation}`;
+      if (decision.outcome === 'suggested' && decision.objective !== 'production') {
+        const approve = el('button', 'commander-order commander-approve', 'Authorize');
+        approve.hidden = !decision.proposal;
+        approve.title = 'Issue this recommendation as your order.';
+        approve.addEventListener('click', () => {
+          if (decision.proposal) this.deps.onCommand({ kind: 'commanderOrder', objective: decision.proposal });
+        });
+        row.appendChild(approve);
+      }
+      panel.log.appendChild(row);
     }
   }
 

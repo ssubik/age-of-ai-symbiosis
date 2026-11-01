@@ -1,7 +1,7 @@
 // Lobby: conexões, salas, chat e transição sala -> partida.
 
 import { MAX_PLAYERS_PER_ROOM, MIN_PLAYERS_TO_START, PLAYER_COLORS } from '@age/shared';
-import type { BotDifficulty, ClientMessage, ExperienceMode, GameMode, RoomPlayer, RoomSummary, ServerMessage, TerrainKind } from '@age/shared';
+import type { BotDifficulty, ClientMessage, CommanderAutonomy, CommanderPersona, ExperienceMode, GameMode, RoomPlayer, RoomSummary, ServerMessage, TerrainKind } from '@age/shared';
 import { Game, type RoomMember } from './game/room';
 import { writeChronicle, writeProof } from './archive/chronicle';
 import { proofAdapterFromEnv, safelySubmitProof } from './proofs';
@@ -48,6 +48,8 @@ interface Room {
   broadcast: boolean;
   lastActivity: number; // última ação na sala (Date.now) — p/ fechar sala ociosa
   matchNumber: number;
+  /** Quick 1v1 vertical slice started from the city (open warfare). */
+  skirmish?: boolean;
 }
 
 const ROOM_ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -212,6 +214,9 @@ export class Lobby {
       case 'enterArena':
         void this.enterArena(conn);
         break;
+      case 'startSkirmish':
+        void this.startSkirmish(conn, msg.difficulty, msg.persona, msg.autonomy);
+        break;
       case 'ledger':
         if (this.homes.has(conn.id)) {
           void this.homes.ledger(conn.id, msg.action).catch((error) => console.error('[home] ledger action failed', error));
@@ -352,6 +357,23 @@ export class Lobby {
     this.sendRoomListTo(conn);
   }
 
+  /** Vertical slice: save the city, then start a 1v1 against a bot at once.
+   *  The match is an ordinary room, so reconnect, surrender and archive all apply. */
+  private async startSkirmish(conn: Connection, difficulty: BotDifficulty = 'normal', persona: CommanderPersona = 'sentinel', autonomy: CommanderAutonomy = 'assisted'): Promise<void> {
+    if (!['easy', 'normal', 'hard', 'expert'].includes(difficulty)) difficulty = 'normal';
+    try { await this.homes.leave(conn.id); }
+    catch (error) { console.error('[home] failed to save before skirmish', error); }
+    if (!this.conns.has(conn.id)) return;
+    this.createRoom(conn);
+    const room = conn.roomId ? this.rooms.get(conn.roomId) : undefined;
+    if (!room) return;
+    room.broadcast = false;
+    room.skirmish = true;
+    for (const m of room.members.values()) if (m.isBot) m.difficulty = difficulty;
+    this.startGame(conn);
+    room.game?.enqueueCommand(conn.id, { kind: 'setCommander', persona, autonomy });
+  }
+
   /** Procura, entre as salas EM JOGO, uma vaga deste clientId cujo jogador ainda
    *  esteja vivo (não derrotado) — a partida que ele pode retomar. */
   private findResumableGame(clientId: string, excludeId: number): { room: Room; member: RoomPlayerState } | null {
@@ -393,7 +415,7 @@ export class Lobby {
     conn.send({ type: 'welcome', playerId: oldId });
     conn.send({ type: 'nameOk' });
     if (room.game) {
-      conn.send({ type: 'gameStart', map: room.game.map, players: room.game.toPlayerInfos(), you: oldId, fog: room.fog, experience: room.experience });
+      conn.send({ type: 'gameStart', map: room.game.map, players: room.game.toPlayerInfos(), you: oldId, fog: room.fog, experience: room.experience, session: 'arena' });
       // reconectou no meio de uma pausa: já mostra o overlay (senão veria o jogo congelado sem explicação)
       if (room.game.isPaused) conn.send({ type: 'gamePaused', paused: true, by: '' });
     }
@@ -857,6 +879,7 @@ export class Lobby {
       room.terrain,
       room.experience,
       `${room.id}-${room.matchNumber + 1}-${Date.now()}`,
+      room.skirmish ? { skirmish: true } : {},
     );
     room.game = game;
     room.inGame = true;
@@ -866,7 +889,7 @@ export class Lobby {
     for (const m of gameMembers) {
       const c = this.conns.get(m.id);
       if (!c) continue;
-      const msg: ServerMessage = { type: 'gameStart', map: game.map, players: playerInfos, you: m.id, fog: room.fog, experience: room.experience };
+      const msg: ServerMessage = { type: 'gameStart', map: game.map, players: playerInfos, you: m.id, fog: room.fog, experience: room.experience, session: 'arena' };
       c.send(msg);
     }
     game.start();
@@ -883,6 +906,7 @@ export class Lobby {
     if (finishedGame) {
       const summary = finishedGame.contributionSummary();
       const ledger = finishedGame.ledgerExport();
+      const report = finishedGame.matchReport();
       const recipients = [...room.members.keys()];
       const matchId = `${room.id}-${room.matchNumber}`;
       setImmediate(() => {
@@ -899,10 +923,11 @@ export class Lobby {
             buildingsConstructed: summary.facilities,
             unitsTrained: summary.elonEvents.filter((event) => event.reason.startsWith('trained:')),
             agesReached: summary.elonEvents.filter((event) => event.reason.startsWith('reached:')),
-            battles: [],
+            battles: report ? report.timeline.filter((event) => event.kind === 'major_engagement' || event.kind === 'structure_destroyed') : [],
             councilRecommendations: [],
           },
           ...(ledger ? { ledger } : {}),
+          ...(report ? { report } : {}),
         }).then(async (archive) => {
           const anchor = ledger ? { head: ledger.head, height: ledger.height } : undefined;
           // A match where developer shortcuts were used is archived locally

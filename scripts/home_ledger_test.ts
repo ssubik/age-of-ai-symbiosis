@@ -80,7 +80,7 @@ async function ledgerRules(): Promise<void> {
   const v3 = { ...g.captureHomeState('a1'.repeat(32)), version: 3 } as Record<string, unknown>;
   delete v3.chain;
   const migrated = migrateHomeSave(v3) as { version: number; chain: unknown };
-  assert.equal(migrated.version, 4);
+  assert.equal(migrated.version, 5);
   assert.equal(migrated.chain, null);
 }
 

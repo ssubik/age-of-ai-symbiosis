@@ -734,8 +734,8 @@ export class GameInput {
     const end = ghostTile(this.ui, this.cam, 'wall');
     const villagers = this.gs.selectedOwnUnits().filter((u) => isBuilderUnit(u.type));
     const unitIds = villagers.map((u) => u.id);
-    const cost = BUILDING_DEFS.wall.cost.stone ?? 10;
-    let budget = Math.floor((this.gs.me()?.resources?.stone ?? 0) / cost);
+    const cost = BUILDING_DEFS.wall.cost.alloys ?? 10;
+    let budget = Math.floor((this.gs.me()?.resources?.alloys ?? 0) / cost);
     let built = 0;
     for (const t of wallLineTiles(start, end)) {
       if (budget <= 0) break;

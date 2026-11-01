@@ -10,6 +10,8 @@ import {
   BUILDING_DEFS,
   buildingsToAdvance,
   countsForAgeUp,
+  LAYER_GATE,
+  layerGateMet,
   MAX_AGE,
   POP_CAP_MAX,
   POWER_DRAW,
@@ -170,7 +172,8 @@ export function runBotAI(game: Game, botId: number): void {
     if (b.progress >= 1 && countsForAgeUp(b.type, player.age)) haveAgeBuildings.add(b.type);
   }
   const ageNeed = buildingsToAdvance(player.age);
-  const ageReady = haveAgeBuildings.size >= ageNeed;
+  const completedTypes = buildings.filter((b) => b.progress >= 1).map((b) => b.type);
+  const ageReady = haveAgeBuildings.size >= ageNeed && layerGateMet(player.age, completedTypes);
   const ageCost = player.age < MAX_AGE ? (AGE_COSTS[player.age + 1] ?? {}) : {};
   const wantsAge = !player.ageResearch && player.age < MAX_AGE
     && villagers.length >= diff.ageGateVillagers + (player.age - 1) * 3;
@@ -233,7 +236,7 @@ export function runBotAI(game: Game, botId: number): void {
   const wallWip = wip.some((b) => b.type === 'wall');
   if (!startedBuilding && !advancingNow && !wallWip && player.age >= profile.wallAge
     && coreReadyForWalls(buildings, player.age)
-    && afford(BUILDING_DEFS.wall.cost, { stone: profile.stoneReserve })) {
+    && afford(BUILDING_DEFS.wall.cost, { alloys: profile.stoneReserve })) {
     const wallSpot = nextWallSpot(ctx, profile.wallRadius);
     if (wallSpot) startedBuilding = issueExactBuild(ctx, 'wall', wallSpot, 1);
   }
@@ -374,31 +377,31 @@ function assignIdleVillagers(
 ): void {
   const idle = villagers.filter((u) => u.state === 'idle' && u.carryAmount === 0);
   const farms = buildings.filter((b) => b.type === 'farm' && b.progress >= 1 && (b.foodLeft ?? 1) > 0);
-  const assigned: Record<ResourceType, number> = { food: 0, wood: 0, gold: 0, stone: 0 };
+  const assigned: Record<ResourceType, number> = { energy: 0, alloys: 0, compute: 0 };
   for (const villager of villagers) {
     if (villager.state !== 'idle' && villager.gatherResource) assigned[villager.gatherResource]++;
   }
   const weights: Record<ResourceType, number> = age <= 1
-    ? { food: 0.48, wood: 0.36, gold: 0.11, stone: 0.05 }
+    ? { energy: 0.48, alloys: 0.41, compute: 0.11 }
     : age === 2
-      ? { food: 0.46, wood: 0.32, gold: 0.17, stone: 0.05 }
-      : { food: 0.42, wood: 0.25, gold: 0.26, stone: 0.07 };
-  if (resources.food < 500) weights.food += 0.12;
-  if (resources.wood < 250) weights.wood += 0.1;
-  const needsWallStone = age >= profile.wallAge && resources.stone < profile.stoneReserve + 180;
-  if (needsWallStone) weights.stone += 0.16;
+      ? { energy: 0.46, alloys: 0.37, compute: 0.17 }
+      : { energy: 0.42, alloys: 0.32, compute: 0.26 };
+  if (resources.energy < 500) weights.energy += 0.12;
+  // Alloys cover both construction and walls (formerly wood and stone).
+  const alloyReserve = 250 + (age >= profile.wallAge ? profile.stoneReserve : 0);
+  if (resources.alloys < alloyReserve) weights.alloys += 0.12;
 
   for (const villager of idle) {
     const wanted = (Object.keys(weights) as ResourceType[])
       .sort((a, b) => (weights[b] * villagers.length - assigned[b]) - (weights[a] * villagers.length - assigned[a]))[0];
     let targetId: number | null = null;
-    if (wanted === 'food') {
+    if (wanted === 'energy') {
       // Ovelha próxima (selvagem ou já do bot) = comida rápida do início; abater
       // também "rouba" a selvagem pro bot. Preferida sobre frutas/fazenda perto.
       const sheep = nearestSheep(game, villager.x, villager.y, 12, botId);
       if (sheep) targetId = sheep.id;
     }
-    if (targetId === null && wanted === 'food' && farms.length > 0) {
+    if (targetId === null && wanted === 'energy' && farms.length > 0) {
       const berry = nearestNode(nodes, villager.x, villager.y, 'berry_bush');
       const farm = nearestBuilding(farms, villager.x, villager.y);
       if (farm && (!berry || distanceToNode(berry, villager.x, villager.y) > 12)) {
@@ -406,7 +409,7 @@ function assignIdleVillagers(
       }
     }
     if (targetId === null) {
-      const nodeType: NodeType = wanted === 'food' ? 'berry_bush' : wanted === 'wood' ? 'tree' : wanted === 'gold' ? 'gold_mine' : 'stone_mine';
+      const nodeType: NodeType = wanted === 'energy' ? 'berry_bush' : wanted === 'alloys' ? 'tree' : 'gold_mine';
       const target = nearestNode(nodes, villager.x, villager.y, nodeType) ?? nearestNode(nodes, villager.x, villager.y);
       targetId = target?.id ?? null;
     }
@@ -416,29 +419,6 @@ function assignIdleVillagers(
     }
   }
 
-
-  // Construir uma torre pode consumir toda a pedra inicial. Se nenhum aldeao
-  // estiver mais na pedra, realoca ate dois trabalhadores e depois os deixa
-  // seguir normalmente; sem isso a muralha jamais comecaria.
-  const desiredStoneWorkers = needsWallStone ? (villagers.length >= 12 ? 2 : 1) : 0;
-  const home = buildings.find((b) => b.type === 'town_center');
-  const homeCenter = home ? buildingCenter(home) : { x: villagers[0]?.x ?? 0, y: villagers[0]?.y ?? 0 };
-  const stoneTarget = desiredStoneWorkers > assigned.stone
-    ? nearestNode(nodes, homeCenter.x, homeCenter.y, 'stone_mine')
-    : null;
-  if (stoneTarget) {
-    const candidates = villagers
-      .filter((u) => u.gatherResource !== 'stone' && u.state !== 'building' && u.state !== 'movingToBuild' && u.state !== 'movingToGarrison')
-      .sort((a, b) => {
-        const aSurplus = a.gatherResource ? assigned[a.gatherResource] - weights[a.gatherResource] * villagers.length : 10;
-        const bSurplus = b.gatherResource ? assigned[b.gatherResource] - weights[b.gatherResource] * villagers.length : 10;
-        return bSurplus - aSurplus;
-      });
-    for (const worker of candidates.slice(0, desiredStoneWorkers - assigned.stone)) {
-      game.enqueueCommand(botId, { kind: 'gather', unitIds: [worker.id], targetId: stoneTarget.id });
-      assigned.stone++;
-    }
-  }
 }
 
 /** Ovelha mais próxima que o bot pode comer (selvagem ou já dele) dentro do raio. */
@@ -517,7 +497,16 @@ function ensureFarms(
   }, 1);
 }
 
-function nextAgeRequirement(age: number, buildings: Building[]): BuildingType | null {
+export function nextAgeRequirement(age: number, buildings: Building[]): BuildingType | null {
+  // The layer gate comes first: no amount of other buildings unlocks the next layer.
+  const gate = LAYER_GATE[age];
+  if (gate && !buildings.some((b) => gate.includes(b.type))) {
+    const buildable = gate.find((type) => {
+      const req = BUILDING_DEFS[type].requires;
+      return BUILDING_DEFS[type].ageReq <= age && (!req || buildings.some((b) => b.type === req && b.progress >= 1));
+    });
+    if (buildable) return buildable;
+  }
   const preferred: Record<number, BuildingType[]> = {
     1: ['barracks', 'mill', 'lumber_camp', 'mining_camp'],
     2: ['blacksmith', 'market', 'archery_range', 'watch_tower'],
@@ -947,4 +936,27 @@ function flood(grid: Grid, start: Pt): Uint8Array {
     }
   }
   return visited;
+}
+
+/** Player commander: place one structure with the bot's planner (same spot
+ *  scoring, connectivity and builder choice). False when no legal site exists. */
+export function commanderBuild(game: Game, playerId: number, type: BuildingType): boolean {
+  const units = [...game.units.values()].filter((u) => u.owner === playerId);
+  const buildings = [...game.buildings.values()].filter((b) => b.owner === playerId);
+  const tc = buildings.find((b) => b.type === 'town_center');
+  if (!tc) return false;
+  const base = buildingCenter(tc);
+  const enemy = nearestEnemyBuilding(game, playerId, base.x, base.y);
+  const enemyPoint = enemy ? buildingCenter(enemy) : { x: game.grid.size / 2, y: game.grid.size / 2 };
+  const ctx: PlanContext = {
+    game, botId: playerId, tc, units, buildings, base,
+    // Gathering villagers keep working; the planner prefers idle ones and automation.
+    villagers: units.filter((u) => u.type === 'villager'),
+    automation: units.filter((u) => SYMBIOSIS_UNITS.has(u.type)),
+    nodes: [...game.nodes.values()],
+    enemyDir: normalized(enemyPoint.x - base.x, enemyPoint.y - base.y),
+    anchor: findBaseAnchor(game.grid, tc),
+    reachableBefore: null,
+  };
+  return issueBuild(ctx, type, requestForType(ctx, type), type === 'house' || type === 'watch_tower' ? 1 : 2);
 }

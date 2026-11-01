@@ -3,7 +3,7 @@
 // renderiza os snapshots que recebe.
 
 import type { MatchCommitment } from './proof-types';
-import type { CommanderAutonomy, CommanderPersona, StrategicObjective } from './commander';
+import type { CommanderAutonomy, CommanderPersona, CommanderPolicy, MatchReport, StrategicObjective } from './commander';
 import type {
   BuildingSnap,
   ChainSnap,
@@ -49,6 +49,7 @@ export type GameCommand =
   | { kind: 'setCommander'; persona: CommanderPersona; autonomy: CommanderAutonomy }
   | { kind: 'commanderOrder'; objective: StrategicObjective }
   | { kind: 'cancelCommanderOrder' }
+  | { kind: 'setCommanderPolicy'; policy: CommanderPolicy }
   // pesquisar a próxima era no Centro da Cidade
   | { kind: 'advanceAge' }
   // Home: physically upgrade a completed building one level (Hub = City Level).
@@ -59,7 +60,7 @@ export type GameCommand =
   // pesquisar uma tecnologia/upgrade num prédio
   | { kind: 'research'; buildingId: number; techId: string }
   // Mercado: comprar/vender 1 lote (100) de recurso por ouro (requer mercado pronto)
-  | { kind: 'trade'; action: 'buy' | 'sell'; resource: 'food' | 'wood' | 'stone' }
+  | { kind: 'trade'; action: 'buy' | 'sell'; resource: 'energy' | 'alloys' }
   | { kind: 'scoutRaid'; defenderId: number }
   | { kind: 'setRaidArmy'; army: RaidArmy }
   | { kind: 'startRaid' }
@@ -68,7 +69,7 @@ export type GameCommand =
   | { kind: 'closeRaid' };
 
 /** Preços do mercado (ouro por lote de 100), compartilhados pela sala. */
-export type MarketPrices = Record<'food' | 'wood' | 'stone', number>;
+export type MarketPrices = Record<'energy' | 'alloys', number>;
 
 /** Modo da partida: 'normal' (economia do zero) ou 'batalha' (recursos de sobra,
  * já numa era avançada — jogo rápido, direto pro combate). */
@@ -106,6 +107,8 @@ export type ClientMessage =
   | { type: 'setName'; name: string; clientId?: string }
   | { type: 'enterHome' }
   | { type: 'enterArena' }
+  // Leave the city for a 1v1 vertical-slice match against a bot opponent.
+  | { type: 'startSkirmish'; difficulty?: BotDifficulty; persona?: CommanderPersona; autonomy?: CommanderAutonomy }
   | { type: 'raid'; action: RaidAction }
   | { type: 'ledger'; action: LedgerAction }
   | { type: 'setMode'; mode: GameMode } // apenas host: escolhe Normal/Batalha na sala
@@ -205,7 +208,7 @@ export type ServerMessage =
   //   'closed'      — o host fechou a transmissão (a partida pode seguir)
   | { type: 'spectateEnded'; reason: 'closed' | 'gameOver' | 'surrendered'; winnerName?: string; who?: string }
   // `won` (opcional) diz se VOCÊ venceu — necessário em times (vitória em dupla).
-  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean; contributions?: { playerId: number; name: string; elon: number }[]; standings?: Standing[]; /** Developer shortcuts were used: scores are not comparable. */ dev?: boolean }
+  | { type: 'gameOver'; winner: number; winnerName: string; won?: boolean; contributions?: { playerId: number; name: string; elon: number }[]; standings?: Standing[]; /** Developer shortcuts were used: scores are not comparable. */ dev?: boolean; /** Post-battle intelligence (arena matches). */ report?: MatchReport }
   // Partida pausada/retomada (para TODOS da sala). `by` = quem mexeu (mostra na tela).
   | { type: 'gamePaused'; paused: boolean; by: string }
   // Sinalização no minimapa (só chega aos ALIADOS do autor). `color` = cor do autor.

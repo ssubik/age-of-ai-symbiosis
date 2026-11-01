@@ -24,7 +24,7 @@ type Internals = {
 
 const member = { id: 5, name: 'Phase Two', color: '#39c6e8' };
 const profileId = 'c'.repeat(64);
-const rich: Resources = { food: 1_500, wood: 1_500, gold: 1_400, stone: 1_400 };
+const rich: Resources = { energy: 1_500, alloys: 2900, compute: 1_400 };
 const droneCost = UNIT_DEFS.attack_drone.cost;
 let clock = 2_000_000_000_000;
 
@@ -92,8 +92,8 @@ function paymentAndBlocking(): void {
 
   train(game, factory);
   assert.equal(factory.queue.length, 1);
-  near(player.resources.wood, rich.wood - droneCost.wood!, 'wood deducted once at queue time');
-  near(player.resources.gold, rich.gold - droneCost.gold!, 'gold deducted once at queue time');
+  near(player.resources.alloys, rich.alloys - droneCost.alloys!, 'wood deducted once at queue time');
+  near(player.resources.compute, rich.compute - droneCost.compute!, 'gold deducted once at queue time');
   assert.ok(player.elonBalance >= elon, 'Home manufacturing never spends ELON');
   assert.deepEqual(factory.queue[0].paid, droneCost, 'payment recorded on the job');
 
@@ -106,7 +106,7 @@ function paymentAndBlocking(): void {
   game.enqueueCommand(member.id, { kind: 'cancelTrain', buildingId: factory.id, index: 0 });
   io(game).step();
   assert.equal(factory.queue.length, 1, 'finished units cannot be cancelled');
-  assert.ok(player.resources.wood <= before.wood + 1 && player.resources.gold <= before.gold + 1, 'no refund for finished units');
+  assert.ok(player.resources.alloys <= before.alloys + 1 && player.resources.compute <= before.compute + 1, 'no refund for finished units');
 
   // Building a camp unblocks the factory: the unit departs and docks physically.
   const camp = addCompleted(game, 'army_camp');
@@ -150,23 +150,23 @@ function cancelRefunds(): void {
 
   game.enqueueCommand(member.id, { kind: 'cancelTrain', buildingId: factory.id, index: 1 });
   io(game).step();
-  near(player.resources.wood, afterQueue.wood + droneCost.wood!, 'unstarted job refunds 100%');
-  near(player.resources.gold, afterQueue.gold + droneCost.gold!, 'unstarted job refunds 100% gold');
+  near(player.resources.alloys, afterQueue.alloys + droneCost.alloys!, 'unstarted job refunds 100%');
+  near(player.resources.compute, afterQueue.compute + droneCost.compute!, 'unstarted job refunds 100% gold');
 
   const afterFirst = { ...player.resources };
   game.enqueueCommand(member.id, { kind: 'cancelTrain', buildingId: factory.id, index: 0 });
   io(game).step();
-  near(player.resources.wood, afterFirst.wood + Math.floor(droneCost.wood! * 0.5), 'started job refunds 50%');
-  near(player.resources.gold, afterFirst.gold + Math.floor(droneCost.gold! * 0.5), 'started job refunds 50% gold');
+  near(player.resources.alloys, afterFirst.alloys + Math.floor(droneCost.alloys! * 0.5), 'started job refunds 50%');
+  near(player.resources.compute, afterFirst.compute + Math.floor(droneCost.compute! * 0.5), 'started job refunds 50% gold');
   assert.equal(factory.queue.length, 0);
   assert.equal(drones(game), 0, 'cancelled jobs never produce units');
 
   // Refunds never exceed storage capacity.
   train(game, factory);
-  player.resources.gold = 1_500; // base gold cap
+  player.resources.compute = 1_500; // base gold cap
   game.enqueueCommand(member.id, { kind: 'cancelTrain', buildingId: factory.id, index: 0 });
   io(game).step();
-  assert.equal(player.resources.gold, 1_500, 'refund clamps to storage cap');
+  assert.equal(player.resources.compute, 1_500, 'refund clamps to storage cap');
 }
 
 async function restartAndOffline(): Promise<void> {
@@ -186,7 +186,7 @@ async function restartAndOffline(): Promise<void> {
     const same = newHome((await repo.load(profileId)).save!);
     const sameFactory = same.buildings.get(factory.id)!;
     assert.deepEqual(sameFactory.queue.map((q) => q.progress), queued, 'queue progress survives restart');
-    near(same.players.get(member.id)!.resources.wood, spent.wood, 'no re-deduction or refund on restart');
+    near(same.players.get(member.id)!.resources.alloys, spent.alloys, 'no re-deduction or refund on restart');
     assert.equal(drones(same), 0);
 
     // One hour offline: all three jobs finish under the frozen power factor and dock.

@@ -7,7 +7,7 @@
 
 import type { CommanderView } from './commander';
 
-export type ResourceType = 'food' | 'wood' | 'gold' | 'stone';
+export type ResourceType = 'energy' | 'alloys' | 'compute';
 export type CityPath = 'command' | 'space';
 export type UnitType =
   | 'villager' | 'designer' | 'swordsman' | 'archer' | 'knight'
@@ -203,6 +203,8 @@ export interface HomeStatusSnap {
   shieldSeconds: number;
   /** Raids against this city's published snapshot, newest first. */
   defenseReports: DefenseReport[];
+  /** ELON settled through the city ledger so far. */
+  elonSettled: number;
 }
 
 /** What a defender sees: attackers were paid by the system, nothing was taken. */

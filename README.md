@@ -53,17 +53,25 @@ npm run smoke       # E2E test: starts the server and simulates a match with 2 W
 
 Hosts can switch a room to **Symbiosis**, which layers the WATT Arena model on top of the RTS. In Classic rooms none of these rules apply.
 
-City progression now follows five levels:
+### Three resources, five layers
 
-1. Settlement
-2. Smart District
-3. Technology City
-4. Symbiotic City
-5. A permanent specialization chosen at the Civic Hub:
+The economy has three resources:
+
+- **Energy** — powers workers, troops and every age-up. Gathered from biomass, farms and fish, and produced by generators.
+- **Alloys** — construction and armor. Gathered from fiber groves and ore deposits.
+- **Compute** — advanced units, research and trade. Mined from rare-earth deposits and produced by Compute Nodes.
+
+City progression follows the five layers of the AI industry. Each layer runs on the one below it, and you advance out of a layer only once its infrastructure stands:
+
+1. **Energy Grid** — build a Solar Field or Wind Turbine to unlock Compute.
+2. **Compute Layer** — build a Compute Node to unlock AI Factories. Compute Nodes draw grid power: lose your generators and compute output falls.
+3. **AI Factories** — build an Autonomous Systems Lab, Drone Factory or Mech Forge to unlock Models.
+4. **Model Layer** — build a Model Lab to unlock Applications.
+5. **Applications** — a permanent specialization chosen at the Civic Hub:
    - **Command Metropolis** unlocks attack drones, fighters, rocket launchers, and warfare against other Command cities.
    - **Space Gateway** remains protected from city warfare and gains +10 grid power from orbital infrastructure.
 
-Levels 1–4 cannot initiate warfare and are excluded from hostile automatic targeting. The Level 5 choice costs 1,400 food and 1,400 gold and takes 70 seconds to establish.
+Levels 1–4 cannot initiate warfare and are excluded from hostile automatic targeting. The Level 5 choice costs 1,400 energy and 1,400 compute and takes 70 seconds to establish.
 
 The presentation uses a fully modern facility vocabulary while preserving the RTS economy: Modular Residences, a Civic Operations Hub, Army Basecamp, Autonomous Weapons Lab, Mobility Command, Defense Engineering Lab, Trade and Logistics Center, Food Technology Center, Materials Depot, Mineral Processing Center, Sensor Defense Tower, Modular Protection Walls, Hydroponic Farms, and a River Logistics Terminal. Active sites progressively fill with human builders, humanoid installers and masons, a heavy AI builder, material rover, survey drone, and autonomous crane.
 
@@ -99,6 +107,20 @@ BLOCKCHAIN_ENABLED=true npm run dev:server
 ```
 
 Without `BLOCKCHAIN_ENABLED=true` the ledger still runs and is archived to `archives/`, but nothing is sent to a chain. The deploy script refuses any chain other than Anvil (31337) because it uses the node's unlocked dev account. No wallet, token, or IPFS provider is involved.
+
+## Skirmish and AI commanders
+
+From your city, **⚔ Skirmish** starts a 1v1 match against a bot (your city is saved first). Destroy the enemy Command Core to win; warfare is open from the start in skirmish rooms.
+
+Before the match you pick an **AI commander** — **Vanguard** (aggressive), **Sentinel** (defensive) or **Architect** (economic) — and its autonomy:
+
+- **Manual:** acts only on your strategic orders.
+- **Assisted:** handles low-risk tasks itself (defending, idle workers, retreats) and recommends the rest for you to **Authorize**.
+- **Autonomous:** chooses objectives and production within the risk, offense and spending limits you set.
+
+The right-hand panel issues strategic orders (defend here, protect core, attack selected, capture here, prepare assault, retreat, worker priority) and explains every decision: what it observed, what it did, why, what it expected and what actually happened. Units you order directly are left alone for 30 seconds. After the match, a **battle report** shows the numbers, an army-strength curve, a timeline and what decided the result.
+
+Design notes: [docs/rebrand](docs/rebrand/IMPLEMENTATION_PLAN.md).
 
 ## Developer commands (testing only)
 
@@ -150,7 +172,7 @@ client/   Vite + TypeScript + Canvas 2D frontend (dimetric isometric 2:1)
 | Chat | Enter |
 | Cancel selection/placement | Esc |
 
-- **Resources**: food, wood, gold, stone — villagers gather and drop them off at the Town Center.
+- **Resources**: energy, alloys, compute — workers gather and drop them off at the Civic Hub or a matching depot; generators and Compute Nodes also produce them. Saves from the old four-resource economy migrate automatically (food → energy, wood + stone → alloys, gold → compute).
 - **Ages**: advance by constructing buildings and gathering resources, unlocking new units and structures.
 - **Victory**: destroy all enemy Town Centers.
 

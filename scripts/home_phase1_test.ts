@@ -82,7 +82,7 @@ async function exitPath(): Promise<void> {
   const internals = game as unknown as Internals;
   const player = game.players.get(member.id)!;
   assert.equal(player.age, 1, 'new profile starts at City Level 1');
-  player.resources = { food: 3_000, wood: 3_000, gold: 3_000, stone: 3_000 };
+  player.resources = { energy: 3_000, alloys: 6000, compute: 3_000 };
 
   // Drone Factory is not legal at Level 1.
   const factorySite = siteNearHub(game, 'drone_factory');
@@ -109,7 +109,7 @@ async function exitPath(): Promise<void> {
   buildAndFinish(game, 'solar_array');
 
   // Hub L1 -> L2 is a physical construction project; cost is paid exactly once.
-  const foodBefore = player.resources.food;
+  const foodBefore = player.resources.energy;
   game.enqueueCommand(member.id, { kind: 'advanceAge' });
   internals.step();
   const hub = hubOf(game);
@@ -117,8 +117,8 @@ async function exitPath(): Promise<void> {
   assert.equal(player.age, 1, 'level does not change before the upgrade is built');
   game.enqueueCommand(member.id, { kind: 'advanceAge' });
   internals.step();
-  const paid = foodBefore - player.resources.food;
-  assert.ok(Math.abs(paid - (AGE_COSTS[2]!.food ?? 0)) < 5, `Hub upgrade cost deducted once (paid ${paid})`);
+  const paid = foodBefore - player.resources.energy;
+  assert.ok(Math.abs(paid - (AGE_COSTS[2]!.energy ?? 0)) < 5, `Hub upgrade cost deducted once (paid ${paid})`);
   assert.equal(hub.progress, 1, 'the Hub keeps working while it upgrades');
   stepUntil(game, () => player.age === 2);
   assert.equal(hub.level, 2);
@@ -157,7 +157,7 @@ async function exitPath(): Promise<void> {
 function multiBuilderRate(): void {
   const game = newHome();
   const internals = game as unknown as Internals;
-  game.players.get(member.id)!.resources = { food: 3_000, wood: 3_000, gold: 3_000, stone: 3_000 };
+  game.players.get(member.id)!.resources = { energy: 3_000, alloys: 6000, compute: 3_000 };
   const units = [...game.units.values()];
   const robot = units.find((u) => u.type === 'robot')!;
   const drone = units.find((u) => u.type === 'drone')!;

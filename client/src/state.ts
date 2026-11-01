@@ -115,7 +115,7 @@ export class GameState {
   raid: RaidSnap | null = null;
   home: HomeStatusSnap | null = null;
   /** Preços do mercado (ouro por lote de 100), atualizados por snapshot. */
-  marketPrices: MarketPrices = { food: 100, wood: 100, stone: 100 };
+  marketPrices: MarketPrices = { energy: 100, alloys: 100 };
   /** Quantos estão assistindo esta partida (0 se ninguém). Só chega pra quem
    *  JOGA — é o aviso de que há gente olhando. */
   spectatorCount = 0;

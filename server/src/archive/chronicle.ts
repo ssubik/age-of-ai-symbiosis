@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ChainBlock, ChainTx, ElonEvent, Standing } from '@age/shared';
+import type { ChainBlock, ChainTx, ElonEvent, MatchReport, Standing } from '@age/shared';
 import type { FacilityRecord } from '../game/room';
 import type { Resources } from '@age/shared';
 
@@ -25,6 +25,8 @@ export interface MatchChronicle {
   dev?: boolean;
   /** Symbiosis match ledger: every block and transaction, plus its verified head. */
   ledger?: { head: string; height: number; verified: boolean; blocks: ChainBlock[]; txs: ChainTx[] };
+  /** Post-battle intelligence: per-player stats, timeline, strength samples, commander decisions. */
+  report?: MatchReport;
 }
 
 function sortValue(value: unknown): unknown {
@@ -47,7 +49,7 @@ export function humanSummary(c: MatchChronicle): string {
   const table = c.standings?.length
     ? c.standings.map((r) => `${r.rank}. ${r.name}: score ${r.score} = standing ${r.standing} + stewardship ${r.stewardship} + reliability bonus ${r.bonus} (${(r.reliabilityPpm / 10000).toFixed(2)}% of ${r.declaredNeed} declared need served)`).join('\n')
     : [...c.players].sort((a, b) => b.elon - a.elon || a.id - b.id).map((p) => `- ${p.name}: ELON ${p.elon}, age ${p.age}${p.defeated ? ', defeated' : ''}`).join('\n');
-  return `Age of Symbiosis match ${c.matchId}\nWinner: ${c.winnerName || 'none'}\nFinished tick: ${c.finishedTick}\n\nStewardship record\n${table}\n\nFacilities completed: ${c.activity.buildingsConstructed.length}\nWorkers trained: ${c.activity.unitsTrained.length}\nAges reached: ${c.activity.agesReached.length}\nELON events: ${c.elonEvents.length}\n${c.ledger ? `Ledger: ${c.ledger.height + 1} blocks, head ${c.ledger.head}, ${c.ledger.verified ? 'verified' : 'BROKEN'}\n` : ''}`;
+  return `Age of Symbiosis match ${c.matchId}\nWinner: ${c.winnerName || 'none'}\nFinished tick: ${c.finishedTick}\n\nStewardship record\n${table}\n\nFacilities completed: ${c.activity.buildingsConstructed.length}\nWorkers trained: ${c.activity.unitsTrained.length}\nAges reached: ${c.activity.agesReached.length}\nELON events: ${c.elonEvents.length}\n${c.ledger ? `Ledger: ${c.ledger.height + 1} blocks, head ${c.ledger.head}, ${c.ledger.verified ? 'verified' : 'BROKEN'}\n` : ''}${c.report ? `\nWhat decided it\n${c.report.insights.map((line) => `- ${line}`).join('\n')}\n` : ''}`;
 }
 
 export function archiveDir(baseDir = process.env.MATCH_ARCHIVE_DIR || 'archives'): string {

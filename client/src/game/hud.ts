@@ -17,6 +17,8 @@ import {
   BUILDING_DEFS,
   buildingsToAdvance,
   countsForAgeUp,
+  LAYER_GATE,
+  layerGateMet,
   MAX_AGE,
   NODE_DEFS,
   POP_CAP_MAX,
@@ -76,7 +78,7 @@ export interface HudDeps {
   onAdvanceAge: () => void;
   onChooseCityPath: (path: 'command' | 'space') => void;
   onResearch: (buildingId: number, techId: string) => void;
-  onTrade: (action: 'buy' | 'sell', resource: 'food' | 'wood' | 'stone') => void;
+  onTrade: (action: 'buy' | 'sell', resource: 'energy' | 'alloys') => void;
   onChat: (text: string) => void;
   onIdleVillager: () => void;
   /** Desembarcar o transporte selecionado (id do barco). */
@@ -101,30 +103,18 @@ const BUILD_GROUPS: { label: string; types: BuildingType[] }[] = [
   { label: 'PRODUCTION', types: ['design_studio', 'robotics_workshop', 'drone_factory', 'mech_forge', 'aerospace_hangar', 'missile_foundry', 'exosuit_lab', 'barracks'] },
   { label: 'DEFENSE', types: ['blacksmith', 'watch_tower', 'point_turret', 'anti_air', 'sensor_tower', 'wall'] },
 ];
-const RES_ORDER: ResourceType[] = ['food', 'wood', 'gold', 'stone'];
+const RES_ORDER: ResourceType[] = ['energy', 'alloys', 'compute'];
 
-/** Ícones da barra de recursos DESENHADOS (SVG inline). Emojis de madeira/ouro/
- *  pedra são Unicode 13 e não existem em Windows antigos (aparecia só o número);
- *  SVG renderiza igual em qualquer máquina. */
+/** Resource-bar icons drawn as inline SVG (renders identically everywhere,
+ *  unlike emoji). Energy = bolt, Alloys = ingots, Compute = processor. */
 const RES_ICON_SVG: Record<ResourceType, string> = {
-  food:
-    '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="10.2" cy="5.8" r="4.3" fill="#b3543a" stroke="#7d3826"/>' +
-    '<path d="M7 9 3.4 12.6" stroke="#e8e0cc" stroke-width="2.4" stroke-linecap="round"/>' +
-    '<circle cx="2.6" cy="13.4" r="1.6" fill="#e8e0cc"/><circle cx="4.4" cy="11.9" r="1.2" fill="#e8e0cc"/></svg>',
-  wood:
-    '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="2.6" width="10.6" height="4.6" rx="2.3" fill="#7d6038" stroke="#54432c"/>' +
-    '<rect x="1.6" y="8.6" width="12.6" height="5" rx="2.5" fill="#8a6a3f" stroke="#5e4326"/>' +
-    '<ellipse cx="2.6" cy="11.1" rx="2" ry="2.4" fill="#c8a05a" stroke="#5e4326"/>' +
-    '<circle cx="2.6" cy="11.1" r=".9" fill="#a8845c"/></svg>',
-  gold:
-    '<svg viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="11.6" rx="6.2" ry="2.8" fill="#d9a93b" stroke="#8f6c1c"/>' +
-    '<ellipse cx="8" cy="8.6" rx="6.2" ry="2.8" fill="#ecc73e" stroke="#8f6c1c"/>' +
-    '<ellipse cx="8" cy="5.6" rx="6.2" ry="2.8" fill="#f4d968" stroke="#8f6c1c"/>' +
-    '<ellipse cx="8" cy="5.4" rx="3.4" ry="1.3" fill="#f9e9a0"/></svg>',
-  stone:
-    '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="8.6" width="6" height="5" rx="1.4" fill="#a8adb4" stroke="#6a6e76"/>' +
-    '<rect x="8.6" y="8.6" width="5.6" height="5" rx="1.4" fill="#8f949c" stroke="#6a6e76"/>' +
-    '<rect x="4.8" y="3.6" width="6.4" height="5" rx="1.4" fill="#b9bdc4" stroke="#6a6e76"/></svg>',
+  energy: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.4 1.2 3.2 9.1h4.1l-1 5.7 6.4-8.2H8.6z" fill="#f2c14e" stroke="#9a6d12" stroke-width=".8" stroke-linejoin="round"/></svg>',
+  alloys: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.6 13.6 3 10h4.4l1.4 3.6z" fill="#8a9bad" stroke="#4d5a68" stroke-width=".7" stroke-linejoin="round"/>' +
+    '<path d="M7.2 13.6 8.6 10H13l1.4 3.6z" fill="#9fb1c2" stroke="#4d5a68" stroke-width=".7" stroke-linejoin="round"/>' +
+    '<path d="M4.4 9.4 5.8 5.8h4.4l1.4 3.6z" fill="#c3d0dc" stroke="#4d5a68" stroke-width=".7" stroke-linejoin="round"/></svg>',
+  compute: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 1.6v2M8 1.6v2M11 1.6v2M5 12.4v2M8 12.4v2M11 12.4v2M1.6 5h2M1.6 8h2M1.6 11h2M12.4 5h2M12.4 8h2M12.4 11h2" stroke="#7c64c8" stroke-width="1.1" stroke-linecap="round"/>' +
+    '<rect x="3.4" y="3.4" width="9.2" height="9.2" rx="1.6" fill="#a98bfa" stroke="#5b46a3" stroke-width=".8"/>' +
+    '<rect x="5.8" y="5.8" width="4.4" height="4.4" rx=".8" fill="#e4dbff"/></svg>',
 };
 
 /** span com o ícone SVG de um recurso (para a barra superior). */
@@ -229,7 +219,7 @@ export class Hud {
       top.appendChild(army);
       this.powerEl = el('span', 'res power');
       this.powerEl.title = t('hud.power_tip');
-      this.powerEl.append('⚡ ');
+      this.powerEl.append('🔌 ');
       this.powerVal = el('b', '', '0/0');
       this.powerEl.appendChild(this.powerVal);
       top.appendChild(this.powerEl);
@@ -543,7 +533,7 @@ export class Hud {
       this.selPanel.appendChild(el('div', 'sel-line', t('hud.power_gen', { n: def.power })));
     } else if (b.type === 'farm' && b.foodLeft !== undefined) {
       this.selPanel.appendChild(
-        el('div', 'sel-line', t('hud.food_left', { amt: Math.ceil(b.foodLeft), icon: RESOURCE_ICONS.food })),
+        el('div', 'sel-line', t('hud.food_left', { amt: Math.ceil(b.foodLeft), icon: RESOURCE_ICONS.energy })),
       );
     }
     if (b.proof) {
@@ -774,7 +764,7 @@ export class Hud {
       if (b.type === 'market') {
         this.actPanel.appendChild(el('div', 'act-title trade-title', t('hud.trade_title')));
         const box = el('div', 'trade-box');
-        for (const res of ['food', 'wood', 'stone'] as const) {
+        for (const res of ['energy', 'alloys'] as const) {
           const row = el('div', 'trade-row');
           row.appendChild(resIconEl(res));
           const sell = el('button', 'btn trade-btn');
@@ -948,7 +938,12 @@ export class Hud {
             for (const b of this.gs.buildings.values()) {
               if (b.owner === this.gs.you && b.progress >= 1 && countsForAgeUp(b.type, myAge)) have.add(b.type);
             }
-            if (have.size < needB) {
+            const completed: BuildingType[] = [];
+            for (const cb of this.gs.buildings.values()) if (cb.owner === this.gs.you && cb.progress >= 1) completed.push(cb.type);
+            if (!this.gs.home && !layerGateMet(myAge, completed)) {
+              this.ageBtn.textContent = t('err.requires_layer', { building: (LAYER_GATE[myAge] ?? []).map((type) => BUILDING_NAMES[type] ?? type).join(' / ') });
+              this.ageBtn.disabled = true;
+            } else if (have.size < needB) {
               const req = needB > 1 ? t('hud.buildings_diff', { n: needB }) : t('hud.one_building');
               this.ageBtn.textContent = t('hud.age_need', { age: AGE_NAMES[myAge + 1], req, have: have.size, need: needB });
               this.ageBtn.disabled = true;
@@ -994,7 +989,7 @@ export class Hud {
       }
       // botões de comércio do Mercado: preço ao vivo + disponibilidade
       if (this.tradeBtns.size > 0 && me?.resources) {
-        for (const res of ['food', 'wood', 'stone'] as const) {
+        for (const res of ['energy', 'alloys'] as const) {
           const price = this.gs.marketPrices[res] ?? 100;
           const sell = this.tradeBtns.get(`sell:${res}`);
           const buy = this.tradeBtns.get(`buy:${res}`);
@@ -1008,7 +1003,7 @@ export class Hud {
             const cost = tradeBuyCost(price);
             const txt = t('hud.buy', { cost });
             if (buy.textContent !== txt) buy.textContent = txt;
-            buy.classList.toggle('off', (me.resources.gold ?? 0) < cost);
+            buy.classList.toggle('off', (me.resources.compute ?? 0) < cost);
           }
         }
       }

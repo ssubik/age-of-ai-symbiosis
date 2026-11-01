@@ -25,7 +25,7 @@ for (const n of game.nodes.values()) assert.ok(!isRoadTile(plan, n.tileX, n.tile
 for (const b of game.buildings.values()) assert.ok(!footprintOnRoad(plan, b.tileX, b.tileY, BUILDING_DEFS[b.type].size), `${b.type} on road`);
 
 // Placement: a road site is rejected with a clear reason; a plot site is accepted.
-game.players.get(member.id)!.resources = { food: 9000, wood: 9000, gold: 9000, stone: 9000 };
+game.players.get(member.id)!.resources = { energy: 9000, alloys: 18000, compute: 9000 };
 const robot = [...game.units.values()].find((u) => u.type === 'robot')!;
 const roadX = plan.originX + 18; // a road column two blocks away
 const before = game.buildings.size;

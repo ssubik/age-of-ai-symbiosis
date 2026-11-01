@@ -52,7 +52,7 @@ const tileBlockedBefore = g.grid.blocked[bidx(S2.x, S2.y)];
 const v = villA;
 v.x = S2.x; v.y = S2.y;
 v.state = 'gathering';
-v.gatherResource = 'food';
+v.gatherResource = 'energy';
 v.gatherTargetId = S2.id;
 v.carryType = undefined;
 v.carryAmount = 0;
@@ -105,13 +105,13 @@ if (S4) {
     v2.path = [];
     v2.state = 'returning';
     v2.dropOffId = tc.id;
-    v2.carryType = 'food';
+    v2.carryType = 'energy';
     v2.carryAmount = 7;
     v2.gatherTargetId = S.id;
-    v2.gatherResource = 'food';
-    const foodBefore = g.players.get(1).resources.food;
+    v2.gatherResource = 'energy';
+    const foodBefore = g.players.get(1).resources.energy;
     g.updateReturning(v2, 0.1);
-    check('depósito credita a comida', g.players.get(1).resources.food === foodBefore + 7);
+    check('depósito credita a comida', g.players.get(1).resources.energy === foodBefore + 7);
     check('depois de depositar, VOLTA pra ovelha (não pras frutas)',
       v2.gatherTargetId === S.id && (v2.state === 'movingToGather' || v2.state === 'gathering'));
   } else {

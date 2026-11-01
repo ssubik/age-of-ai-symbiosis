@@ -69,8 +69,8 @@ check('existe lugar válido pro Porto (água + costa)', dockX >= 0);
 check('em terra o Porto é inválido', g.validDockFootprint(Math.floor(gIdx % size), Math.floor(gIdx / size), 2) === false);
 
 const p1 = g.players.get(1);
-p1.resources.wood = 100000;
-p1.resources.food = 100000;
+p1.resources.alloys = 100000;
+p1.resources.energy = 100000;
 const vil = [...g.units.values()].find((u: any) => u.owner === 1 && u.type === 'villager');
 check('(setup) villager existe', !!vil);
 g.cmdBuild(1, [vil.id], 'dock', dockX, dockY, false);
@@ -91,7 +91,7 @@ check('barco nasceu em tile NAVEGÁVEL (água)', !!boat && at(Math.floor(boat.x)
 // ---------- (5) pesca: colhe no banco e entrega no Porto ----------
 // Como o rio agora é segmentado pelos vaus, garanto um peixe ALCANÇÁVEL pondo um
 // banco novo num tile de água funda vizinho do barco (mesma poça).
-const foodBefore = p1.resources.food;
+const foodBefore = p1.resources.energy;
 let fish = fishNodes.reduce((best: any, n: any) => {
   const d = Math.hypot(n.tileX - boat.x, n.tileY - boat.y);
   return !best || d < best.d ? { n, d } : best;
@@ -113,8 +113,8 @@ for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]] as c
 }
 g.cmdGather(1, [boat.id], fish.id);
 check('barco aceitou a ordem de pesca', boat.gatherTargetId === fish.id);
-for (let i = 0; i < 1200 && p1.resources.food <= foodBefore; i++) g.step();
-check(`pesca ENTREGOU comida no Porto (+${Math.round(p1.resources.food - foodBefore)})`, p1.resources.food > foodBefore);
+for (let i = 0; i < 1200 && p1.resources.energy <= foodBefore; i++) g.step();
+check(`pesca ENTREGOU comida no Porto (+${Math.round(p1.resources.energy - foodBefore)})`, p1.resources.energy > foodBefore);
 
 // villager NÃO pesca
 g.cmdGather(1, [vil.id], fish.id);

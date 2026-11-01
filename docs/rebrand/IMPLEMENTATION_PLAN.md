@@ -1,80 +1,143 @@
 # Age of AI Symbiosis — Rebrand Implementation Plan
 
+Companion docs: [CURRENT_STATE](CURRENT_STATE.md) · [TARGET_VISION](TARGET_VISION.md) · [FUTURE_ECONOMY](FUTURE_ECONOMY.md)
+
 ## Architecture decision
 
 Keep the custom TypeScript/Canvas engine. A migration would discard tested
 authoritative simulation, pathfinding, persistence, rendering and tooling without
 improving the requested gameplay.
 
-## Milestone sequence
+## Milestone status
 
-### M1 — Audit and commander foundation
+### M1 — Audit and commander foundation ✅
 
-- [x] Repository/engine/gameplay/asset/test audit.
-- [x] Current-state and target-design documents.
+- [x] Repository/engine/gameplay/asset/test audit (two passes; see CURRENT_STATE).
+- [x] Current-state, target-vision and future-economy documents.
 - [x] Shared commander types and strategic-order protocol.
-- [x] Deterministic utility commander with personality weights and hysteresis.
-- [x] Server integration and decision snapshots.
-- [x] Commander domain and server-snapshot tests.
+- [x] Deterministic utility commander with personality weights and switch margin.
+- [x] Server integration, decision snapshots, commander tests.
 
-### M2 — Visual and combat foundation
+### M3a — Reachable, winnable match ✅ (pulled forward: nothing else is playable without it)
 
-- Consolidate existing weapon feedback into small/medium/large event bundles.
-- Add selected-unit attack-range visualization and clearer structure ranges.
-- Approve one hero machine/building family at native gameplay scale.
-- Verify placement, construction, projectile, impact, health and destruction states.
+- [x] Skirmish launcher in the city: commander personality, autonomy, opponent.
+- [x] `startSkirmish` saves the city and starts a 1v1 room with a bot.
+- [x] Open warfare in skirmish rooms (`atWar()`); Level-5 rule kept elsewhere.
+- [x] Command Core destruction ends the match; leaving concedes and returns home.
+- [x] Rematch and return-to-city from the battle report.
+- [x] Seeded arena maps (`mapSeed` option).
 
-### M3 — Playable match and economy migration
+### M4 — AI commanders ✅ core, polish remaining
 
-- Introduce versioned `MatchResources { energy, alloys, compute }`.
-- Add a tested legacy four-resource migration adapter.
-- Reframe six core buildings and three core unit roles using data-driven configs.
-- Tune seeded map openings and production for a 10–15 minute match.
-- Preserve Command Core destruction as the victory condition.
+- [x] All seven orders: defend sector, protect core, attack target, capture
+      zone, worker priority, prepare assault, retreat/regroup.
+- [x] Objective lifecycle with server-evaluated completion/failure, 150 s
+      timeout, supersession; expected and actual outcome on every decision.
+- [x] Manual / Assisted (executes low-risk, recommends the rest, one-click
+      Authorize) / Autonomous; Manual is the default outside skirmish.
+- [x] Policy sliders: risk (hard assault gate), offense, spending limit.
+- [x] Player micro is respected for 30 s; player orders always win.
+- [x] Personality production doctrines: workers, houses, farms, drop sites,
+      barracks, towers, age research, unit mix — Game checks legality first so
+      commander spending never raises error toasts.
+- [x] Assault ratio counts enemy core defenses and garrison potential.
+- [x] Raids on outlying workers register as attacks; fresh attacks are answered
+      within one second instead of the five-second initiative cadence.
+- [x] Outmatched defense shelters nearby workers in the Command Core / towers
+      and always releases them when the objective ends, whatever the outcome.
+- [x] Economy follows doctrine: stockpiles are demand-weighted, the resource
+      blocking the doctrine's next purchase becomes the worker priority, surplus
+      workers are rebalanced at most once a minute, farms scale with the
+      workforce (~45%), and resources with no free source are never chosen.
+- [x] Personalities save for their next age once a minimum army stands.
+- [x] Tests: personality choice, risk gating, autonomy semantics, lifecycle,
+      determinism, doctrine, micro respect, 5-minute divergence, report.
+- [ ] Optional LLM dialogue adapter (design in TARGET_VISION; not started).
+- [ ] Commander development across matches (design in FUTURE_ECONOMY).
 
-### M4 — AI commanders
+### M6-report — Post-battle intelligence ✅
 
-- Complete all six strategic orders.
-- Add Manual/Assisted/Autonomous UI and player override semantics.
-- Add objective outcome tracking and commander production decisions.
-- Keep opponent bot AI separate from player commander AI.
+- [x] Structured match telemetry: gathered/spent per resource, units
+      produced/lost by type, kills, structures built/lost/destroyed, zones held,
+      peak army, army-strength samples every 10 s.
+- [x] Timeline: first contact, military lead changes, major engagements,
+      unit milestones, age-ups, commander orders, core threatened, defeat, victory.
+- [x] Rule-based "what decided it" insights; commander record and decisions.
+- [x] Reports are archived with the match chronicle (`archives/<match>.json`);
+      major engagements and structure losses fill the chronicle's `battles` list
+      and the text summary gains "What decided it".
 
-### M5 — UI and analytics
+### M2 — Visual and combat foundation (in progress)
 
-- [x] Replace the legacy Council presentation with a first playable right commander panel.
-- Localize and visually finish the commander portrait, objective and decision states.
-- Recompose top/left/right/bottom HUD at 1920×1080, 1280×720 and narrow widths.
-- Emit structured economy, production, loss, order and decision events.
-- Build post-match summary and timeline from canonical events.
+- [x] Attack-range rings for selected ranged units and defenses (cyan own,
+      coral hostile, tech and age bonuses included) and on defense placement ghosts.
+- [x] Phones: the commander panel is a collapsed card in matches.
+- [ ] Consolidate weapon feedback into small/medium/large event bundles.
+- [ ] Approve one hero machine/building family at native gameplay scale.
 
-### M6 — testing and polish
+### M3b — Economy migration and the five layers ✅ (2026-11-01)
 
-- Economy, combat, commander, victory and migration suites.
-- Isolated WebSocket smoke match and frame-time capture.
-- Accessibility pass: reduced shake/flashing, scalable text and color-independent states.
-- Update README and record remaining balance/asset limitations.
+- [x] `ResourceType = 'energy' | 'alloys' | 'compute'` everywhere (shared,
+      server, client, bot AI, commander, tests). Costs that used wood and stone
+      sum into alloys, so every price keeps its total.
+- [x] Home save v5: `migrateLegacyResources` rewrites every resource-only
+      record and resource-typed field (stockpile, caps, raid offers/rewards,
+      refunds, carried cargo); free text, snapshots and the city ledger are
+      untouched, so every hash still verifies. Tested on synthetic saves and on
+      every real local profile (copied, migrated, run for a simulated minute).
+- [x] Ages are the five layers (Energy Grid → Compute Layer → AI Factories →
+      Model Layer → Applications). Leaving a layer needs its building
+      (`LAYER_GATE`): generator → Compute Node → AI factory → Model Lab. Bot AI,
+      commander, HUD and goal panel all respect it.
+- [x] Generators yield Energy; Compute Nodes yield Compute and draw 2 grid
+      power, so compute output falls with the grid (`layers_test`).
+- [x] Data Center → Compute Node, Design Studio → Model Lab, Mill → Bioenergy
+      Center; nodes relabeled (Biomass, Fiber Grove, Ore Deposit, Rare-Earth
+      Deposit); grid power uses 🔌 so ⚡ always means Energy.
+- [x] Commander economy runs on its own track beside army objectives.
+- [x] Fixed an engine bug where builders on a diagonal tile, off-centre,
+      waited forever without building.
+- [ ] Reframe the three unit families (Scout Drone / Assault Mech / Siege
+      Walker) and unit art.
 
-## Current coherent increment
+### M5 — Balance and onboarding
 
-Implement M1's commander foundation against existing Arena resources and units.
-Do not rename/migrate the economy in the same change: that is a separate save and
-balance boundary. The commander API will use semantic resource priorities so the
-later Energy/Alloys/Compute migration does not require rewriting decision logic.
+- Architect fields its first army late (~12 min) and is fragile to early raids.
+- Hands-off commander vs. normal bot rarely ends inside 15 min on seed 7;
+  matches with an active player end sooner. Needs measurement with playtesters.
+- Vanguard loses most workers to the normal bot's ~6 min raid before recovering.
+- First-match onboarding for the commander panel.
 
-This increment is complete: all six order shapes are accepted, Manual/Assisted/
-Autonomous modes obey player overrides, decisions appear in authoritative
-snapshots, and the right panel can issue orders. Objective completion tracking,
-production-queue control and the full three-resource migration remain in M3–M5.
+### M6 — Validation
+
+- Fix or retire the three pre-existing failing tests (Classic-rule assumptions).
+- Isolated WebSocket smoke match (`npm run smoke` on a free port).
+- Feedback questionnaire after the first skirmish.
 
 ## Validation gates
 
 ```bash
 npm run typecheck
+npm run test:commander     # unit + integration + 5-minute divergence + report
 npm run test:home
-npm run test:commander
 npm run build
-npm run smoke   # requires exclusive local port 8080
+npm run smoke              # requires exclusive local port 8080
 ```
 
-No milestone is complete from documentation alone. Each checkbox requires code,
-tests and an observed or automated validation result.
+Latest run (2026-11-01, economy round): typecheck clean; build clean; 36/39
+scripted tests pass (new: `resource_migration_test`, `layers_test`); the 3
+failures pre-date this work (see CURRENT_STATE §6). City (migrated save) and
+skirmish HUD verified in a real browser.
+
+```bash
+npm run test:economy       # save migration + layer gates and compute dependency
+``` Skirmish flow,
+commander panel and battle report verified in a real browser against the dev
+server.
+
+Reference simulation (seed 7, autonomous vs. normal bot, 15 min, hands-off,
+after the economy migration): all three personalities survive with zero
+failed decisions and reach the AI Factories layer — Vanguard ~32 units,
+Sentinel ~41 units, Architect ~32 workers and ~23 units. None destroys the
+bot's core inside 15 minutes hands-off; matches with an active player end
+sooner. Match length still needs playtest data.

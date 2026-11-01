@@ -428,3 +428,126 @@ button.btn.primary {
   .raid-open .command-bar { display: none; }
   .raid-open .quick-dock { bottom: 10px; }
 }
+
+/* City guide: first-session steps, top-left where the old impact chip sat. */
+.city-guide { position: absolute; z-index: 34; top: 52px; left: 12px; width: 236px; display: grid; gap: 7px; padding: 12px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-surface); box-shadow: var(--atlas-shadow); backdrop-filter: blur(12px); color: var(--ui-text-2); font: var(--fs-sm)/1.45 var(--ui-font); }
+.city-guide.collapsed { width: auto; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; }
+.city-guide-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.city-guide-kicker { font: 500 var(--fs-xs)/1.2 var(--ui-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ui-accent); }
+.city-guide-hide { background: none; border: 0; padding: 2px 4px; color: var(--ui-text-3); font: 500 var(--fs-xs) var(--ui-font); cursor: pointer; }
+.city-guide-hide:hover { color: var(--ui-text); }
+.city-guide-bar { height: 3px; border-radius: 2px; background: rgba(150, 172, 196, .14); overflow: hidden; }
+.city-guide-fill { height: 100%; background: var(--ui-accent); transition: width .4s ease; }
+.city-guide-title { font: 600 var(--fs-md)/1.3 var(--ui-font); color: var(--ui-text); }
+.city-guide-hint { margin: 0; }
+.city-guide-show { justify-self: start; padding: 5px 10px; border: 1px solid rgba(84, 219, 233, .45); border-radius: 6px; background: rgba(84, 219, 233, .1); color: var(--ui-accent); font: 500 var(--fs-sm) var(--ui-font); cursor: pointer; }
+.city-guide-show:hover { background: rgba(84, 219, 233, .18); }
+.city-guide-pill, .city-guide-done { padding: 5px 10px; border: 1px solid var(--ui-line); border-radius: 999px; background: var(--ui-surface); color: var(--ui-text-2); font: 500 var(--fs-xs) var(--ui-mono); letter-spacing: .06em; cursor: pointer; }
+.city-guide-done { color: var(--ui-good); cursor: default; }
+.raid-mode .city-guide { display: none; }
+@media (prefers-reduced-motion: reduce) { .city-guide-fill { transition: none; } }
+@media (max-width: 620px) {
+  .city-guide { top: 84px; left: 10px; width: min(220px, calc(100vw - 20px)); padding: 10px; }
+  .raid-open .city-guide { display: none; }
+}
+
+/* Rebrand M4: commander authority, objective lifecycle and decision explanations. */
+.commander-blurb { color: var(--ui-text-3) !important; font-size: var(--fs-xs); line-height: 1.35; }
+.commander-slider { flex-basis: 100%; display: grid; grid-template-columns: 62px 1fr 34px; align-items: center; gap: 6px; color: var(--ui-text-2); font: 500 var(--fs-xs)/1.2 var(--ui-font); }
+.commander-slider input { width: 100%; accent-color: var(--atlas-cyan); }
+.commander-slider output { color: var(--ui-text); font-family: var(--ui-mono); text-align: right; }
+.commander-active { flex: 1 1 auto; color: var(--ui-text) !important; font: 500 var(--fs-sm)/1.3 var(--ui-font); }
+.commander-cancel { flex: none; }
+.commander-record { color: var(--ui-text-3) !important; font: 500 var(--fs-xs)/1.3 var(--ui-mono); }
+.commander-decision-head { display: flex; gap: 6px; align-items: center; color: var(--ui-text-3); font: 500 var(--fs-xs)/1.2 var(--ui-mono); }
+.commander-badge { padding: 1px 5px; border-radius: 3px; background: rgba(255, 255, 255, .06); color: var(--ui-text-2); letter-spacing: .06em; }
+.commander-decision.active { border-left-color: var(--atlas-cyan); }
+.commander-decision.active .commander-badge { background: rgba(84, 219, 233, .16); color: var(--atlas-cyan); }
+.commander-decision.completed { border-left-color: var(--atlas-mint); }
+.commander-decision.completed .commander-badge { background: rgba(114, 207, 164, .16); color: var(--atlas-mint); }
+.commander-decision.failed { border-left-color: var(--atlas-coral); }
+.commander-decision.failed .commander-badge { background: rgba(244, 121, 117, .16); color: var(--atlas-coral); }
+.commander-decision.suggested .commander-badge { background: rgba(255, 190, 104, .16); color: var(--atlas-amber); }
+.commander-decision.superseded { opacity: .7; }
+.commander-expect, .commander-result { font-size: var(--fs-xs); }
+.commander-result { color: var(--ui-text-2) !important; }
+.commander-approve { justify-self: start; margin-top: 3px; border-color: rgba(255, 190, 104, .45); color: var(--atlas-amber); }
+.home-skirmish-btn { background: rgba(255, 190, 104, .12); color: var(--ui-warn); }
+
+/* Skirmish launcher and battle report overlays. */
+.skirmish-overlay, .report-overlay {
+  position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 16px;
+  background: rgba(4, 7, 11, .72); backdrop-filter: blur(6px);
+}
+.skirmish-overlay.hidden { display: none; }
+.skirmish-card, .report-card {
+  width: min(640px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 22px;
+  border: 1px solid var(--ui-line-2); border-radius: var(--atlas-radius); background: var(--ui-surface-2);
+  box-shadow: var(--atlas-shadow); color: var(--ui-text); font: 400 var(--fs-md)/1.45 var(--ui-font);
+}
+.report-card { width: min(760px, 100%); }
+.skirmish-card h2, .report-head h2 { margin: 0 0 4px; font: 600 var(--fs-xl)/1.2 var(--ui-title); }
+.skirmish-lede { margin: 0 0 14px; color: var(--ui-text-2); }
+.skirmish-label { display: block; margin: 14px 0 6px; color: var(--ui-text-3); font: 600 var(--fs-xs)/1.2 var(--ui-mono); letter-spacing: .12em; }
+.skirmish-personas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.skirmish-persona {
+  display: grid; gap: 3px; align-content: start; padding: 10px; text-align: left; cursor: pointer;
+  border: 1px solid var(--ui-line); border-radius: 6px; background: rgba(255, 255, 255, .02); color: var(--ui-text-2);
+}
+.skirmish-persona strong { color: var(--ui-text); font: 600 var(--fs-lg)/1.2 var(--ui-title); }
+.skirmish-persona em { color: var(--ui-text-3); font: 600 var(--fs-xs)/1.2 var(--ui-mono); font-style: normal; letter-spacing: .1em; }
+.skirmish-persona span { font-size: var(--fs-sm); }
+.skirmish-persona.active, .skirmish-persona:hover { border-color: var(--atlas-cyan); }
+.skirmish-persona.active { background: rgba(84, 219, 233, .08); }
+.skirmish-segmented { display: flex; gap: 4px; flex-wrap: wrap; }
+.skirmish-segmented button {
+  padding: 6px 12px; border: 1px solid var(--ui-line); border-radius: 5px; background: transparent;
+  color: var(--ui-text-2); font: 500 var(--fs-sm)/1.2 var(--ui-font); text-transform: capitalize; cursor: pointer;
+}
+.skirmish-segmented button.active { border-color: var(--atlas-cyan); color: var(--atlas-cyan); background: rgba(84, 219, 233, .1); }
+.skirmish-help { display: block; margin-top: 5px; color: var(--ui-text-3); font-size: var(--fs-sm); }
+.skirmish-actions, .report-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+.skirmish-start, .report-primary, .skirmish-cancel, .report-secondary {
+  padding: 8px 16px; border-radius: 6px; font: 600 var(--fs-md)/1.2 var(--ui-font); cursor: pointer;
+}
+.skirmish-start, .report-primary { border: 1px solid var(--atlas-cyan); background: var(--atlas-cyan); color: var(--ui-accent-ink); }
+.skirmish-cancel, .report-secondary { border: 1px solid var(--ui-line-2); background: transparent; color: var(--ui-text-2); }
+.report-head { padding-bottom: 12px; border-bottom: 1px solid var(--ui-line); }
+.report-head.won h2 { color: var(--atlas-mint); }
+.report-head.lost h2 { color: var(--atlas-coral); }
+.report-kicker, .report-meta { color: var(--ui-text-3); font: 600 var(--fs-xs)/1.3 var(--ui-mono); letter-spacing: .1em; }
+.report-meta { letter-spacing: 0; font-weight: 500; }
+.report-table { width: 100%; margin-top: 14px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.report-table th, .report-table td { padding: 5px 8px; border-bottom: 1px solid var(--ui-line); text-align: right; }
+.report-table th:first-child, .report-table td:first-child { text-align: left; color: var(--ui-text-2); }
+.report-table th { font: 600 var(--fs-sm)/1.2 var(--ui-font); }
+.report-section { margin-top: 18px; }
+.report-section h3 { margin: 0 0 8px; color: var(--ui-text-3); font: 600 var(--fs-xs)/1.2 var(--ui-mono); letter-spacing: .12em; text-transform: uppercase; }
+.report-chart { display: block; width: 100%; height: auto; }
+.report-chart-axis { stroke: var(--ui-line-2); }
+.report-legend { display: flex; gap: 14px; margin-top: 4px; color: var(--ui-text-2); font-size: var(--fs-sm); }
+.report-legend span::before, .report-event::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--who, var(--ui-text-3)); }
+.report-insights { margin: 0; padding-left: 18px; color: var(--ui-text); }
+.report-insights li + li { margin-top: 4px; }
+.report-record { margin: 0 0 8px; color: var(--ui-text-2); font-size: var(--fs-sm); }
+.report-decisions, .report-timeline { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.report-timeline { max-height: 240px; overflow: auto; }
+.report-event { display: flex; align-items: baseline; gap: 4px; font-size: var(--fs-sm); color: var(--ui-text-2); }
+.report-event time { flex: none; width: 44px; color: var(--ui-text-3); font-family: var(--ui-mono); }
+.report-event.victory, .report-event.defeat, .report-event.structure_destroyed { color: var(--ui-text); }
+.report-decisions .commander-decision { display: grid; gap: 2px; padding: 7px 8px; border-left: 2px solid var(--ui-line); background: rgba(255, 255, 255, .025); }
+.report-decisions .commander-decision span { color: var(--ui-text-3); font-size: var(--fs-xs); }
+@media (max-width: 620px) {
+  .skirmish-personas { grid-template-columns: 1fr; }
+  .report-table th, .report-table td { padding: 4px 4px; font-size: var(--fs-sm); }
+}
+@media (prefers-reduced-motion: reduce) { .skirmish-overlay, .report-overlay { backdrop-filter: none; } }
+
+/* Phones: the commander stays reachable in matches as a collapsed card. */
+@media (max-width: 620px) {
+  .screen:not(.home-mode):not(.raid-mode) .game-atlas .sym-rail { display: flex; top: 92px; right: 8px; width: min(320px, calc(100vw - 16px)); z-index: 40; }
+  .screen:not(.home-mode):not(.raid-mode) .game-atlas .sym-rail:has(.commander-panel.collapsed) { width: auto; }
+  .screen:not(.home-mode):not(.raid-mode) .game-atlas .sym-rail > :not(.commander-panel) { display: none; }
+  .game-atlas .commander-panel .council-text { max-height: 50vh; }
+  .commander-slider { grid-template-columns: 56px 1fr 34px; }
+}

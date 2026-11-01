@@ -15,7 +15,7 @@ game.buildings.clear();
 for (const player of game.players.values()) {
   player.age = 5;
   player.cityPath = 'command';
-  player.resources = { food: 1000, wood: 1000, gold: 1000, stone: 1000 };
+  player.resources = { energy: 1000, alloys: 2000, compute: 1000 };
 }
 
 assert.deepEqual(BUILDING_DEFS.drone_factory.trains, ['attack_drone']);
@@ -63,7 +63,7 @@ game.buildings.delete(100);
 g.updateRaids();
 assert.equal(raid.phase, 'result');
 assert.equal(raid.stars, 3);
-assert.ok(raid.loot.food > 0 && game.players.get(1)!.resources.food > 1000, 'loot transfers to the attacker');
+assert.ok(raid.loot.energy > 0 && game.players.get(1)!.resources.energy > 1000, 'loot transfers to the attacker');
 
 g.applyCommand(1, { kind: 'showRaidReplay' });
 raid = g.raids.get(1);

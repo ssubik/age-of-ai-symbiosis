@@ -22,6 +22,11 @@ import {
   MARKET_PRICE_STEP,
   MARKET_START_PRICE,
   TICK_MS,
+  TICK_RATE,
+  LAYER_GATE,
+  LAYER_OUTPUT,
+  BUILDING_POWER_DRAW,
+  layerGateMet,
   DEFENSE_DEFS,
   GARRISON_CAP,
   buildingRange,
@@ -122,19 +127,42 @@ import type {
   RaidReport,
   CommanderAutonomy,
   CommanderPersona,
+  CommanderPolicy,
+  MatchReport,
   StrategicObjective,
 } from '@age/shared';
-import { DIFFICULTY, runBotAI } from './ai';
+import { DIFFICULTY, commanderBuild, nextAgeRequirement, runBotAI } from './ai';
 import { generateHomeMap, generateMap } from './mapgen';
 import { collectSpreadTiles, findPath, idx, isWalkable, nearestWalkableTile, ringTiles, type Grid } from './path';
 import { MatchLedger } from '../chain/ledger';
 import { needElon, rankStandings, reliabilityBonus, reliabilityPpm, stewardshipValue, type NeedSample } from './stewardship';
 import { createUnit, type Building, type GamePlayer, type ResNode, type Sheep, type Unit } from './state';
 import type { HomeProgression, HomeRaidData, HomeSave } from '../home/types';
-import { CommanderBrain, type CommanderFacts } from './commander';
+import { CommanderBrain, planProduction, type CommanderFacts, type ObjectiveStatus, type ProductionFacts } from './commander';
+import { MatchStats } from './matchstats';
 import { inDeployZone, snapshotChecksum } from '../raid/snapshot';
 import { newChainState, recordTx, sealBlock, verifyLedger, LEDGER_MAX_SETTLEMENTS, type HomeChainState } from '../home/ledger';
 import { createHash } from 'node:crypto';
+
+/** Relative spending on each resource across a typical match (stockpile weighting). */
+const RESOURCE_DEMAND: Record<ResourceType, number> = { energy: 1, alloys: 0.95, compute: 0.6 };
+
+/** Units the player ordered directly stay out of commander initiative this long (30 s). */
+const PLAYER_HOLD_TICKS = 300;
+/** Tiles around the Command Core that count as "the base". */
+const BASE_RADIUS = 16;
+/** Radius of a defended sector. */
+const DEFEND_RADIUS = 10;
+
+/** Book-keeping for the commander objective under execution. */
+interface CommanderRun {
+  startTick: number;
+  unitIds: Set<number>;
+  lost: number;
+  detail?: string;
+  /** Buildings the commander garrisoned workers into; emptied when the threat clears. */
+  sheltered?: number[];
+}
 
 /** First 30 s of a match: need cycles are not sampled (see sampleNeeds). */
 const NEED_GRACE_TICKS = 300;
@@ -174,6 +202,10 @@ export type SendFn = (playerId: number, msg: ServerMessage) => void;
 
 export interface GameOptions {
   session?: 'arena' | 'home' | 'raid';
+  /** Vertical-slice 1v1: warfare is open from the first minute (no Level-5 gate). */
+  skirmish?: boolean;
+  /** Fixed arena map seed (tests, replays). Random when omitted. */
+  mapSeed?: number;
   homeState?: HomeSave;
   now?: () => number;
   /** Raid session: the pinned defense and its legal deployment band. */
@@ -244,11 +276,7 @@ export class Game {
    *  MAGRA, sem a economia de ninguém (ver `broadcastSnapshot`). */
   readonly spectators = new Set<number>();
   /** Preços do mercado (ouro por lote de 100) — da SALA, movem com as trocas. */
-  private marketPrices: MarketPrices = {
-    food: MARKET_START_PRICE,
-    wood: MARKET_START_PRICE,
-    stone: MARKET_START_PRICE,
-  };
+  private marketPrices: MarketPrices = { energy: MARKET_START_PRICE, alloys: MARKET_START_PRICE };
   readonly elonEvents: ElonEvent[] = [];
   readonly facilityLog: FacilityRecord[] = [];
   private knownCompletedBuildings = new Set<number>();
@@ -257,6 +285,16 @@ export class Game {
   private raids = new Map<number, ActiveRaid>();
   private nextRaidId = 1;
   private commanders = new Map<number, CommanderBrain>();
+  private commanderRuns = new Map<number, CommanderRun>();
+  /** Resource that last blocked a doctrine purchase; steers worker priority. */
+  private commanderShortfall = new Map<number, { resource: ResourceType; tick: number }>();
+  /** unit id → tick of the player's last direct order to it. */
+  private playerTouched = new Map<number, number>();
+  /** Skirmish: warfare is open from the start instead of gated on Level 5. */
+  private readonly openWarfare: boolean = false;
+  /** Arena-only structured telemetry for the post-battle report. */
+  private stats: MatchStats | null = null;
+  private finalReport?: MatchReport;
   readonly homeMode: boolean;
   readonly raidMode: boolean;
   private raidSim: RaidSim | null = null;
@@ -296,7 +334,7 @@ export class Game {
     const homeSeed = Number.parseInt(matchSalt.slice(0, 8), 16);
     const gen = this.homeMode
       ? generateHomeMap(Number.isFinite(homeSeed) ? homeSeed : undefined)
-      : generateMap(members.length, undefined, terrain);
+      : generateMap(members.length, options.mapSeed, terrain);
     this.grid = gen.grid;
     this.map = { size: gen.grid.size, tiles: gen.grid.tiles };
     this.nextId = gen.nextId;
@@ -326,12 +364,7 @@ export class Game {
         id: m.id,
         name: m.name,
         color: m.color,
-        resources: {
-          food: Math.round(baseRes.food * mult),
-          wood: Math.round(baseRes.wood * mult),
-          gold: Math.round(baseRes.gold * mult),
-          stone: Math.round(baseRes.stone * mult),
-        },
+        resources: { energy: Math.round(baseRes.energy * mult), alloys: Math.round(baseRes.alloys * mult), compute: Math.round(baseRes.compute * mult) },
         defeated: false,
         age: battle ? BATTLE_STARTING_AGE : 1,
         techs: new Set<string>(),
@@ -345,6 +378,8 @@ export class Game {
       if (m.isBot) this.botIds.add(m.id);
       this.commanders.set(m.id, new CommanderBrain());
     });
+    if (!this.homeMode && !this.raidMode) this.stats = new MatchStats(members, TICK_RATE);
+    this.openWarfare = !!options.skirmish && !this.homeMode && !this.raidMode;
 
     // Unidades/prédios gerados vêm com owner = índice do jogador (0..n-1); remapeia para playerId real.
     for (const b of gen.buildings) {
@@ -440,6 +475,7 @@ export class Game {
     const p = this.players.get(playerId);
     if (!p || p.defeated) return;
     p.defeated = true;
+    this.stats?.defeated(playerId, this.tick, p.name);
     this.removeAllEntitiesOf(playerId);
     this.checkVictory();
   }
@@ -481,11 +517,15 @@ export class Game {
         if (bp && !bp.defeated) runBotAI(this, id);
       }
     }
-    if (!this.homeMode && !this.raidMode && this.tick % 10 === 0) this.updateCommanders();
+    if (!this.homeMode && !this.raidMode && this.tick % 10 === 0) {
+      this.updateCommanders();
+      this.sampleMatchStats();
+    }
 
     this.applyQueuedCommands();
     this.updateRaids();
     if (this.tick % 10 === 0) this.generateElon();
+    if (this.tick % 10 === 0 && !this.homeMode && !this.raidMode) this.generateLayerOutput();
 
     if (this.symbiosis) this.recomputePower();
     for (const u of this.units.values()) this.updateUnit(u, dt);
@@ -510,6 +550,7 @@ export class Game {
         p.age = p.ageResearch.target;
         if (p.age >= 5) p.cityPath = 'command';
         p.ageResearch = undefined;
+        this.stats?.ageUp(p.id, p.age, this.tick, p.name);
       }
     }
 
@@ -649,6 +690,22 @@ export class Game {
     return rate;
   }
 
+  /** Arena: generators yield Energy; Compute Nodes yield Compute at the grid's efficiency. */
+  private generateLayerOutput(): void {
+    for (const b of this.buildings.values()) {
+      const output = LAYER_OUTPUT[b.type];
+      if (!output || b.progress < 1) continue;
+      const p = this.players.get(b.owner);
+      if (!p || p.defeated) continue;
+      const grid = this.powerOf(b.owner);
+      for (const [key, perMinute] of Object.entries(output) as [ResourceType, number][]) {
+        const amount = (perMinute / 60) * (key === 'compute' ? powerEfficiency(grid.supply, grid.draw) : 1);
+        p.resources[key] += amount;
+        this.stats?.gathered(p.id, key, amount);
+      }
+    }
+  }
+
   private generateElon(): void {
     for (const p of this.players.values()) {
       if (p.defeated) continue;
@@ -697,6 +754,7 @@ export class Game {
     for (const b of this.buildings.values()) {
       if (b.progress < 1 || this.knownCompletedBuildings.has(b.id)) continue;
       this.knownCompletedBuildings.add(b.id);
+      this.stats?.structureBuilt(b.owner);
       // Counted once, as stewardship value while it stands — never as standing.
       this.facilityLog.push({ tick: this.tick, playerId: b.owner, buildingId: b.id, type: b.type, stewardship: stewardshipValue(b.type) });
       if (this.ledger) {
@@ -787,7 +845,7 @@ export class Game {
     if (!p || !hub) return 'A Civic Hub is required before creating a perfect city.';
     p.age = 5;
     p.cityPath = 'command';
-    p.resources = { food: 1_000_000, wood: 1_000_000, gold: 1_000_000, stone: 1_000_000 };
+    p.resources = { energy: 1_000_000, alloys: 2000000, compute: 1_000_000 };
     p.devPower = 2_000;
     hub.level = 5;
     hub.upgradeTargetLevel = undefined;
@@ -882,7 +940,7 @@ export class Game {
     p.age = 5;
     p.cityPath = 'command';
     p.ageResearch = undefined;
-    p.resources = { food: 1_000_000, wood: 1_000_000, gold: 1_000_000, stone: 1_000_000 };
+    p.resources = { energy: 1_000_000, alloys: 2000000, compute: 1_000_000 };
     p.devPower = 500;
     for (const tech of TECH_DEFS) p.techs.add(tech.id);
 
@@ -1110,6 +1168,7 @@ export class Game {
       if (!g) continue;
       const base = BUILDING_DEFS[b.type].power ?? (b.type === 'town_center' ? TOWN_CENTER_POWER : 0);
       g.supply += this.homeMode ? Math.round(base * levelScale(b.level, 0.5)) : base;
+      if (!this.homeMode && !this.raidMode) g.draw += BUILDING_POWER_DRAW[b.type] ?? 0;
     }
     for (const u of this.units.values()) {
       const g = next.get(u.owner);
@@ -1173,6 +1232,8 @@ export class Game {
       this.ended = true;
       const winner = alive[0];
       const winnerName = alive.length > 1 ? alive.map((p) => p.name).join(' + ') : winner?.name ?? '';
+      const report = this.buildMatchReport(winner ? winner.id : -1);
+      this.finalReport = report;
       for (const p of this.players.values()) {
         // `won` individual: aliados do lado vencedor também veem "Vitória!"
         // (mesmo um aliado já derrotado — o TIME dele venceu).
@@ -1180,8 +1241,8 @@ export class Game {
         const contributions = [...this.players.values()].map((player) => ({ playerId: player.id, name: player.name, elon: player.elon }));
         const standings = this.standings();
         this.send(p.id, winner
-          ? { type: 'gameOver', winner: winner.id, winnerName, won, contributions, standings, ...(this.dev ? { dev: true } : {}) }
-          : { type: 'gameOver', winner: -1, winnerName: '', won: false, contributions, standings, ...(this.dev ? { dev: true } : {}) });
+          ? { type: 'gameOver', winner: winner.id, winnerName, won, contributions, standings, ...(this.dev ? { dev: true } : {}), ...(report ? { report } : {}) }
+          : { type: 'gameOver', winner: -1, winnerName: '', won: false, contributions, standings, ...(this.dev ? { dev: true } : {}), ...(report ? { report } : {}) });
       }
       this.onGameOver(winner ? winner.id : -1, winnerName);
     }
@@ -1203,6 +1264,10 @@ export class Game {
     for (const { playerId, cmd } of cmds) {
       const p = this.players.get(playerId);
       if (!p || p.defeated) continue;
+      // Direct unit orders from a human hand those units back to the player for a while.
+      if (!p.difficulty && 'unitIds' in cmd && Array.isArray(cmd.unitIds) && cmd.kind !== 'build') {
+        for (const id of cmd.unitIds) this.playerTouched.set(id, this.tick);
+      }
       try {
         this.applyCommand(playerId, cmd);
       } catch (err) {
@@ -1256,7 +1321,10 @@ export class Game {
         this.cmdCommanderOrder(playerId, cmd.objective);
         break;
       case 'cancelCommanderOrder':
-        this.commanders.get(playerId)?.cancel();
+        this.cmdCancelCommanderOrder(playerId);
+        break;
+      case 'setCommanderPolicy':
+        this.cmdSetCommanderPolicy(playerId, cmd.policy);
         break;
       case 'upgradeBuilding':
         if (this.homeMode) this.cmdUpgradeBuilding(playerId, cmd.buildingId);
@@ -1333,7 +1401,7 @@ export class Game {
       id: this.nextRaidId++, phase: 'scouting', attacker, defender,
       army: this.emptyRaidArmy(), remaining: this.emptyRaidArmy(), deployed: 0,
       duration: 180, secondsLeft: 180, destruction: 0, stars: 0,
-      loot: { food: 0, wood: 0, gold: 0, stone: 0 }, events: [],
+      loot: { energy: 0, alloys: 0, compute: 0 }, events: [],
       initialBuildings: new Set(buildings.map((b) => b.id)),
       initialHp: buildings.reduce((n, b) => n + BUILDING_DEFS[b.type].hp, 0),
       raidUnits: new Set(), awardedStars: new Set(), recordedDestroyed: new Set(),
@@ -1472,7 +1540,7 @@ export class Game {
 
   /** Mercado: compra/venda de 1 lote (100) de recurso por ouro. O preço é da
    *  SALA: comprar encarece, vender barateia — para todos os jogadores. */
-  private cmdTrade(playerId: number, action: 'buy' | 'sell', resource: 'food' | 'wood' | 'stone'): void {
+  private cmdTrade(playerId: number, action: 'buy' | 'sell', resource: 'energy' | 'alloys'): void {
     const p = this.players.get(playerId);
     if (!p || p.defeated) return;
     if (this.marketPrices[resource] === undefined) return;
@@ -1486,11 +1554,11 @@ export class Game {
     const price = this.marketPrices[resource];
     if (action === 'buy') {
       const cost = tradeBuyCost(price);
-      if (p.resources.gold < cost) {
+      if (p.resources.compute < cost) {
         this.errorTo(playerId, 'err.no_gold');
         return;
       }
-      p.resources.gold -= cost;
+      p.resources.compute -= cost;
       p.resources[resource] += TRADE_LOT;
       this.marketPrices[resource] = Math.min(MARKET_PRICE_MAX, price + MARKET_PRICE_STEP);
     } else {
@@ -1499,7 +1567,7 @@ export class Game {
         return;
       }
       p.resources[resource] -= TRADE_LOT;
-      p.resources.gold += tradeSellGain(price);
+      p.resources.compute += tradeSellGain(price);
       this.marketPrices[resource] = Math.max(MARKET_PRICE_MIN, price - MARKET_PRICE_STEP);
     }
   }
@@ -1578,6 +1646,12 @@ export class Game {
         return;
       }
     }
+    const completed: BuildingType[] = [];
+    for (const b of this.buildings.values()) if (b.owner === playerId && b.progress >= 1) completed.push(b.type);
+    if (!layerGateMet(p.age, completed)) {
+      this.errorTo(playerId, 'err.requires_layer', { building: LAYER_GATE[p.age][0] });
+      return;
+    }
     const cost = AGE_COSTS[p.age + 1] ?? {};
     if (!this.canAfford(p, cost)) {
       this.errorTo(playerId, 'err.no_resources');
@@ -1608,13 +1682,27 @@ export class Game {
     return isNavalUnit(u.type) ? this.navalGrid : this.grid;
   }
 
+  // ---------------- Player AI commander ----------------
+
+  /** May this player's forces fight? Symbiosis gates warfare on the Command
+   *  Metropolis (Level 5) except in skirmish matches. */
+  private atWar(p: GamePlayer | undefined): boolean {
+    return !this.symbiosis || this.openWarfare || p?.cityPath === 'command';
+  }
+
   private cmdSetCommander(playerId: number, persona: CommanderPersona, autonomy: CommanderAutonomy): void {
     if (this.homeMode || this.raidMode) return;
+    if (!['vanguard', 'sentinel', 'architect'].includes(persona) || !['manual', 'assisted', 'autonomous'].includes(autonomy)) return;
     this.commanders.get(playerId)?.configure(persona, autonomy);
   }
 
+  private cmdSetCommanderPolicy(playerId: number, policy: CommanderPolicy): void {
+    if (this.homeMode || this.raidMode || !policy) return;
+    this.commanders.get(playerId)?.setPolicy(policy);
+  }
+
   private cmdCommanderOrder(playerId: number, objective: StrategicObjective): void {
-    if (this.homeMode || this.raidMode) return;
+    if (this.homeMode || this.raidMode || !objective) return;
     if ('x' in objective && (!Number.isFinite(objective.x) || !Number.isFinite(objective.y)
       || objective.x < 0 || objective.y < 0 || objective.x >= this.grid.size || objective.y >= this.grid.size)) return;
     if (objective.kind === 'attack_target') {
@@ -1623,36 +1711,113 @@ export class Game {
       const owner = unit?.owner ?? building?.owner;
       if (owner === undefined || this.allied(owner, playerId)) return;
     }
+    const resources = ['energy', 'alloys', 'compute'];
+    if (objective.kind === 'prioritize_resource' && (!resources.includes(objective.resource) || (objective.from && !resources.includes(objective.from)))) return;
     const brain = this.commanders.get(playerId);
     if (!brain) return;
+    if (brain.activeObjective) this.endCommanderRun(playerId);
     brain.issue(objective);
-    const evaluation = brain.evaluate(this.commanderFacts(playerId), true);
-    if (evaluation?.objective) this.applyCommanderObjective(playerId, evaluation.objective);
+    // Execute in the same tick so the order feels immediate.
+    this.runCommander(playerId, brain);
+  }
+
+  private cmdCancelCommanderOrder(playerId: number): void {
+    const brain = this.commanders.get(playerId);
+    if (!brain) return;
+    brain.cancel(this.tick);
+    if (!brain.activeObjective) this.endCommanderRun(playerId);
   }
 
   private updateCommanders(): void {
     for (const player of this.players.values()) {
       if (player.defeated || player.difficulty) continue;
       const brain = this.commanders.get(player.id);
-      const evaluation = brain?.evaluate(this.commanderFacts(player.id));
-      if (evaluation?.objective) this.applyCommanderObjective(player.id, evaluation.objective);
+      if (!brain) continue;
+      this.runCommander(player.id, brain);
+      if (this.tick % 30 === 0) this.commanderProduction(player.id, brain);
     }
   }
 
+  private runCommander(playerId: number, brain: CommanderBrain): void {
+    const step = brain.step(this.commanderFacts(playerId));
+    if (!brain.activeObjective) this.endCommanderRun(playerId);
+    if (!step) return;
+    if (step.economy) {
+      const { objective, decisionId } = step.economy;
+      brain.resolveEconomy(decisionId, this.reassignWorkers(playerId, objective.resource, objective.from), this.tick);
+    }
+    if (step.start) {
+      this.startCommanderObjective(playerId, step.start.objective, step.start.source);
+      const decision = brain.activeObjective?.decision;
+      if (decision) this.stats?.commander(playerId, decision, this.players.get(playerId)?.name ?? '');
+    } else if (step.reinforce) {
+      this.reinforceCommanderObjective(playerId, step.reinforce);
+    }
+  }
+
+  /** Combat units the commander may command: not workers, not builders. */
   private commanderArmy(playerId: number): Unit[] {
-    return [...this.units.values()].filter((unit) => unit.owner === playerId
-      && UNIT_DEFS[unit.type].attack > 0
-      && !isBuilderUnit(unit.type));
+    const out: Unit[] = [];
+    for (const unit of this.units.values()) {
+      if (unit.owner === playerId && unit.type !== 'villager' && UNIT_DEFS[unit.type].attack > 0 && !isBuilderUnit(unit.type) && !isNavalUnit(unit.type)) out.push(unit);
+    }
+    return out;
+  }
+
+  /** Units the player micro-managed recently stay under the player's hand. */
+  private playerHolds(unit: Unit): boolean {
+    const at = this.playerTouched.get(unit.id);
+    return at !== undefined && this.tick - at < PLAYER_HOLD_TICKS;
+  }
+
+  private armyPower(units: Unit[]): number {
+    let power = 0;
+    for (const unit of units) {
+      const def = UNIT_DEFS[unit.type];
+      power += Math.max(0, unit.hp) * (def.attack / Math.max(0.5, def.attackCooldown));
+    }
+    return power / 100;
+  }
+
+  /** Static resistance around an enemy core: defensive structures (one extra
+   *  arrow per garrisoned unit, as in updateTowers) and armed workers nearby. */
+  private defensePower(owner: number, at: { x: number; y: number }): number {
+    const age = this.players.get(owner)?.age ?? 1;
+    const techs = this.players.get(owner)?.techs;
+    let power = 0;
+    let workers = 0;
+    for (const u of this.units.values()) {
+      if (u.owner !== owner || u.type !== 'villager' || Math.hypot(u.x - at.x, u.y - at.y) > BASE_RADIUS) continue;
+      workers++;
+      power += u.hp * (UNIT_DEFS.villager.attack / UNIT_DEFS.villager.attackCooldown) * 0.5;
+    }
+    for (const b of this.buildings.values()) {
+      if (b.owner !== owner || b.progress < 1) continue;
+      const def = DEFENSE_DEFS[b.type];
+      if (!def || Math.hypot(b.tileX - at.x, b.tileY - at.y) > BASE_RADIUS) continue;
+      // Nearby workers can garrison under attack; count half of that potential.
+      const inside = b.garrison?.length ?? 0;
+      const potential = Math.min((GARRISON_CAP[b.type] ?? 0) - inside, workers);
+      const arrows = 1 + inside + Math.max(0, potential) * 0.5;
+      power += b.hp * (buildingAttack(b.type, age, techs) * arrows / def.cooldown);
+    }
+    return power / 100;
+  }
+
+  private coreOf(playerId: number): Building | undefined {
+    for (const b of this.buildings.values()) if (b.owner === playerId && b.type === 'town_center') return b;
+    return undefined;
+  }
+
+  private centerOf(b: Building): { x: number; y: number } {
+    const size = BUILDING_DEFS[b.type].size;
+    return { x: b.tileX + size / 2, y: b.tileY + size / 2 };
   }
 
   private commanderFacts(playerId: number): CommanderFacts {
     const player = this.players.get(playerId)!;
-    const coreBuilding = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
-    const core = coreBuilding ? {
-      id: coreBuilding.id,
-      x: coreBuilding.tileX + BUILDING_DEFS.town_center.size / 2,
-      y: coreBuilding.tileY + BUILDING_DEFS.town_center.size / 2,
-    } : undefined;
+    const coreBuilding = this.coreOf(playerId);
+    const core = coreBuilding ? { id: coreBuilding.id, ...this.centerOf(coreBuilding) } : undefined;
     const enemyCores = [...this.buildings.values()].filter((b) => b.type === 'town_center' && !this.allied(b.owner, playerId));
     enemyCores.sort((a, b) => {
       if (!core) return a.id - b.id;
@@ -1661,63 +1826,511 @@ export class Game {
       return da - db || a.id - b.id;
     });
     const enemy = enemyCores[0];
-    const enemyCore = enemy ? {
-      id: enemy.id,
-      x: enemy.tileX + BUILDING_DEFS.town_center.size / 2,
-      y: enemy.tileY + BUILDING_DEFS.town_center.size / 2,
-    } : undefined;
     const army = this.commanderArmy(playerId);
+    const enemyArmy: Unit[] = [];
+    let hostilesNearBase = 0;
+    for (const unit of this.units.values()) {
+      if (this.allied(unit.owner, playerId)) continue;
+      if (unit.type !== 'villager' && UNIT_DEFS[unit.type].attack > 0 && !isBuilderUnit(unit.type)) enemyArmy.push(unit);
+      if (core && Math.hypot(unit.x - core.x, unit.y - core.y) <= BASE_RADIUS) hostilesNearBase++;
+    }
     const armyHealth = army.length > 0
-      ? army.reduce((sum, unit) => sum + Math.min(1, unit.hp / Math.max(1, UNIT_DEFS[unit.type].hp)), 0) / army.length
+      ? army.reduce((sum, unit) => sum + Math.min(1, unit.hp / Math.max(1, this.unitMaxHp(unit))), 0) / army.length
       : 1;
+    const own = this.armyPower(army);
+    const theirs = this.armyPower(enemyArmy);
+    const defenses = enemy ? this.defensePower(enemy.owner, this.centerOf(enemy)) : 0;
+    const armySpread = core && army.length > 0 ? army.reduce((sum, u) => sum + Math.hypot(u.x - core.x, u.y - core.y), 0) / army.length : 0;
     const recent = this.recentAttacks.get(playerId);
-    const entries = (Object.entries(player.resources) as [ResourceType, number][]).sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+    // Demand-weighted stockpiles: food funds workers, troops and ages; stone little.
+    const weighted = (Object.entries(player.resources) as [ResourceType, number][])
+      .filter(([r]) => this.freeSourceFor(playerId, r))
+      .map(([r, n]) => [r, n / RESOURCE_DEMAND[r]] as [ResourceType, number])
+      .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+    // A resource the doctrine is waiting on outranks the demand weighting.
+    const short = this.commanderShortfall.get(playerId);
+    const wanted = short && this.tick - short.tick <= 300 ? weighted.find(([r]) => r === short.resource) : undefined;
+    const needy = wanted ?? weighted[0];
+    const rich = weighted.filter(([r]) => r !== needy?.[0]).at(-1);
+    let richWorkers = 0;
+    for (const u of this.units.values()) if (u.owner === playerId && u.type === 'villager' && this.gatheringResource(u) === rich?.[0]) richWorkers++;
+    const surplus = needy && rich && player.resources[needy[0]] < 300
+      && (wanted ? rich[1] > 2 * Math.max(needy[1], 50) : rich[1] > 4 * Math.max(needy[1], 50)) && richWorkers >= 3
+      ? { from: rich[0], to: needy[0], ratio: rich[1] / Math.max(needy[1], 50) } : undefined;
+    let idleWorkers = 0;
+    for (const u of this.units.values()) if (u.owner === playerId && u.type === 'villager' && u.state === 'idle') idleWorkers++;
+    const brain = this.commanders.get(playerId);
+    const active = brain?.activeObjective;
+    const expansion = core ? this.nearestExpansion(playerId, core) : undefined;
     return {
       tick: this.tick,
       ...(core ? { core } : {}),
-      ...(enemyCore ? { enemyCore } : {}),
+      coreHealth: coreBuilding ? coreBuilding.hp / BUILDING_DEFS.town_center.hp : 1,
+      ...(enemy ? { enemyCore: { id: enemy.id, ...this.centerOf(enemy) } } : {}),
       ...(recent && this.tick - recent.tick <= 100 ? { recentAttack: { x: recent.x, y: recent.y } } : {}),
-      armyReadiness: Math.min(1, army.length / 6),
+      armySize: army.length,
       armyHealth,
-      idleWorkers: [...this.units.values()].filter((u) => u.owner === playerId && u.type === 'villager' && u.state === 'idle').length,
-      lowestResource: entries[0]?.[0] ?? 'food',
+      strengthRatio: theirs > 0 ? own / theirs : own > 0 ? 9 : 1,
+      assaultRatio: theirs + defenses > 0 ? own / (theirs + defenses) : own > 0 ? 9 : 1,
+      armySpread,
+      hostilesNearBase,
+      idleWorkers,
+      lowestResource: needy?.[0] ?? 'energy',
+      ...(surplus ? { surplus } : {}),
+      ...(expansion ? { expansion } : {}),
+      ...(active ? { active: this.objectiveStatus(playerId, active.objective, army) } : {}),
     };
   }
 
-  private applyCommanderObjective(playerId: number, objective: StrategicObjective): void {
-    const army = this.commanderArmy(playerId);
+  /** Nearest gold/stone cluster beyond the base with no friendly structure near it. */
+  private nearestExpansion(playerId: number, core: { x: number; y: number }): { x: number; y: number } | undefined {
+    let best: { x: number; y: number } | undefined;
+    let bestD = Infinity;
+    for (const node of this.nodes.values()) {
+      if (node.type !== 'gold_mine' && node.type !== 'stone_mine') continue;
+      const d = Math.hypot(node.tileX - core.x, node.tileY - core.y);
+      if (d < BASE_RADIUS + 4 || d >= bestD) continue;
+      let claimed = false;
+      for (const b of this.buildings.values()) {
+        if (Math.hypot(b.tileX - node.tileX, b.tileY - node.tileY) <= 8) { claimed = true; break; }
+      }
+      if (claimed) continue;
+      bestD = d;
+      best = { x: node.tileX + 0.5, y: node.tileY + 0.5 };
+    }
+    return best;
+  }
+
+  private objectivePoint(playerId: number, objective: StrategicObjective): { x: number; y: number } | undefined {
+    const core = this.coreOf(playerId);
+    switch (objective.kind) {
+      case 'defend_area':
+      case 'capture_zone':
+        return { x: objective.x, y: objective.y };
+      case 'protect_core':
+      case 'prepare_offensive':
+      case 'retreat_regroup':
+        return core ? { x: core.tileX + 4.5, y: core.tileY + 4.5 } : undefined;
+      case 'attack_target': {
+        const b = this.buildings.get(objective.targetId);
+        if (b) return this.centerOf(b);
+        const u = this.units.get(objective.targetId);
+        return u ? { x: u.x, y: u.y } : undefined;
+      }
+      case 'prioritize_resource':
+        return undefined;
+    }
+  }
+
+  private nearestHostile(playerId: number, x: number, y: number, radius: number): Unit | undefined {
+    let best: Unit | undefined;
+    let bestD = radius;
+    for (const unit of this.units.values()) {
+      if (this.allied(unit.owner, playerId)) continue;
+      const d = Math.hypot(unit.x - x, unit.y - y);
+      if (d <= bestD) { bestD = d; best = unit; }
+    }
+    return best;
+  }
+
+  /** Dispatches the force for a newly started objective. Player orders take the
+   *  whole army; commander initiative leaves the player's micro-managed units alone. */
+  private startCommanderObjective(playerId: number, objective: StrategicObjective, source: 'player' | 'commander'): void {
+    const army = this.commanderArmy(playerId).filter((unit) => source === 'player' || !this.playerHolds(unit));
+    const previous = this.commanderRuns.get(playerId);
+    const carried = previous?.sheltered ?? [];
+    const run: CommanderRun = { startTick: this.tick, unitIds: new Set(army.map((unit) => unit.id)), lost: 0 };
+    this.commanderRuns.set(playerId, run);
+    if (objective.kind === 'defend_area' || objective.kind === 'protect_core') {
+      const point = this.objectivePoint(playerId, objective);
+      if (point) run.sheltered = [...new Set([...carried, ...this.shelterWorkers(playerId, army, point)])];
+    } else if (previous) {
+      this.releaseShelter(playerId, previous);
+    }
+    if (objective.kind === 'prioritize_resource') {
+      run.detail = this.reassignWorkers(playerId, objective.resource, objective.from);
+      return;
+    }
+    this.dispatchArmy(playerId, objective, army);
+  }
+
+  private reinforceCommanderObjective(playerId: number, objective: StrategicObjective): void {
+    const run = this.commanderRuns.get(playerId);
+    if (!run || objective.kind === 'prioritize_resource') return;
+    const fresh = this.commanderArmy(playerId).filter((unit) => unit.state === 'idle' && !this.playerHolds(unit));
+    if (fresh.length === 0) return;
+    const point = this.objectivePoint(playerId, objective);
+    // Idle units already on station need no new order.
+    const away = point ? fresh.filter((unit) => Math.hypot(unit.x - point.x, unit.y - point.y) > 4) : fresh;
+    for (const unit of away) run.unitIds.add(unit.id);
+    if (away.length) this.dispatchArmy(playerId, objective, away);
+  }
+
+  private dispatchArmy(playerId: number, objective: StrategicObjective, army: Unit[]): void {
     const ids = army.map((unit) => unit.id);
-    const core = [...this.buildings.values()].find((b) => b.owner === playerId && b.type === 'town_center');
+    if (ids.length === 0) return;
+    const point = this.objectivePoint(playerId, objective);
     switch (objective.kind) {
       case 'attack_target':
         this.cmdAttack(playerId, ids, objective.targetId);
         break;
-      case 'defend_area': {
-        const hostile = [...this.units.values()]
-          .filter((unit) => !this.allied(unit.owner, playerId) && Math.hypot(unit.x - objective.x, unit.y - objective.y) <= 10)
-          .sort((a, b) => Math.hypot(a.x - objective.x, a.y - objective.y) - Math.hypot(b.x - objective.x, b.y - objective.y))[0];
+      case 'defend_area':
+      case 'protect_core': {
+        const hostile = point ? this.nearestHostile(playerId, point.x, point.y, DEFEND_RADIUS) : undefined;
         if (hostile) this.cmdAttack(playerId, ids, hostile.id);
-        else this.cmdMove(playerId, ids, objective.x, objective.y);
+        else if (point) this.cmdMove(playerId, ids, point.x, point.y);
         break;
       }
       case 'capture_zone':
-        this.cmdMove(playerId, ids, objective.x, objective.y);
-        break;
       case 'prepare_offensive':
       case 'retreat_regroup':
-        if (core) this.cmdMove(playerId, ids, core.tileX + 4.5, core.tileY + 4.5);
+        if (point) this.cmdMove(playerId, ids, point.x, point.y);
         break;
-      case 'prioritize_resource': {
-        const workers = [...this.units.values()].filter((unit) => unit.owner === playerId && unit.type === 'villager' && unit.state === 'idle');
-        const candidates = [...this.nodes.values()].filter((node) => NODE_DEFS[node.type].resource === objective.resource);
-        for (const worker of workers) {
-          const target = candidates.reduce<ResNode | undefined>((best, node) => !best
-            || Math.hypot(node.tileX - worker.x, node.tileY - worker.y) < Math.hypot(best.tileX - worker.x, best.tileY - worker.y) ? node : best, undefined);
-          if (target) this.cmdGather(playerId, [worker.id], target.id);
-        }
+      case 'prioritize_resource':
         break;
+    }
+  }
+
+  /** Outmatched defense: workers near the core take shelter in the Command
+   *  Core and towers, which then fire an extra arrow per occupant. */
+  private shelterWorkers(playerId: number, army: Unit[], at: { x: number; y: number }): number[] {
+    const core = this.coreOf(playerId);
+    if (!core || core.progress < 1) return [];
+    const c = this.centerOf(core);
+    let threat = 0;
+    for (const u of this.units.values()) {
+      if (!this.allied(u.owner, playerId) && Math.hypot(u.x - at.x, u.y - at.y) <= BASE_RADIUS) threat += this.armyPower([u]);
+    }
+    if (threat === 0 || this.armyPower(army) >= threat * 1.2) return [];
+    // Workers in the core and those near the attack both run for cover.
+    const exposed = (u: Unit): boolean => Math.hypot(u.x - c.x, u.y - c.y) <= BASE_RADIUS || Math.hypot(u.x - at.x, u.y - at.y) <= DEFEND_RADIUS + 4;
+    const shelters = [...this.buildings.values()]
+      .filter((b) => b.owner === playerId && b.progress >= 1 && (GARRISON_CAP[b.type] ?? 0) > (b.garrison?.length ?? 0))
+      .sort((a, b) => Math.hypot(a.tileX - c.x, a.tileY - c.y) - Math.hypot(b.tileX - c.x, b.tileY - c.y));
+    const workers = [...this.units.values()]
+      .filter((u) => u.owner === playerId && u.type === 'villager' && exposed(u) && !this.playerHolds(u))
+      .sort((a, b) => a.id - b.id);
+    const used: number[] = [];
+    for (const shelter of shelters) {
+      const room = (GARRISON_CAP[shelter.type] ?? 0) - (shelter.garrison?.length ?? 0);
+      const batch = workers.splice(0, room);
+      if (batch.length === 0) break;
+      this.cmdGarrison(playerId, batch.map((u) => u.id), shelter.id);
+      used.push(shelter.id);
+    }
+    return used;
+  }
+
+  /** Whatever the outcome, an objective never leaves workers locked inside. */
+  private endCommanderRun(playerId: number): void {
+    const run = this.commanderRuns.get(playerId);
+    if (run) this.releaseShelter(playerId, run);
+    this.commanderRuns.delete(playerId);
+  }
+
+  private releaseShelter(playerId: number, run: CommanderRun): number {
+    let released = 0;
+    for (const id of run.sheltered ?? []) {
+      const b = this.buildings.get(id);
+      if (!b || b.owner !== playerId) continue;
+      released += b.garrison?.length ?? 0;
+      this.cmdUnload(playerId, id);
+    }
+    run.sheltered = [];
+    return released;
+  }
+
+  /** Idle workers plus up to a third of those on other resources move to `resource`. */
+  /** Whether a worker sent to `resource` would find something to gather. */
+  private freeSourceFor(playerId: number, resource: ResourceType): boolean {
+    for (const node of this.nodes.values()) if (NODE_DEFS[node.type].resource === resource) return true;
+    if (resource !== 'energy') return false;
+    const worked = new Set<number>();
+    for (const u of this.units.values()) if (u.gatherTargetId !== undefined) worked.add(u.gatherTargetId);
+    for (const b of this.buildings.values()) {
+      if (b.owner === playerId && b.type === 'farm' && b.progress >= 1 && !worked.has(b.id)) return true;
+    }
+    return false;
+  }
+
+  /** Resource a worker is currently producing, from its gather target. */
+  private gatheringResource(u: Unit): ResourceType | undefined {
+    if (u.state !== 'gathering' && u.state !== 'movingToGather' && u.state !== 'returning') return undefined;
+    if (u.gatherTargetId === undefined) return u.carryType;
+    const node = this.nodes.get(u.gatherTargetId);
+    if (node) return NODE_DEFS[node.type].resource;
+    return this.buildings.get(u.gatherTargetId)?.type === 'farm' || this.sheep.has(u.gatherTargetId) ? 'energy' : u.carryType;
+  }
+
+  private reassignWorkers(playerId: number, resource: ResourceType, from?: ResourceType): string {
+    const nodes: { id: number; tileX: number; tileY: number }[] = [...this.nodes.values()].filter((node) => NODE_DEFS[node.type].resource === resource);
+    if (resource === 'energy') {
+      // Unworked farms count as food sources (one farmer each).
+      const worked = new Set<number>();
+      for (const u of this.units.values()) if (u.gatherTargetId !== undefined) worked.add(u.gatherTargetId);
+      for (const b of this.buildings.values()) {
+        if (b.owner === playerId && b.type === 'farm' && b.progress >= 1 && !worked.has(b.id)) nodes.push(b);
       }
     }
+    if (nodes.length === 0) return `No ${resource} source is available.`;
+    const workers = [...this.units.values()].filter((u) => u.owner === playerId && u.type === 'villager');
+    const idle = workers.filter((u) => u.state === 'idle');
+    const others = workers.filter((u) => {
+      const current = this.gatheringResource(u);
+      return current !== undefined && current !== resource && (!from || current === from);
+    }).sort((a, b) => a.id - b.id);
+    const moved = [...idle, ...others.slice(0, Math.floor(others.length / 3))];
+    for (const worker of moved) {
+      if (nodes.length === 0) break;
+      const target = nodes.reduce((best, node) => (Math.hypot(node.tileX - worker.x, node.tileY - worker.y) < Math.hypot(best.tileX - worker.x, best.tileY - worker.y) ? node : best));
+      this.cmdGather(playerId, [worker.id], target.id);
+      if (this.buildings.has(target.id)) nodes.splice(nodes.indexOf(target), 1);
+    }
+    return moved.length > 0 ? `${moved.length} worker(s) reassigned to ${resource}.` : 'No workers were available to reassign.';
+  }
+
+  /** Authoritative evaluation of the active objective, read by the brain. */
+  private objectiveStatus(playerId: number, objective: StrategicObjective, army: Unit[]): ObjectiveStatus {
+    const run = this.commanderRuns.get(playerId);
+    if (!run) return { state: 'failed', detail: 'The objective lost its assigned force.' };
+    const elapsed = this.tick - run.startTick;
+    if (objective.kind === 'prioritize_resource') {
+      const detail = run.detail ?? 'Workers reassigned.';
+      return { state: detail.startsWith('No ') ? 'failed' : 'completed', detail };
+    }
+    const assigned = army.filter((unit) => run.unitIds.has(unit.id));
+    const lost = [...run.unitIds].filter((id) => !this.units.has(id)).length;
+    const sheltering = (run.sheltered?.length ?? 0) > 0;
+    if (run.unitIds.size > 0 && assigned.length === 0 && !sheltering) return { state: 'failed', detail: `All ${run.unitIds.size} assigned unit(s) were destroyed.` };
+    if (run.unitIds.size === 0 && elapsed > 50 && !sheltering) return { state: 'failed', detail: 'No combat units were available.' };
+    const point = this.objectivePoint(playerId, objective);
+    const near = (radius: number): number => (point ? assigned.filter((unit) => Math.hypot(unit.x - point.x, unit.y - point.y) <= radius).length : 0);
+    const losses = lost > 0 ? ` (${lost} lost)` : '';
+    switch (objective.kind) {
+      case 'attack_target':
+        if (!this.units.has(objective.targetId) && !this.buildings.has(objective.targetId)) {
+          return { state: 'completed', detail: `Target destroyed${losses}.` };
+        }
+        return { state: 'running', detail: 'Engaging.' };
+      case 'defend_area':
+      case 'protect_core': {
+        if (!point) return { state: 'failed', detail: 'The defended position no longer exists.' };
+        const hostile = this.nearestHostile(playerId, point.x, point.y, DEFEND_RADIUS);
+        if (hostile) {
+          // Keep idle defenders fighting whatever is still in the sector.
+          const idle = assigned.filter((unit) => unit.state === 'idle' && !this.playerHolds(unit)).map((unit) => unit.id);
+          if (idle.length) this.cmdAttack(playerId, idle, hostile.id);
+          return { state: 'running', detail: 'Hostiles in sector.' };
+        }
+        if (elapsed >= 50 && (near(DEFEND_RADIUS) > 0 || sheltering)) {
+          const released = this.releaseShelter(playerId, run);
+          return { state: 'completed', detail: `Sector secure${losses}.${released ? ` ${released} worker(s) released from shelter.` : ''}` };
+        }
+        return { state: 'running', detail: 'Moving to the sector.' };
+      }
+      case 'capture_zone':
+      case 'prepare_offensive':
+      case 'retreat_regroup': {
+        if (!point) return { state: 'failed', detail: 'The rally position no longer exists.' };
+        const arrived = near(objective.kind === 'capture_zone' ? 5 : 7);
+        if (assigned.length > 0 && arrived >= Math.ceil(assigned.length * 0.75)) {
+          const verb = objective.kind === 'capture_zone' ? 'Zone held by' : objective.kind === 'retreat_regroup' ? 'Regrouped' : 'Assembled';
+          return { state: 'completed', detail: `${verb} ${arrived} unit(s)${losses}.` };
+        }
+        return { state: 'running', detail: `${arrived}/${assigned.length} on station.` };
+      }
+    }
+  }
+
+  /** Doctrine-driven spending inside the player's spending limit. Autonomous
+   *  commanders queue; Assisted ones only recommend; Manual ones stay silent. */
+  private commanderProduction(playerId: number, brain: CommanderBrain): void {
+    if (brain.currentAutonomy === 'manual') return;
+    const p = this.players.get(playerId);
+    const core = this.coreOf(playerId);
+    if (!p || !core) return;
+    const mine = [...this.buildings.values()].filter((b) => b.owner === playerId);
+    const has: Partial<Record<BuildingType, number>> = {};
+    for (const b of mine) has[b.type] = (has[b.type] ?? 0) + 1;
+    let villagers = 0;
+    let military = 0;
+    for (const u of this.units.values()) {
+      if (u.owner !== playerId) continue;
+      if (u.type === 'villager') villagers++;
+      else if (UNIT_DEFS[u.type].attack > 0 && !isBuilderUnit(u.type)) military++;
+    }
+    const popCap = this.popCapOf(playerId);
+    const facts: ProductionFacts = {
+      age: p.age,
+      villagers,
+      military,
+      towers: has.watch_tower ?? 0,
+      popRoom: popCap - this.popOf(playerId),
+      popCapped: popCap >= POP_CAP_MAX,
+      houseInProgress: mine.some((b) => b.type === 'house' && b.progress < 1),
+      structuresInProgress: mine.filter((b) => b.progress < 1).length,
+      underAttack: !!this.recentAttacks.get(playerId) && this.tick - this.recentAttacks.get(playerId)!.tick <= 100,
+      producers: mine.filter((b) => b.progress >= 1 && b.type !== 'town_center' && BUILDING_DEFS[b.type].trains.length > 0)
+        .map((b) => ({ id: b.id, type: b.type, queue: b.queue.length })),
+      ...(core.progress >= 1 ? { townCenterId: core.id } : {}),
+      townCenterQueue: core.queue.length,
+      has,
+      foodSources: [...this.nodes.values()].filter((n) => NODE_DEFS[n.type].resource === 'energy').length
+        + mine.filter((b) => b.type === 'farm' && b.progress >= 1 && (b.foodLeft ?? 0) > 0).length,
+      canAdvance: this.commanderCanAdvance(p),
+      ageReady: this.commanderAgeReady(p),
+      ...(() => { const need = nextAgeRequirement(p.age, mine); return need ? { ageBuildingNeeded: need } : {}; })(),
+    };
+    const intents = planProduction(brain.currentPersona, facts);
+    if (intents.length === 0) return;
+    const executes = brain.currentAutonomy === 'autonomous';
+    // The spending limit is a share of what is in the bank at the start of the cycle.
+    const budget = {} as Record<ResourceType, number>;
+    for (const key of Object.keys(p.resources) as ResourceType[]) budget[key] = p.resources[key] * brain.currentPolicy.spendLimit;
+    const fits = (cost: Partial<Record<ResourceType, number>>): boolean =>
+      (Object.entries(cost) as [ResourceType, number][]).every(([key, value]) => budget[key] >= (value ?? 0) && p.resources[key] >= (value ?? 0));
+    const charge = (cost: Partial<Record<ResourceType, number>>): void => {
+      for (const [key, value] of Object.entries(cost) as [ResourceType, number][]) budget[key] -= value ?? 0;
+    };
+    // The first structure (or age) the doctrine could not afford names the resource to gather next.
+    let shortfall: ResourceType | undefined;
+    const noteShortfall = (cost: Partial<Record<ResourceType, number>>): void => {
+      if (shortfall) return;
+      let worst = 0;
+      for (const [key, value] of Object.entries(cost) as [ResourceType, number][]) {
+        const missing = ((value ?? 0) - Math.min(budget[key], p.resources[key])) / Math.max(1, value ?? 0);
+        if (missing > worst) { worst = missing; shortfall = key; }
+      }
+    };
+    if (facts.ageReady && !facts.canAdvance) noteShortfall(AGE_COSTS[p.age + 1] ?? {});
+    const queued: string[] = [];
+    let units = 0;
+    let structures = 0;
+    let popRoom = facts.popRoom;
+    for (const intent of intents) {
+      if (intent.kind === 'advance_age') {
+        const cost = AGE_COSTS[p.age + 1] ?? {};
+        // Age research is the one purchase allowed past the spending limit: it is
+        // only planned when fully affordable and it is the doctrine's priority.
+        if (!this.canAfford(p, cost)) continue;
+        if (executes) this.cmdAdvanceAge(playerId);
+        charge(cost);
+        queued.push(`age ${p.age + 1} research`);
+        continue;
+      }
+      if (intent.kind === 'train') {
+        const b = this.buildings.get(intent.buildingId);
+        if (!b || !this.commanderCanTrain(p, b, intent.unit) || popRoom < UNIT_DEFS[intent.unit].pop) continue;
+        const cost = UNIT_DEFS[intent.unit].cost;
+        if (!fits(cost)) continue;
+        charge(cost);
+        popRoom -= UNIT_DEFS[intent.unit].pop;
+        queued.push(intent.unit.replace(/_/g, ' '));
+        units++;
+        if (executes) this.cmdTrain(playerId, b.id, intent.unit);
+      } else {
+        const def = BUILDING_DEFS[intent.building];
+        if (p.age < def.ageReq || (def.requires && !has[def.requires])) continue;
+        if (!fits(def.cost)) { noteShortfall(def.cost); continue; }
+        if (executes && !commanderBuild(this, playerId, intent.building)) continue;
+        charge(def.cost);
+        queued.push(intent.building.replace(/_/g, ' '));
+        structures++;
+      }
+    }
+    if (shortfall) this.commanderShortfall.set(playerId, { resource: shortfall, tick: this.tick });
+    else this.commanderShortfall.delete(playerId);
+    if (queued.length === 0) return;
+    const reason = facts.underAttack
+      ? 'Base under attack; reinforcing the defense.'
+      : `${villagers} workers, ${military} combat units, ${Math.max(0, facts.popRoom)} free population.`;
+    brain.noteProduction(this.tick, queued, units, structures, executes, reason);
+  }
+
+  /** Dry run of cmdAdvanceAge's rules, without the cost. */
+  private commanderAgeReady(p: GamePlayer): boolean {
+    if (p.ageResearch || p.age >= MAX_AGE) return false;
+    const have = new Set<BuildingType>();
+    for (const b of this.buildings.values()) {
+      if (b.owner === p.id && b.progress >= 1 && countsForAgeUp(b.type, p.age)) have.add(b.type);
+    }
+    const completed: BuildingType[] = [];
+    for (const b of this.buildings.values()) if (b.owner === p.id && b.progress >= 1) completed.push(b.type);
+    return have.size >= buildingsToAdvance(p.age) && layerGateMet(p.age, completed);
+  }
+
+  private commanderCanAdvance(p: GamePlayer): boolean {
+    return this.commanderAgeReady(p) && this.canAfford(p, AGE_COSTS[p.age + 1] ?? {});
+  }
+
+  /** Dry run of cmdTrain's rules so commander production never triggers error toasts. */
+  private commanderCanTrain(p: GamePlayer, b: Building, unit: UnitType): boolean {
+    if (b.owner !== p.id || b.progress < 1 || !BUILDING_DEFS[b.type].trains.includes(unit)) return false;
+    if (b.queue.length >= this.queueSlotsOf(b) || p.age < (UNIT_AGE_REQ[unit] ?? 1)) return false;
+    if ((SYMBIOSIS_UNITS.has(unit) || SYMBIOSIS_COMBAT_UNITS.has(unit)) && !this.symbiosis) return false;
+    if (SYMBIOSIS_COMBAT_UNITS.has(unit)) {
+      if (this.armyCommittedOf(p.id) + UNIT_DEFS[unit].pop > this.armyCapacityOf(p.id)) return false;
+      if (p.elonBalance < (ELON_UNIT_COST[unit] ?? 0)) return false;
+    }
+    return true;
+  }
+
+  // ---------------- Match statistics ----------------
+
+  private sampleMatchStats(): void {
+    if (!this.stats) return;
+    const strength = new Map<number, { power: number; size: number }>();
+    for (const p of this.players.values()) {
+      const army = this.commanderArmy(p.id);
+      strength.set(p.id, { power: this.armyPower(army), size: army.length });
+    }
+    this.stats.sample(this.tick, strength, this.playerNames());
+  }
+
+  private playerNames(): Map<number, string> {
+    const names = new Map<number, string>();
+    for (const p of this.players.values()) names.set(p.id, p.name);
+    return names;
+  }
+
+  /** Resource nodes within reach of a player's structures (nearest owner wins). */
+  private zonesControlledBy(playerId: number): number {
+    let count = 0;
+    for (const node of this.nodes.values()) {
+      if (node.type === 'tree') continue;
+      let owner = -1;
+      let bestD = 10;
+      for (const b of this.buildings.values()) {
+        const d = Math.hypot(b.tileX - node.tileX, b.tileY - node.tileY);
+        if (d < bestD) { bestD = d; owner = b.owner; }
+      }
+      if (owner === playerId) count++;
+    }
+    return count;
+  }
+
+  /** Post-battle report of a finished arena match (archived by the lobby). */
+  matchReport(): MatchReport | undefined {
+    return this.finalReport;
+  }
+
+  private buildMatchReport(winnerId: number): MatchReport | undefined {
+    if (!this.stats) return undefined;
+    return this.stats.report({
+      tick: this.tick,
+      winnerId,
+      players: [...this.players.values()].map((p) => {
+        const brain = this.commanders.get(p.id);
+        const winner = winnerId >= 0 ? this.allied(p.id, winnerId) : false;
+        return {
+          id: p.id, name: p.name, color: p.color, isBot: !!p.difficulty, won: winner,
+          zonesControlled: this.zonesControlledBy(p.id),
+          ...(brain && !p.difficulty ? {
+            commander: { persona: brain.currentPersona, autonomy: brain.currentAutonomy, record: brain.stats(), decisions: brain.history() },
+          } : {}),
+        };
+      }),
+    });
   }
 
   private cmdMove(playerId: number, unitIds: number[], x: number, y: number, queue = false): void {
@@ -2124,7 +2737,7 @@ export class Game {
   }
 
   private startGatherFarm(u: Unit, farm: Building): void {
-    const resource: ResourceType = 'food';
+    const resource: ResourceType = 'energy';
     if (u.gatherResource !== resource) u.carryAmount = 0;
     this.clearTasks(u);
     u.gatherTargetId = farm.id;
@@ -2139,7 +2752,7 @@ export class Game {
   /** Manda o aldeão abater/comer uma ovelha. Ela é passável (sem footprint):
    *  caminha até o tile dela. Abater = fixa o dono da ovelha no comedor. */
   private startGatherSheep(u: Unit, sheep: Sheep): void {
-    const resource: ResourceType = 'food';
+    const resource: ResourceType = 'energy';
     if (u.gatherResource !== resource) u.carryAmount = 0;
     this.clearTasks(u);
     u.gatherTargetId = sheep.id;
@@ -2198,7 +2811,7 @@ export class Game {
       return;
     }
     const arsenal: ReadonlySet<BuildingType> = new Set(['drone_factory', 'aerospace_hangar', 'missile_foundry', 'mech_forge', 'exosuit_lab']);
-    if (arsenal.has(type) && p.cityPath !== 'command' && !this.homeMode) {
+    if (arsenal.has(type) && p.cityPath !== 'command' && !this.homeMode && !this.openWarfare) {
       this.errorTo(playerId, 'err.raid_requires_command');
       return;
     }
@@ -2472,6 +3085,7 @@ export class Game {
     const newUnit = createUnit(id, b.owner, head.unit, spot.x + 0.5, spot.y + 0.5);
     newUnit.hp = this.unitMaxHp(newUnit); // nasce já com o bônus de vida dos upgrades
     this.units.set(id, newUnit);
+    this.stats?.trained(b.owner, head.unit, this.tick, this.players.get(b.owner)?.name ?? '');
 
     if (b.rallyX !== undefined && b.rallyY !== undefined) {
       // tile que CONTÉM o ponto de reunião (floor, não round: round(tile+0.5)
@@ -2529,13 +3143,13 @@ export class Game {
 
   private cmdAttack(playerId: number, unitIds: number[], targetId: number): void {
     const attacker = this.players.get(playerId);
-    if (this.symbiosis && attacker?.cityPath !== 'command') return;
+    if (!this.atWar(attacker)) return;
     const units = this.ownedUnits(playerId, unitIds);
     if (units.length === 0) return;
     const targetUnit = this.units.get(targetId);
     const targetBuilding = this.buildings.get(targetId);
     const targetOwner = targetUnit?.owner ?? targetBuilding?.owner;
-    if (this.symbiosis && targetOwner !== undefined && this.players.get(targetOwner)?.cityPath !== 'command') return;
+    if (targetOwner !== undefined && !this.atWar(this.players.get(targetOwner))) return;
     const isEnemyUnit = targetUnit && !this.allied(targetUnit.owner, playerId);
     const isEnemyBuilding = targetBuilding && !this.allied(targetBuilding.owner, playerId);
     if (!isEnemyUnit && !isEnemyBuilding) return;
@@ -2618,7 +3232,9 @@ export class Game {
     const tu = this.units.get(targetId);
     if (tu) {
       tu.hp -= Math.max(1, atk - this.unitArmor(tu)); // dano mínimo 1
+      this.noteBaseHit(tu);
       if (tu.hp <= 0) {
+        this.stats?.unitLost(tu.owner, tu.type, u.owner, this.tick, this.playerNames());
         this.units.delete(targetId);
         this.retargetAttackersOf(targetId);
       }
@@ -2626,18 +3242,33 @@ export class Game {
     }
     const b = this.buildings.get(targetId);
     if (b) {
-      this.damageBuilding(b, atk);
+      this.damageBuilding(b, atk, u.owner);
       if (this.isRaidAttacker(u)) this.raidAfterHit(u, b, atk);
     }
   }
 
-  private damageBuilding(b: Building, amount: number): void {
+  /** A worker hit anywhere, or any unit hit inside its own base, counts as an
+   *  attack on the economy (bots' ally rescue and commander defense read it). */
+  private noteBaseHit(u: Unit): void {
+    if (this.homeMode || this.raidMode) return;
+    if (u.type !== 'villager') {
+      const core = this.coreOf(u.owner);
+      if (!core) return;
+      const c = this.centerOf(core);
+      if (Math.hypot(u.x - c.x, u.y - c.y) > BASE_RADIUS) return;
+    }
+    this.recentAttacks.set(u.owner, { x: u.x, y: u.y, tick: this.tick });
+  }
+
+  private damageBuilding(b: Building, amount: number, attacker?: number): void {
     if (!this.buildings.has(b.id)) return;
     b.hp -= amount; // prédios não têm blindagem de upgrade
+    if (b.type === 'town_center' && this.stats) this.stats.coreDamaged(b.owner, b.hp / BUILDING_DEFS.town_center.hp, this.tick, this.players.get(b.owner)?.name ?? '');
     // registra "base do fulano apanhando" — bots ALIADOS protetores leem isto
     const bs = BUILDING_DEFS[b.type].size;
     this.recentAttacks.set(b.owner, { x: b.tileX + bs / 2, y: b.tileY + bs / 2, tick: this.tick });
     if (b.hp <= 0) {
+      this.stats?.structureLost(b.owner, b.type, attacker, this.tick, this.playerNames());
       this.unblockFootprint(b.tileX, b.tileY, bs);
       this.buildings.delete(b.id);
       this.retargetAttackersOf(b.id);
@@ -2897,7 +3528,7 @@ export class Game {
       return;
     }
     if (u.type === 'transport' || SYMBIOSIS_UNITS.has(u.type)) return; // transporte/automação não brigam
-    if (this.symbiosis && this.players.get(u.owner)?.cityPath !== 'command') return;
+    if (!this.atWar(this.players.get(u.owner))) return;
     // Bot FÁCIL: soldados NÃO perseguem — seguram posição (a IA original "não
     // atacava"). Torres e Centro da Vila do bot ainda defendem a base sozinhos.
     if (this.players.get(u.owner)?.difficulty === 'easy') return;
@@ -2910,7 +3541,7 @@ export class Game {
     let bestD = Infinity;
     for (const other of this.units.values()) {
       if (this.allied(other.owner, u.owner)) continue;
-      if (this.symbiosis && this.players.get(other.owner)?.cityPath !== 'command') continue;
+      if (!this.atWar(this.players.get(other.owner))) continue;
       // corpo-a-corpo terrestre não alcança barco (não fica pingando na margem);
       // galé não persegue terra adentro: só engaja alvo TERRESTRE já no alcance.
       const otherNaval = isNavalUnit(other.type);
@@ -2925,7 +3556,7 @@ export class Game {
     if (bestId === null) {
       for (const b of this.buildings.values()) {
         if (this.allied(b.owner, u.owner)) continue;
-        if (this.symbiosis && this.players.get(b.owner)?.cityPath !== 'command') continue;
+        if (!this.atWar(this.players.get(b.owner))) continue;
         const size = BUILDING_DEFS[b.type].size;
         const nx = Math.max(b.tileX, Math.min(u.x, b.tileX + size - 1));
         const ny = Math.max(b.tileY, Math.min(u.y, b.tileY + size - 1));
@@ -3053,7 +3684,7 @@ export class Game {
         this.startGatherNode(u, near);
         return;
       }
-      if (resource === 'food' && u.type === 'villager') {
+      if (resource === 'energy' && u.type === 'villager') {
         const nextFarm = this.findNearestOwnFarm(u.owner, u.x, u.y, 10);
         if (nextFarm) {
           this.startGatherFarm(u, nextFarm);
@@ -3074,7 +3705,7 @@ export class Game {
       if (!def || b.progress < 1) continue;
       b.attackTimer = (b.attackTimer ?? 0) - dt;
       const p = this.players.get(b.owner);
-      if (this.symbiosis && p?.cityPath !== 'command') { b.targetId = undefined; continue; }
+      if (!this.atWar(p)) { b.targetId = undefined; continue; }
       const age = p?.age ?? 1;
       const baseRange = buildingRange(b.type, age, p?.techs);
       const range = this.raidSim ? this.raidDefenseRange(b, baseRange) : baseRange;
@@ -3084,14 +3715,14 @@ export class Game {
       // mantém o alvo atual enquanto vivo e no alcance; senão procura outro
       let target = b.targetId !== undefined ? this.units.get(b.targetId) : undefined;
       if (!target || this.allied(target.owner, b.owner)
-        || (this.symbiosis && this.players.get(target.owner)?.cityPath !== 'command')
+        || (!this.atWar(this.players.get(target.owner)))
         || Math.hypot(target.x - cx, target.y - cy) > range) {
         target = undefined;
         b.targetId = undefined;
         let bestD = range;
         for (const u of this.units.values()) {
           if (this.allied(u.owner, b.owner)) continue;
-          if (this.symbiosis && this.players.get(u.owner)?.cityPath !== 'command') continue;
+          if (!this.atWar(this.players.get(u.owner))) continue;
           if (def.targets && (def.targets === 'air') !== isFlyingUnit(u.type)) continue;
           const d = Math.hypot(u.x - cx, u.y - cy);
           if (d <= bestD) {
@@ -3109,6 +3740,7 @@ export class Game {
         if (arrows <= 1) {
           target.hp -= Math.max(1, dmg - this.unitArmor(target));
           if (target.hp <= 0) {
+            this.stats?.unitLost(target.owner, target.type, b.owner, this.tick, this.playerNames());
             this.units.delete(target.id);
             this.retargetAttackersOf(target.id);
             b.targetId = undefined;
@@ -3124,6 +3756,7 @@ export class Game {
           for (const { e } of enemies) {
             e.hp -= Math.max(1, dmg - this.unitArmor(e));
             if (e.hp <= 0) {
+              this.stats?.unitLost(e.owner, e.type, b.owner, this.tick, this.playerNames());
               this.units.delete(e.id);
               this.retargetAttackersOf(e.id);
             }
@@ -3175,7 +3808,7 @@ export class Game {
       this.startGatherNode(u, near);
       return;
     }
-    if (resource === 'food' && u.type === 'villager') {
+    if (resource === 'energy' && u.type === 'villager') {
       const farm = this.findNearestOwnFarm(u.owner, u.x, u.y, 10);
       if (farm) {
         this.startGatherFarm(u, farm);
@@ -3204,6 +3837,7 @@ export class Game {
     const p = this.players.get(u.owner);
     if (p && u.carryType) {
       p.resources[u.carryType] += u.carryAmount;
+      this.stats?.gathered(p.id, u.carryType, u.carryAmount);
     }
     u.carryAmount = 0;
     // volta à mesma fonte, ou retarget
@@ -3242,6 +3876,10 @@ export class Game {
       u.state = 'building';
     } else if (!this.pathUnitAdjacentTo(u, b.tileX, b.tileY, size)) {
       u.state = 'idle';
+    } else if (u.path.length === 0 && d <= 2.2) {
+      // Already on the adjacent (diagonal) tile but off its centre: re-pathing
+      // yields an empty path forever. Close enough — start building.
+      u.state = 'building';
     }
   }
 
@@ -3381,18 +4019,22 @@ export class Game {
     for (const key of Object.keys(cost) as ResourceType[]) {
       p.resources[key] -= cost[key] ?? 0;
     }
+    this.stats?.spent(p.id, cost);
   }
 
   private refund(p: GamePlayer, cost: Partial<Record<ResourceType, number>>): void {
+    const negative: Partial<Record<ResourceType, number>> = {};
     for (const key of Object.keys(cost) as ResourceType[]) {
       p.resources[key] += cost[key] ?? 0;
+      negative[key] = -(cost[key] ?? 0);
     }
+    this.stats?.spent(p.id, negative);
   }
 
   private bootstrapHome(playerId: number): void {
     const player = this.players.get(playerId);
     if (!player) return;
-    player.resources = { food: 1400, wood: 1400, gold: 900, stone: 900 };
+    player.resources = { energy: 1400, alloys: 2300, compute: 900 };
     const starters = [...this.units.values()].filter((u) => u.owner === playerId).sort((a, b) => a.id - b.id);
     if (starters[0]) starters[0].type = 'designer';
     if (starters[1]) { starters[1].type = 'robot'; starters[1].hp = UNIT_DEFS.robot.hp; }
@@ -3433,6 +4075,14 @@ export class Game {
     this.homeProductionCollectedAt = this.now();
     this.chain = newChainState(this.homeSalt, this.now());
     this.elonLogged = player.elonBalance;
+    this.progression.foundedAt = this.now();
+  }
+
+  /** Records the first time a milestone happens (telemetry; never overwritten). */
+  markMilestone(key: keyof NonNullable<HomeProgression['milestones']>): void {
+    if (!this.homeMode) return;
+    const m = (this.progression.milestones ??= {});
+    if (m[key] === undefined) m[key] = this.now();
   }
 
   // ---------------- City ledger (Home) ----------------
@@ -3465,6 +4115,7 @@ export class Game {
     p.elonBalance -= amount;
     this.elonLogged = p.elonBalance;
     recordTx(chain.ledger, this.now(), 'settlement', `Settled ${amount} ELON (${id})`, amount);
+    this.markMilestone('firstSettlement');
     sealBlock(chain.ledger, this.now());
     const settlement = {
       id, amount, at: this.now(), ledgerHead: chain.ledger.head, ledgerHeight: chain.ledger.nextHeight - 1, status: 'pending' as const,
@@ -3533,6 +4184,7 @@ export class Game {
       const owner = this.players.get(b.owner);
       if (owner) {
         owner.age = b.level;
+        if (b.level >= 2 && b.level <= 5) this.markMilestone(`level${b.level}` as 'level2');
         if (b.level >= 5) owner.cityPath = 'command'; // Specialized City: command path
       }
     }
@@ -3762,6 +4414,7 @@ export class Game {
       ...(this.progression.researching ? { researching: { ...this.progression.researching } } : {}),
       shieldSeconds: Math.max(0, Math.ceil((this.progression.shieldUntil - this.now()) / 1000)),
       defenseReports: this.progression.defenseReports.slice(0, 5),
+      elonSettled: this.chain?.settledTotal ?? 0,
     };
   }
 
@@ -3771,7 +4424,7 @@ export class Game {
     if (!player) throw new Error('Home has no player');
     this.homeRevision++;
     return structuredClone({
-      version: 4,
+      version: 5,
       profileId,
       revision: this.homeRevision,
       savedAt: this.now(),
@@ -3963,6 +4616,7 @@ export class Game {
     unit.hp = this.unitMaxHp(unit);
     this.units.set(id, unit);
     this.recordHomeEvent('manufacture', `${head.unit.replace(/_/g, ' ')} manufactured`);
+    this.markMilestone('firstUnit');
     if (!docked) {
       // Physical departure: leave the factory and fly/drive to the camp pads.
       this.pathUnitTo(unit, dock.x + 0.5, dock.y + 0.5);
@@ -4307,7 +4961,7 @@ export class Game {
       duration: (r.maxTicks * TICK_MS) / 1000,
       secondsLeft: r.outcome ? 0 : Math.max(0, ((r.maxTicks - elapsed) * TICK_MS) / 1000),
       destruction: r.destruction, stars: r.stars,
-      loot: view?.report ? { ...view.report.reward } : { food: 0, wood: 0, gold: 0, stone: 0 },
+      loot: view?.report ? { ...view.report.reward } : { energy: 0, alloys: 0, compute: 0 },
       events: [],
       ...(view ? { home: structuredClone(view) } : {}),
     };
@@ -4376,7 +5030,7 @@ export class Game {
   /** Credits a system-funded reward, clamped to storage. Returns what was credited. */
   grantRaidReward(reward: Resources): Resources {
     const p = this.homePlayer();
-    const granted: Resources = { food: 0, wood: 0, gold: 0, stone: 0 };
+    const granted: Resources = { energy: 0, alloys: 0, compute: 0 };
     if (!p) return granted;
     const caps = this.storageCapsOf(p.id);
     for (const key of Object.keys(granted) as ResourceType[]) {
@@ -4391,8 +5045,8 @@ export class Game {
 
   spendHomeGold(amount: number): boolean {
     const p = this.homePlayer();
-    if (!p || p.resources.gold < amount) return false;
-    p.resources.gold -= amount;
+    if (!p || p.resources.compute < amount) return false;
+    p.resources.compute -= amount;
     return true;
   }
 

@@ -75,14 +75,43 @@ must not reset or rewrite them wholesale.
 | Four-resource public economy | Migrate later | Direct replacement now would corrupt saves and invalidate many tests |
 | Blockchain-facing presentation | De-emphasize | Product must be complete without it; proof remains optional post-match infrastructure |
 
-## Highest-impact gaps
+## Second audit (2026-11-01, after the commander foundation)
 
-1. No selectable Vanguard, Sentinel or Architect commander.
-2. No strategic-order protocol or Manual/Assisted/Autonomous control.
-3. No structured, player-visible decision explanation log.
-4. Public economy still exposes four historical resources instead of Energy,
-   Alloys and Compute.
-5. HUD composition still reflects older Council/ledger concepts rather than a
-   clear commander panel and match analytics hierarchy.
-6. Combat telemetry exists in pieces but is not yet presented as the requested
-   post-match timeline and summary.
+Findings that changed the plan:
+
+1. **The Arena was unreachable.** The client boots straight into the persistent
+   Home city; this branch has no lobby, room or game-over screen. The commander
+   only runs in Arena matches, so neither it nor a winnable match could be
+   played. → Fixed: a **Skirmish** launcher in the city starts a 1v1 vs a bot
+   (`startSkirmish`), and arena `gameStart` is now tagged `session: 'arena'`.
+2. **Symbiosis gates all warfare on Level 5.** `symbiosis` is always on, and
+   `cmdAttack`, auto-aggro and tower targeting refuse to act unless *both* sides
+   are a Level-5 Command Metropolis. A normal match therefore had no combat for
+   most of its length. → Skirmish rooms open warfare from the start through a
+   single `atWar()` check; all other rooms keep the Level-5 rule.
+3. **Commander orders never ended.** Orders were re-applied to the whole army
+   every 5 s forever, overriding the player's own unit control, and outcomes
+   never resolved. → Replaced by an objective lifecycle (see TARGET_VISION).
+4. **No match telemetry.** Nothing counted gathering, spending, losses or kills.
+   → `server/src/game/matchstats.ts` + battle report.
+5. **Arena maps were unseeded** (`generateMap(n, undefined, …)`). → Optional
+   `mapSeed` game option; tests use it. `createUnit` still uses `Math.random`
+   for aggro jitter (cosmetic timing only).
+6. **Pre-existing failing tests** (fail identically on `fb65686` before any
+   rebrand change): `automation_grid_test` ("Classic rejects Symbiosis
+   buildings"), `naval_test` (galley targeting), `team_test` (`cmdAttack` /
+   auto-aggro). All three assume Classic rules or warfare below Level 5.
+7. `npm run smoke` needs exclusive port 8080 and was not run while a dev server
+   was listening there.
+
+## Highest-impact gaps (remaining)
+
+1. ~~Four historical resources~~ — migrated to Energy / Alloys / Compute with
+   save v5 and the five-layer age ladder (see IMPLEMENTATION_PLAN M3b).
+2. Unit roster is not yet reframed into Scout Drone / Assault Mech / Siege
+   Walker families; the commander already maps them (attack_drone, swordsman/
+   knight, siege_mech) in its doctrine.
+3. Economy pacing: see IMPLEMENTATION_PLAN M5 — Architect army timing and
+   hands-off match length need playtest data.
+4. Combat feedback polish (damage-tier effect bundles) — M2.
+5. The age-1 food economy is fragile to raids for lean doctrines (Vanguard).

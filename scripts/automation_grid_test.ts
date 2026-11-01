@@ -14,7 +14,7 @@ async function main(): Promise<void> {
   const classic = new Game(member, () => {}, () => {}, 'normal', 'classic', 'classic');
   const ci = classic as any;
   const cp = classic.players.get(1)!;
-  cp.resources = { food: 9999, wood: 9999, gold: 9999, stone: 9999 };
+  cp.resources = { energy: 9999, alloys: 19998, compute: 9999 };
   const villager = [...classic.units.values()].find((u) => u.owner === 1)!;
   const before = classic.buildings.size;
   classic.enqueueCommand(1, { kind: 'build', unitIds: [villager.id], building: 'robotics_workshop', tileX: 5, tileY: 5 });

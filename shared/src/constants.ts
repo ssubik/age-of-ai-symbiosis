@@ -24,10 +24,10 @@ export const TILE_SHALLOW = 2;
 export const MAX_PLAYERS_PER_ROOM = 4;
 // 1 permite treinar 100% sozinho (o host remove o bot automático da sala).
 export const MIN_PLAYERS_TO_START = 1;
-export const STARTING_RESOURCES: Resources = { food: 250, wood: 250, gold: 100, stone: 100 };
+export const STARTING_RESOURCES: Resources = { energy: 250, alloys: 350, compute: 100 };
 // Modo "Batalha/Rápido": começa cheio de recursos e numa era avançada, para ir
 // direto ao combate (partida rápida — e ótimo pra gravar o gameplay).
-export const BATTLE_STARTING_RESOURCES: Resources = { food: 20000, wood: 20000, gold: 20000, stone: 10000 };
+export const BATTLE_STARTING_RESOURCES: Resources = { energy: 20000, alloys: 30000, compute: 20000 };
 export const BATTLE_STARTING_AGE = 3; // Idade dos Castelos: quartel/arquearia/estábulo já liberados
 export const START_VILLAGERS = 3;
 export const POP_CAP_MAX = 75;
@@ -51,26 +51,26 @@ export interface UnitDef {
 }
 
 export const UNIT_DEFS: Record<UnitType, UnitDef> = {
-  villager:  { hp: 30,  speed: 2.0, attack: 3,  range: 1,   attackCooldown: 1.5, sight: 5, cost: { food: 50 },           trainTime: 8,  pop: 1 },
-  designer:  { hp: 38, speed: 1.9, attack: 2, range: 1, attackCooldown: 1.6, sight: 6, cost: { food: 100, gold: 80 }, trainTime: 20, pop: 1 },
-  swordsman: { hp: 60,  speed: 1.8, attack: 9,  range: 1,   attackCooldown: 1.2, sight: 5, cost: { food: 60, gold: 20 }, trainTime: 10, pop: 1 },
-  archer:    { hp: 35,  speed: 1.9, attack: 6,  range: 4.5, attackCooldown: 1.5, sight: 6, cost: { wood: 40, gold: 30 }, trainTime: 10, pop: 1 },
-  knight:    { hp: 100, speed: 2.6, attack: 14, range: 1,   attackCooldown: 1.2, sight: 6, cost: { food: 70, gold: 50 }, trainTime: 16, pop: 1 },
+  villager:  { hp: 30,  speed: 2.0, attack: 3,  range: 1,   attackCooldown: 1.5, sight: 5, cost: { energy: 50 },           trainTime: 8,  pop: 1 },
+  designer:  { hp: 38, speed: 1.9, attack: 2, range: 1, attackCooldown: 1.6, sight: 6, cost: { energy: 100, compute: 80 }, trainTime: 20, pop: 1 },
+  swordsman: { hp: 60,  speed: 1.8, attack: 9,  range: 1,   attackCooldown: 1.2, sight: 5, cost: { energy: 60, compute: 20 }, trainTime: 10, pop: 1 },
+  archer:    { hp: 35,  speed: 1.9, attack: 6,  range: 4.5, attackCooldown: 1.5, sight: 6, cost: { alloys: 40, compute: 30 }, trainTime: 10, pop: 1 },
+  knight:    { hp: 100, speed: 2.6, attack: 14, range: 1,   attackCooldown: 1.2, sight: 6, cost: { energy: 70, compute: 50 }, trainTime: 16, pop: 1 },
   // ---- Navais (só água; treinadas no Porto) ----
-  fishing_boat: { hp: 60,  speed: 2.2, attack: 0,  range: 0,   attackCooldown: 1,   sight: 6, cost: { wood: 60 },            trainTime: 10, pop: 1 },
-  war_galley:   { hp: 130, speed: 2.4, attack: 8,  range: 5.5, attackCooldown: 1.6, sight: 7, cost: { wood: 90, gold: 30 },  trainTime: 14, pop: 2 },
-  transport:    { hp: 110, speed: 2.6, attack: 0,  range: 0,   attackCooldown: 1,   sight: 6, cost: { wood: 80 },            trainTime: 12, pop: 1 },
+  fishing_boat: { hp: 60,  speed: 2.2, attack: 0,  range: 0,   attackCooldown: 1,   sight: 6, cost: { alloys: 60 },            trainTime: 10, pop: 1 },
+  war_galley:   { hp: 130, speed: 2.4, attack: 8,  range: 5.5, attackCooldown: 1.6, sight: 7, cost: { alloys: 90, compute: 30 },  trainTime: 14, pop: 2 },
+  transport:    { hp: 110, speed: 2.6, attack: 0,  range: 0,   attackCooldown: 1,   sight: 6, cost: { alloys: 80 },            trainTime: 12, pop: 1 },
   // ---- Symbiosis automation (Robotics Workshop) ----
-  robot: { hp: 70, speed: 1.6, attack: 2, range: 1, attackCooldown: 1.6, sight: 5, cost: { wood: 60, gold: 40 }, trainTime: 12, pop: 1 },
-  drone: { hp: 28, speed: 3.2, attack: 0, range: 0, attackCooldown: 1,   sight: 8, cost: { wood: 20, gold: 60 }, trainTime: 10, pop: 1 },
-  attack_drone: { hp: 55, speed: 3.4, attack: 9, range: 4.5, attackCooldown: 1.25, sight: 9, cost: { wood: 35, gold: 75 }, trainTime: 14, pop: 1 },
-  fighter: { hp: 95, speed: 4.2, attack: 16, range: 5.5, attackCooldown: 1.8, sight: 10, cost: { wood: 60, gold: 130 }, trainTime: 22, pop: 2 },
-  rocket_launcher: { hp: 105, speed: 1.35, attack: 24, range: 7.5, attackCooldown: 3.2, sight: 9, cost: { wood: 100, gold: 120 }, trainTime: 26, pop: 3 },
-  siege_mech: { hp: 190, speed: 1.45, attack: 28, range: 3.5, attackCooldown: 2.1, sight: 8, cost: { wood: 140, gold: 170 }, trainTime: 30, pop: 3 },
-  stealth_bomber: { hp: 120, speed: 4.6, attack: 34, range: 6.5, attackCooldown: 3.4, sight: 11, cost: { wood: 100, gold: 220 }, trainTime: 34, pop: 3 },
-  plasma_tank: { hp: 260, speed: 1.25, attack: 40, range: 6, attackCooldown: 2.8, sight: 9, cost: { wood: 180, gold: 240 }, trainTime: 38, pop: 4 },
-  iron_guardian: { hp: 340, speed: 3.1, attack: 52, range: 5.5, attackCooldown: 1.7, sight: 12, cost: { wood: 250, gold: 500 }, trainTime: 60, pop: 5 },
-  aegis_valkyrie: { hp: 250, speed: 4.4, attack: 30, range: 5, attackCooldown: 1.4, sight: 11, cost: { wood: 220, gold: 460 }, trainTime: 52, pop: 5 },
+  robot: { hp: 70, speed: 1.6, attack: 2, range: 1, attackCooldown: 1.6, sight: 5, cost: { alloys: 60, compute: 40 }, trainTime: 12, pop: 1 },
+  drone: { hp: 28, speed: 3.2, attack: 0, range: 0, attackCooldown: 1,   sight: 8, cost: { alloys: 20, compute: 60 }, trainTime: 10, pop: 1 },
+  attack_drone: { hp: 55, speed: 3.4, attack: 9, range: 4.5, attackCooldown: 1.25, sight: 9, cost: { alloys: 35, compute: 75 }, trainTime: 14, pop: 1 },
+  fighter: { hp: 95, speed: 4.2, attack: 16, range: 5.5, attackCooldown: 1.8, sight: 10, cost: { alloys: 60, compute: 130 }, trainTime: 22, pop: 2 },
+  rocket_launcher: { hp: 105, speed: 1.35, attack: 24, range: 7.5, attackCooldown: 3.2, sight: 9, cost: { alloys: 100, compute: 120 }, trainTime: 26, pop: 3 },
+  siege_mech: { hp: 190, speed: 1.45, attack: 28, range: 3.5, attackCooldown: 2.1, sight: 8, cost: { alloys: 140, compute: 170 }, trainTime: 30, pop: 3 },
+  stealth_bomber: { hp: 120, speed: 4.6, attack: 34, range: 6.5, attackCooldown: 3.4, sight: 11, cost: { alloys: 100, compute: 220 }, trainTime: 34, pop: 3 },
+  plasma_tank: { hp: 260, speed: 1.25, attack: 40, range: 6, attackCooldown: 2.8, sight: 9, cost: { alloys: 180, compute: 240 }, trainTime: 38, pop: 4 },
+  iron_guardian: { hp: 340, speed: 3.1, attack: 52, range: 5.5, attackCooldown: 1.7, sight: 12, cost: { alloys: 250, compute: 500 }, trainTime: 60, pop: 5 },
+  aegis_valkyrie: { hp: 250, speed: 4.4, attack: 30, range: 5, attackCooldown: 1.4, sight: 11, cost: { alloys: 220, compute: 460 }, trainTime: 52, pop: 5 },
 };
 
 // ---------- Prédios ----------
@@ -99,37 +99,37 @@ export interface BuildingDef {
 }
 
 export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
-  town_center:   { hp: 1000, size: 3, cost: { wood: 275, stone: 100 }, buildTime: 60, popProvided: 5, trains: ['villager'],   isDropOff: true,  ageReq: 1 },
-  house:         { hp: 250,  size: 2, cost: { wood: 50 },              buildTime: 12, popProvided: 5, trains: [],              isDropOff: false, ageReq: 1 },
-  barracks:      { hp: 700,  size: 3, cost: { wood: 150 },             buildTime: 25, popProvided: 0, trains: ['swordsman'],   isDropOff: false, ageReq: 1 },
-  farm:          { hp: 120,  size: 2, cost: { wood: 60 },              buildTime: 10, popProvided: 0, trains: [],              isDropOff: false, ageReq: 1, requires: 'mill' },
-  archery_range: { hp: 700,  size: 3, cost: { wood: 175 },             buildTime: 25, popProvided: 0, trains: ['archer'],      isDropOff: false, ageReq: 2, requires: 'barracks' },
-  stable:        { hp: 700,  size: 3, cost: { wood: 175 },             buildTime: 25, popProvided: 0, trains: ['knight'],      isDropOff: false, ageReq: 3, requires: 'barracks' },
-  blacksmith:    { hp: 700,  size: 2, cost: { wood: 150 },             buildTime: 25, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2, requires: 'barracks' },
-  market:        { hp: 600,  size: 2, cost: { wood: 150 },             buildTime: 25, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2, requires: 'mill', elonPerMinute: 4 },
-  wall:          { hp: 550,  size: 1, cost: { stone: 10 },             buildTime: 6,  popProvided: 0, trains: [],              isDropOff: false, ageReq: 1 },
-  watch_tower:   { hp: 480,  size: 1, cost: { wood: 40, stone: 80 },   buildTime: 22, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2 },
-  mill:          { hp: 250,  size: 2, cost: { wood: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['food'] },
-  lumber_camp:   { hp: 250,  size: 2, cost: { wood: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['wood'] },
-  mining_camp:   { hp: 250,  size: 2, cost: { wood: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['gold', 'stone'] },
+  town_center:   { hp: 1000, size: 3, cost: { alloys: 375 }, buildTime: 60, popProvided: 5, trains: ['villager'],   isDropOff: true,  ageReq: 1 },
+  house:         { hp: 250,  size: 2, cost: { alloys: 50 },              buildTime: 12, popProvided: 5, trains: [],              isDropOff: false, ageReq: 1 },
+  barracks:      { hp: 700,  size: 3, cost: { alloys: 150 },             buildTime: 25, popProvided: 0, trains: ['swordsman'],   isDropOff: false, ageReq: 1 },
+  farm:          { hp: 120,  size: 2, cost: { alloys: 60 },              buildTime: 10, popProvided: 0, trains: [],              isDropOff: false, ageReq: 1, requires: 'mill' },
+  archery_range: { hp: 700,  size: 3, cost: { alloys: 175 },             buildTime: 25, popProvided: 0, trains: ['archer'],      isDropOff: false, ageReq: 2, requires: 'barracks' },
+  stable:        { hp: 700,  size: 3, cost: { alloys: 175 },             buildTime: 25, popProvided: 0, trains: ['knight'],      isDropOff: false, ageReq: 3, requires: 'barracks' },
+  blacksmith:    { hp: 700,  size: 2, cost: { alloys: 150 },             buildTime: 25, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2, requires: 'barracks' },
+  market:        { hp: 600,  size: 2, cost: { alloys: 150 },             buildTime: 25, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2, requires: 'mill', elonPerMinute: 4 },
+  wall:          { hp: 550,  size: 1, cost: { alloys: 10 },             buildTime: 6,  popProvided: 0, trains: [],              isDropOff: false, ageReq: 1 },
+  watch_tower:   { hp: 480,  size: 1, cost: { alloys: 120 },   buildTime: 22, popProvided: 0, trains: [],              isDropOff: false, ageReq: 2 },
+  mill:          { hp: 250,  size: 2, cost: { alloys: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['energy'] },
+  lumber_camp:   { hp: 250,  size: 2, cost: { alloys: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['alloys'] },
+  mining_camp:   { hp: 250,  size: 2, cost: { alloys: 100 },             buildTime: 15, popProvided: 0, trains: [],              isDropOff: true,  ageReq: 1, accepts: ['compute', 'alloys'] },
   // Porto: construído NA ÁGUA encostado na costa; deposita o peixe e treina barcos.
-  dock:          { hp: 600,  size: 2, cost: { wood: 150 },             buildTime: 20, popProvided: 0, trains: ['fishing_boat', 'war_galley', 'transport'], isDropOff: true, ageReq: 1, accepts: ['food'] },
+  dock:          { hp: 600,  size: 2, cost: { alloys: 150 },             buildTime: 20, popProvided: 0, trains: ['fishing_boat', 'war_galley', 'transport'], isDropOff: true, ageReq: 1, accepts: ['energy'] },
   // ---- Symbiosis energy grid + automation ----
-  solar_array:       { hp: 220, size: 2, cost: { wood: 80 },             buildTime: 14, popProvided: 0, trains: [],                isDropOff: false, ageReq: 1, power: 4, elonPerMinute: 3, symbiosis: true },
-  wind_turbine:      { hp: 260, size: 1, cost: { wood: 60, stone: 40 },  buildTime: 16, popProvided: 0, trains: [],                isDropOff: false, ageReq: 2, power: 6, elonPerMinute: 4, symbiosis: true },
-  robotics_workshop: { hp: 650, size: 3, cost: { wood: 150, gold: 50 }, buildTime: 30, popProvided: 0, trains: ['robot', 'drone'], isDropOff: false, ageReq: 1, elonPerMinute: 5, symbiosis: true },
-  design_studio: { hp: 560, size: 2, cost: { wood: 140, gold: 100 }, buildTime: 28, popProvided: 0, trains: ['designer'], isDropOff: false, ageReq: 1, requires: 'data_center', symbiosis: true },
-  data_center: { hp: 520, size: 2, cost: { wood: 120, gold: 80 }, buildTime: 24, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, elonPerMinute: 6, symbiosis: true },
-  elon_vault: { hp: 700, size: 2, cost: { wood: 160, stone: 100 }, buildTime: 28, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, elonCapacity: 500, symbiosis: true },
-  army_camp: { hp: 600, size: 3, cost: { wood: 180, stone: 80 }, buildTime: 26, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, armyCapacity: 10, symbiosis: true },
-  drone_factory: { hp: 720, size: 3, cost: { wood: 180, gold: 120 }, buildTime: 34, popProvided: 0, trains: ['attack_drone'], isDropOff: false, ageReq: 2, requires: 'robotics_workshop', symbiosis: true },
-  mech_forge: { hp: 950, size: 3, cost: { wood: 300, gold: 260 }, buildTime: 46, popProvided: 0, trains: ['siege_mech'], isDropOff: false, ageReq: 3, requires: 'robotics_workshop', symbiosis: true },
-  aerospace_hangar: { hp: 850, size: 3, cost: { wood: 260, gold: 220 }, buildTime: 42, popProvided: 0, trains: ['fighter', 'stealth_bomber'], isDropOff: false, ageReq: 4, requires: 'drone_factory', symbiosis: true },
-  missile_foundry: { hp: 900, size: 3, cost: { wood: 280, gold: 240 }, buildTime: 44, popProvided: 0, trains: ['rocket_launcher', 'plasma_tank'], isDropOff: false, ageReq: 4, requires: 'robotics_workshop', symbiosis: true },
-  point_turret: { hp: 760, size: 1, cost: { wood: 60, stone: 120 }, buildTime: 30, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
-  anti_air: { hp: 820, size: 2, cost: { wood: 90, gold: 110 }, buildTime: 34, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
-  exosuit_lab: { hp: 1100, size: 3, cost: { wood: 450, gold: 600 }, buildTime: 70, popProvided: 0, trains: ['iron_guardian'], isDropOff: false, ageReq: 5, requires: 'mech_forge', symbiosis: true },
-  sensor_tower: { hp: 420, size: 1, cost: { wood: 80, gold: 90 }, buildTime: 26, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
+  solar_array:       { hp: 220, size: 2, cost: { alloys: 80 },             buildTime: 14, popProvided: 0, trains: [],                isDropOff: false, ageReq: 1, power: 4, elonPerMinute: 3, symbiosis: true },
+  wind_turbine:      { hp: 260, size: 1, cost: { alloys: 100 },  buildTime: 16, popProvided: 0, trains: [],                isDropOff: false, ageReq: 2, power: 6, elonPerMinute: 4, symbiosis: true },
+  robotics_workshop: { hp: 650, size: 3, cost: { alloys: 150, compute: 50 }, buildTime: 30, popProvided: 0, trains: ['robot', 'drone'], isDropOff: false, ageReq: 1, elonPerMinute: 5, symbiosis: true },
+  design_studio: { hp: 560, size: 2, cost: { alloys: 140, compute: 100 }, buildTime: 28, popProvided: 0, trains: ['designer'], isDropOff: false, ageReq: 1, requires: 'data_center', symbiosis: true },
+  data_center: { hp: 520, size: 2, cost: { alloys: 120, compute: 80 }, buildTime: 24, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, elonPerMinute: 6, symbiosis: true },
+  elon_vault: { hp: 700, size: 2, cost: { alloys: 260 }, buildTime: 28, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, elonCapacity: 500, symbiosis: true },
+  army_camp: { hp: 600, size: 3, cost: { alloys: 260 }, buildTime: 26, popProvided: 0, trains: [], isDropOff: false, ageReq: 1, armyCapacity: 10, symbiosis: true },
+  drone_factory: { hp: 720, size: 3, cost: { alloys: 180, compute: 120 }, buildTime: 34, popProvided: 0, trains: ['attack_drone'], isDropOff: false, ageReq: 2, requires: 'robotics_workshop', symbiosis: true },
+  mech_forge: { hp: 950, size: 3, cost: { alloys: 300, compute: 260 }, buildTime: 46, popProvided: 0, trains: ['siege_mech'], isDropOff: false, ageReq: 3, requires: 'robotics_workshop', symbiosis: true },
+  aerospace_hangar: { hp: 850, size: 3, cost: { alloys: 260, compute: 220 }, buildTime: 42, popProvided: 0, trains: ['fighter', 'stealth_bomber'], isDropOff: false, ageReq: 4, requires: 'drone_factory', symbiosis: true },
+  missile_foundry: { hp: 900, size: 3, cost: { alloys: 280, compute: 240 }, buildTime: 44, popProvided: 0, trains: ['rocket_launcher', 'plasma_tank'], isDropOff: false, ageReq: 4, requires: 'robotics_workshop', symbiosis: true },
+  point_turret: { hp: 760, size: 1, cost: { alloys: 180 }, buildTime: 30, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
+  anti_air: { hp: 820, size: 2, cost: { alloys: 90, compute: 110 }, buildTime: 34, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
+  exosuit_lab: { hp: 1100, size: 3, cost: { alloys: 450, compute: 600 }, buildTime: 70, popProvided: 0, trains: ['iron_guardian'], isDropOff: false, ageReq: 5, requires: 'mech_forge', symbiosis: true },
+  sensor_tower: { hp: 420, size: 1, cost: { alloys: 80, compute: 90 }, buildTime: 26, popProvided: 0, trains: [], isDropOff: false, ageReq: 3, symbiosis: true },
 };
 
 // ---------- Symbiosis: automated builders + power grid ----------
@@ -154,13 +154,13 @@ export const HOME_DEVELOPMENT: Partial<Record<BuildingType, number>> = {
 };
 /** Passive Home production per completed facility, per wall-clock hour. */
 export const HOME_PRODUCTION_PER_HOUR: Partial<Record<BuildingType, Partial<Resources>>> = {
-  farm: { food: 120 }, mill: { food: 80 }, lumber_camp: { wood: 100 },
-  mining_camp: { gold: 55, stone: 55 }, solar_array: {},
+  farm: { energy: 120 }, mill: { energy: 80 }, lumber_camp: { alloys: 100 },
+  mining_camp: { alloys: 55, compute: 55 }, solar_array: {},
 };
-export const HOME_BASE_STORAGE: Resources = { food: 2000, wood: 2000, gold: 1500, stone: 1500 };
+export const HOME_BASE_STORAGE: Resources = { energy: 2000, alloys: 3500, compute: 1500 };
 export const HOME_STORAGE_PER_DEPOT: Partial<Record<BuildingType, Partial<Resources>>> = {
-  mill: { food: 1000 }, lumber_camp: { wood: 1000 },
-  mining_camp: { gold: 750, stone: 750 },
+  mill: { energy: 1000 }, lumber_camp: { alloys: 1000 },
+  mining_camp: { alloys: 750, compute: 750 },
 };
 // ---------- Persistent Home Phase 2: manufacturing and camps ----------
 /** Army Camp space per manufactured unit (master spec §5); separate from stats. */
@@ -180,12 +180,12 @@ export const RAID_MAX_REPORTS = 20;
 export const RAID_MAX_SETTLED_KEYS = 100;
 /** Pinned, system-funded reward ceiling by defender City Level (index = level). */
 export const RAID_REWARD_BY_LEVEL: readonly Resources[] = [
-  { food: 0, wood: 0, gold: 0, stone: 0 },
-  { food: 260, wood: 260, gold: 160, stone: 120 },
-  { food: 420, wood: 420, gold: 280, stone: 200 },
-  { food: 640, wood: 640, gold: 420, stone: 320 },
-  { food: 900, wood: 900, gold: 620, stone: 460 },
-  { food: 1200, wood: 1200, gold: 850, stone: 640 },
+  { energy: 0, alloys: 0, compute: 0 },
+  { energy: 260, alloys: 380, compute: 160 },
+  { energy: 420, alloys: 620, compute: 280 },
+  { energy: 640, alloys: 960, compute: 420 },
+  { energy: 900, alloys: 1360, compute: 620 },
+  { energy: 1200, alloys: 1840, compute: 850 },
 ];
 /** A raid with zero stars still pays this share of the destruction-scaled offer. */
 export const RAID_LOSS_REWARD_SHARE = 0.5;
@@ -251,19 +251,19 @@ export interface CityLevelRequirement {
 
 /** Hub upgrade to each City Level (spec §4 table). */
 export const HOME_CITY_LEVELS: Readonly<Record<number, CityLevelRequirement>> = {
-  2: { cost: { food: 400 }, buildings: [{ types: ['robotics_workshop'], level: 1 }, { types: ['solar_array', 'wind_turbine'], level: 1 }], minSupply: 0 },
+  2: { cost: { energy: 400 }, buildings: [{ types: ['robotics_workshop'], level: 1 }, { types: ['solar_array', 'wind_turbine'], level: 1 }], minSupply: 0 },
   3: {
-    cost: { food: 800, wood: 600, gold: 500 },
+    cost: { energy: 800, alloys: 600, compute: 500 },
     buildings: [{ types: ['lumber_camp'], level: 2 }, { types: ['mill'], level: 2 }, { types: ['army_camp'], level: 2 }, { types: ['sensor_tower'], level: 1 }],
     minSupply: 12, research: { unit: 'attack_drone', level: 1 },
   },
   4: {
-    cost: { food: 1200, wood: 1000, gold: 900, stone: 400 },
+    cost: { energy: 1200, alloys: 1400, compute: 900 },
     buildings: [{ types: ['solar_array', 'wind_turbine'], level: 2 }, { types: ['mining_camp'], level: 2 }, { types: ['point_turret'], level: 2 }, { types: ['anti_air'], level: 1 }],
     minSupply: 30,
   },
   5: {
-    cost: { food: 1800, wood: 1600, gold: 1500, stone: 800 },
+    cost: { energy: 1800, alloys: 2400, compute: 1500 },
     buildings: [{ types: ['drone_factory'], level: 4 }, { types: ['army_camp'], level: 4 }, { types: ['robotics_workshop'], level: 3 }],
     minSupply: 45,
   },
@@ -310,14 +310,14 @@ export interface UnitResearchDef {
 /** Five research levels per unit, one primary attribute each (spec §5). */
 export const HOME_RESEARCH_MAX = 5;
 export const HOME_UNIT_RESEARCH: Partial<Record<UnitType, UnitResearchDef>> = {
-  attack_drone: { effect: 'damage', perLevel: 0.05, cost: { gold: 120, wood: 60 }, time: 40 },
-  siege_mech: { effect: 'hit points', perLevel: 0.06, cost: { gold: 160, wood: 120 }, time: 50 },
-  rocket_launcher: { effect: 'range', perLevel: 0.04, cost: { gold: 160, wood: 100 }, time: 50 },
-  fighter: { effect: 'damage vs defenses', perLevel: 0.04, cost: { gold: 200, wood: 100 }, time: 60 },
-  stealth_bomber: { effect: 'blast radius', perLevel: 0.05, cost: { gold: 240, wood: 120 }, time: 70 },
-  plasma_tank: { effect: 'hit points', perLevel: 0.05, cost: { gold: 240, wood: 160 }, time: 70 },
-  iron_guardian: { effect: 'field radius and duration', perLevel: 0.05, cost: { gold: 320, wood: 200 }, time: 90 },
-  aegis_valkyrie: { effect: 'arc damage; extra arc at L3 and L5', perLevel: 0.05, cost: { gold: 320, wood: 200 }, time: 90 },
+  attack_drone: { effect: 'damage', perLevel: 0.05, cost: { alloys: 60, compute: 120 }, time: 40 },
+  siege_mech: { effect: 'hit points', perLevel: 0.06, cost: { alloys: 120, compute: 160 }, time: 50 },
+  rocket_launcher: { effect: 'range', perLevel: 0.04, cost: { alloys: 100, compute: 160 }, time: 50 },
+  fighter: { effect: 'damage vs defenses', perLevel: 0.04, cost: { alloys: 100, compute: 200 }, time: 60 },
+  stealth_bomber: { effect: 'blast radius', perLevel: 0.05, cost: { alloys: 120, compute: 240 }, time: 70 },
+  plasma_tank: { effect: 'hit points', perLevel: 0.05, cost: { alloys: 160, compute: 240 }, time: 70 },
+  iron_guardian: { effect: 'field radius and duration', perLevel: 0.05, cost: { alloys: 200, compute: 320 }, time: 90 },
+  aegis_valkyrie: { effect: 'arc damage; extra arc at L3 and L5', perLevel: 0.05, cost: { alloys: 200, compute: 320 }, time: 90 },
 };
 
 export function homeResearchCost(unit: UnitType, toLevel: number): Partial<Resources> {
@@ -426,17 +426,42 @@ export const TRAIN_QUEUE_MAX = 5;
 // ---------- Eras (estilo AoE2) ----------
 // Pesquisadas no Centro da Cidade; liberam unidades e mudam o visual dos prédios.
 export const MAX_AGE = 5;
-export const AGE_NAMES: string[] = ['', 'Settlement', 'Smart District', 'Technology City', 'Symbiotic City', 'Specialized City'];
+// The five layers of the AI industry, one per age: energy powers compute,
+// compute runs AI factories, factories produce what models direct, and models
+// become useful as applications (the Level-5 specialization).
+export const AGE_NAMES: string[] = ['', 'Energy Grid', 'Compute Layer', 'AI Factories', 'Model Layer', 'Applications'];
+/** Advancing out of age N needs a completed building of layer N. */
+export const LAYER_GATE: Record<number, BuildingType[]> = {
+  1: ['solar_array', 'wind_turbine'],
+  2: ['data_center'],
+  3: ['robotics_workshop', 'drone_factory', 'mech_forge'],
+  4: ['design_studio'],
+};
+export function layerGateMet(age: number, completed: Iterable<BuildingType>): boolean {
+  const gate = LAYER_GATE[age];
+  if (!gate) return true;
+  for (const type of completed) if (gate.includes(type)) return true;
+  return false;
+}
+/** Arena: what layer buildings produce per minute. Compute output is scaled by
+ *  grid efficiency, so losing generators starves compute. */
+export const LAYER_OUTPUT: Partial<Record<BuildingType, Partial<Resources>>> = {
+  solar_array: { energy: 18 },
+  wind_turbine: { energy: 28 },
+  data_center: { compute: 20 },
+};
+/** Arena: grid power drawn by completed buildings (compute consumes energy). */
+export const BUILDING_POWER_DRAW: Partial<Record<BuildingType, number>> = { data_center: 2 };
 export const AGE_NUMERALS: string[] = ['', 'I', 'II', 'III', 'IV', 'V'];
 /** Custo para pesquisar a era N (índice = era destino) — valores do Age of
  *  Mythology (Clássica 400c; Heroica 800c+500o; Mítica 1000c+1000o): o último
  *  salto é BEM caro, compensando pedir poucos prédios. */
 export const AGE_COSTS: Partial<Resources>[] = [
   {}, {},
-  { food: 400 },              // -> Feudal
-  { food: 800, gold: 500 },   // -> Castelos
-  { food: 1000, gold: 1000 }, // -> Imperial
-  { food: 1400, gold: 1400 }, // -> Command Metropolis / Space Gateway
+  { energy: 400 },              // -> Feudal
+  { energy: 800, compute: 500 },   // -> Castelos
+  { energy: 1000, compute: 1000 }, // -> Imperial
+  { energy: 1400, compute: 1400 }, // -> Command Metropolis / Space Gateway
 ];
 /** Tempo de pesquisa (s) da era N (índice = era destino). */
 export const AGE_RESEARCH_TIME: number[] = [0, 0, 25, 40, 55, 70];
@@ -514,33 +539,33 @@ const ARCHER: UnitType[] = ['archer'];
 
 export const TECH_DEFS: TechDef[] = [
   // --- Ferraria: ataque e blindagem para todo o exército ---
-  { id: 'forging',      name: 'Forja',              icon: '🔨', building: 'blacksmith', ageReq: 2, cost: { food: 150 },            time: 25, units: MELEE,  addAttack: 1 },
-  { id: 'iron_casting', name: 'Fundição de Ferro',  icon: '🔥', building: 'blacksmith', ageReq: 3, cost: { food: 220, gold: 120 }, time: 30, prereq: 'forging', units: MELEE, addAttack: 1 },
-  { id: 'fletching',    name: 'Retesamento',        icon: '🪶', building: 'blacksmith', ageReq: 2, cost: { food: 100, gold: 50 },  time: 20, units: ARCHER, addAttack: 1, addRange: 0.5 },
-  { id: 'bodkin',       name: 'Ponta Bodkin',       icon: '➶',  building: 'blacksmith', ageReq: 3, cost: { food: 200, gold: 100 }, time: 25, prereq: 'fletching', units: ARCHER, addAttack: 1, addRange: 0.5 },
-  { id: 'scale_mail',   name: 'Cota de Escamas',    icon: '🛡️', building: 'blacksmith', ageReq: 2, cost: { food: 100 },            time: 25, units: MELEE,  addArmor: 1 },
-  { id: 'padded_armor', name: 'Armadura Acolchoada', icon: '🧥', building: 'blacksmith', ageReq: 2, cost: { food: 100 },           time: 25, units: ARCHER, addArmor: 1 },
+  { id: 'forging',      name: 'Forja',              icon: '🔨', building: 'blacksmith', ageReq: 2, cost: { energy: 150 },            time: 25, units: MELEE,  addAttack: 1 },
+  { id: 'iron_casting', name: 'Fundição de Ferro',  icon: '🔥', building: 'blacksmith', ageReq: 3, cost: { energy: 220, compute: 120 }, time: 30, prereq: 'forging', units: MELEE, addAttack: 1 },
+  { id: 'fletching',    name: 'Retesamento',        icon: '🪶', building: 'blacksmith', ageReq: 2, cost: { energy: 100, compute: 50 },  time: 20, units: ARCHER, addAttack: 1, addRange: 0.5 },
+  { id: 'bodkin',       name: 'Ponta Bodkin',       icon: '➶',  building: 'blacksmith', ageReq: 3, cost: { energy: 200, compute: 100 }, time: 25, prereq: 'fletching', units: ARCHER, addAttack: 1, addRange: 0.5 },
+  { id: 'scale_mail',   name: 'Cota de Escamas',    icon: '🛡️', building: 'blacksmith', ageReq: 2, cost: { energy: 100 },            time: 25, units: MELEE,  addArmor: 1 },
+  { id: 'padded_armor', name: 'Armadura Acolchoada', icon: '🧥', building: 'blacksmith', ageReq: 2, cost: { energy: 100 },           time: 25, units: ARCHER, addArmor: 1 },
 
   // --- Quartel: linha da infantaria ---
-  { id: 'man_at_arms',   name: 'Homem de Armas', icon: '⚔️', building: 'barracks', ageReq: 2, cost: { food: 100, gold: 40 },  time: 30, units: ['swordsman'], addAttack: 2, addHp: 15 },
-  { id: 'long_swordsman', name: 'Espada Longa',  icon: '🗡️', building: 'barracks', ageReq: 3, cost: { food: 200, gold: 65 },  time: 35, prereq: 'man_at_arms', units: ['swordsman'], addAttack: 2, addHp: 15 },
+  { id: 'man_at_arms',   name: 'Homem de Armas', icon: '⚔️', building: 'barracks', ageReq: 2, cost: { energy: 100, compute: 40 },  time: 30, units: ['swordsman'], addAttack: 2, addHp: 15 },
+  { id: 'long_swordsman', name: 'Espada Longa',  icon: '🗡️', building: 'barracks', ageReq: 3, cost: { energy: 200, compute: 65 },  time: 35, prereq: 'man_at_arms', units: ['swordsman'], addAttack: 2, addHp: 15 },
 
   // --- Arquearia: linha dos arqueiros ---
-  { id: 'crossbow', name: 'Besteiro', icon: '🎯', building: 'archery_range', ageReq: 3, cost: { food: 125, gold: 75 }, time: 30, units: ['archer'], addAttack: 1, addHp: 5, addRange: 0.5 },
+  { id: 'crossbow', name: 'Besteiro', icon: '🎯', building: 'archery_range', ageReq: 3, cost: { energy: 125, compute: 75 }, time: 30, units: ['archer'], addAttack: 1, addHp: 5, addRange: 0.5 },
 
   // --- Estábulo: linha da cavalaria ---
-  { id: 'cavalier', name: 'Cavaleiro Pesado', icon: '🐴', building: 'stable', ageReq: 3, cost: { food: 300, gold: 300 }, time: 40, units: ['knight'], addAttack: 2, addHp: 20 },
-  { id: 'paladin',  name: 'Paladino',         icon: '🏇', building: 'stable', ageReq: 4, cost: { food: 500, gold: 350 }, time: 50, prereq: 'cavalier', units: ['knight'], addAttack: 4, addHp: 40 },
+  { id: 'cavalier', name: 'Cavaleiro Pesado', icon: '🐴', building: 'stable', ageReq: 3, cost: { energy: 300, compute: 300 }, time: 40, units: ['knight'], addAttack: 2, addHp: 20 },
+  { id: 'paladin',  name: 'Paladino',         icon: '🏇', building: 'stable', ageReq: 4, cost: { energy: 500, compute: 350 }, time: 50, prereq: 'cavalier', units: ['knight'], addAttack: 4, addHp: 40 },
 
   // --- Mercado: melhorias econômicas (coleta mais rápida, mais carga) ---
-  { id: 'sharp_sickles', name: 'Foices Afiadas',    icon: '🌾', building: 'market', ageReq: 2, cost: { wood: 100 },            time: 25, units: [], gather: { food: 0.2 } },
-  { id: 'steel_axes',    name: 'Machados de Aço',   icon: '🪓', building: 'market', ageReq: 2, cost: { food: 100 },            time: 25, units: [], gather: { wood: 0.2 } },
-  { id: 'iron_picks',    name: 'Picaretas de Ferro', icon: '⛏️', building: 'market', ageReq: 2, cost: { food: 100, wood: 50 }, time: 25, units: [], gather: { gold: 0.2, stone: 0.2 } },
-  { id: 'wheelbarrow',   name: 'Carrinho de Mão',   icon: '🛒', building: 'market', ageReq: 3, cost: { food: 150, wood: 75 },  time: 30, units: [], carry: 5 },
+  { id: 'sharp_sickles', name: 'Foices Afiadas',    icon: '🌾', building: 'market', ageReq: 2, cost: { alloys: 100 },            time: 25, units: [], gather: { energy: 0.2 } },
+  { id: 'steel_axes',    name: 'Machados de Aço',   icon: '🪓', building: 'market', ageReq: 2, cost: { energy: 100 },            time: 25, units: [], gather: { alloys: 0.2 } },
+  { id: 'iron_picks',    name: 'Picaretas de Ferro', icon: '⛏️', building: 'market', ageReq: 2, cost: { energy: 100, alloys: 50 }, time: 25, units: [], gather: { alloys: 0.2, compute: 0.2 } },
+  { id: 'wheelbarrow',   name: 'Carrinho de Mão',   icon: '🛒', building: 'market', ageReq: 3, cost: { energy: 150, alloys: 75 },  time: 30, units: [], carry: 5 },
 
   // --- Centro da Cidade: defesa (torres e CC atiram mais longe / mais forte) ---
-  { id: 'ballistics', name: 'Balística', icon: '📐', building: 'town_center', ageReq: 2, cost: { wood: 150, gold: 75 },  time: 30, units: [], defense: { range: 1 } },
-  { id: 'arrowslits', name: 'Frestas',   icon: '🗼', building: 'town_center', ageReq: 3, cost: { food: 150, wood: 100 }, time: 35, prereq: 'ballistics', units: [], defense: { attack: 3 } },
+  { id: 'ballistics', name: 'Balística', icon: '📐', building: 'town_center', ageReq: 2, cost: { alloys: 150, compute: 75 },  time: 30, units: [], defense: { range: 1 } },
+  { id: 'arrowslits', name: 'Frestas',   icon: '🗼', building: 'town_center', ageReq: 3, cost: { energy: 150, alloys: 100 }, time: 35, prereq: 'ballistics', units: [], defense: { attack: 3 } },
 ];
 
 const TECH_BY_ID: Record<string, TechDef> = Object.fromEntries(TECH_DEFS.map((t) => [t.id, t]));
@@ -622,12 +647,12 @@ export interface NodeDef {
 }
 
 export const NODE_DEFS: Record<NodeType, NodeDef> = {
-  tree:       { resource: 'wood',  amount: 130 },
-  berry_bush: { resource: 'food',  amount: 200 },
-  gold_mine:  { resource: 'gold',  amount: 650 },
-  stone_mine: { resource: 'stone', amount: 550 },
+  tree:       { resource: 'alloys',  amount: 130 },
+  berry_bush: { resource: 'energy',  amount: 200 },
+  gold_mine:  { resource: 'compute',  amount: 650 },
+  stone_mine: { resource: 'alloys', amount: 550 },
   // Banco de peixes (só no mapa Rio): MUITA comida — pesca longa, estilo AoE.
-  fish:       { resource: 'food',  amount: 450 },
+  fish:       { resource: 'energy',  amount: 450 },
 };
 
 // ---------- Ovelhas (comida do início, estilo AoE) ----------

@@ -37,7 +37,7 @@ function findSpot(): { x: number; y: number } {
   throw new Error('sem lugar pra casa');
 }
 const p1 = g.players.get(1);
-p1.resources.wood = 100000; // madeira de sobra: as recusas têm que ser pelo TETO
+p1.resources.alloys = 100000; // madeira de sobra: as recusas têm que ser pelo TETO
 
 // clona o TC pra fabricar casas prontas (só owner/type/progress importam)
 const tc = [...g.buildings.values()].find((b: any) => b.owner === 1 && b.type === 'town_center');
@@ -55,13 +55,13 @@ check(`moradia chegou no teto (${POP_CAP_MAX})`, provided() === POP_CAP_MAX);
 
 // casa nova -> RECUSADA com err.house_cap, sem criar obra nem gastar madeira
 sent.length = 0;
-const woodBefore = p1.resources.wood;
+const woodBefore = p1.resources.alloys;
 const spot = findSpot();
 const housesBefore = houses();
 g.cmdBuild(1, [vil.id], 'house', spot.x, spot.y, false);
 check('casa nova no teto é RECUSADA (nenhuma obra criada)', houses() === housesBefore);
 check('recusa manda o erro err.house_cap', sent.some((s) => s.msg.type === 'error' && s.msg.code === 'err.house_cap'));
-check('recusa não gasta madeira', p1.resources.wood === woodBefore);
+check('recusa não gasta madeira', p1.resources.alloys === woodBefore);
 
 // (2) outros prédios continuam liberados no teto (só casa trava)
 sent.length = 0;

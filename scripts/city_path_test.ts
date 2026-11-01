@@ -13,14 +13,17 @@ const command = game.players.get(1)!;
 const space = game.players.get(2)!;
 for (const p of [command, space]) {
   p.age = 4;
-  p.resources = { food: 9999, wood: 9999, gold: 9999, stone: 9999 };
+  p.resources = { energy: 9999, alloys: 19998, compute: 9999 };
 }
 game.buildings.set(980_001, { id: 980_001, owner: 1, type: 'missile_foundry', tileX: 55, tileY: 20, hp: 900, progress: 1, queue: [] });
 game.buildings.set(980_002, { id: 980_002, owner: 2, type: 'missile_foundry', tileX: 60, tileY: 20, hp: 900, progress: 1, queue: [] });
+// Leaving the Model layer (age 4) needs a Model Lab.
+game.buildings.set(980_003, { id: 980_003, owner: 1, type: 'design_studio', tileX: 55, tileY: 25, hp: 560, progress: 1, queue: [] });
+game.buildings.set(980_004, { id: 980_004, owner: 2, type: 'design_studio', tileX: 60, tileY: 25, hp: 560, progress: 1, queue: [] });
 
 g.cmdChooseCityPath(1, 'command');
 assert.equal(command.ageResearch?.target, 5);
-assert.equal(command.resources.food, 9999 - (AGE_COSTS[5].food ?? 0));
+assert.equal(command.resources.energy, 9999 - (AGE_COSTS[5].energy ?? 0));
 command.ageResearch!.elapsed = 70;
 g.step();
 assert.equal(command.age, 5);

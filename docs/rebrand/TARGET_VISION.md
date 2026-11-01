@@ -1,4 +1,4 @@
-# Age of AI Symbiosis — Target Design
+# Age of AI Symbiosis — Target Vision
 
 **Tagline:** Build. Command. Evolve.
 
@@ -25,9 +25,25 @@ player's intent at the chosen autonomy level.
 | Alloys | Buildings, armor and conventional production | Alloy Extractors, salvage | Map control and logistics |
 | Compute | Research, autonomy and sophisticated weapons | Compute Nodes, captured data zones | Tech timing and commander capability |
 
-Migration must be explicit and lossless. Legacy values map once as:
-`Energy = food`, `Alloys = wood + stone`, `Compute = gold`. Legacy saves retain
-their source values until the new schema is committed; no silent partial mapping.
+Migration is explicit and lossless (Home save v5): `Energy = food`,
+`Alloys = wood + stone`, `Compute = gold`.
+
+### The five layers
+
+Ages follow the five layers of the AI industry — energy, compute, AI
+factories, models, applications. Each depends on the one below, in the rules
+and in the simulation:
+
+| Age | Layer | To advance, build | Dependency in play |
+|---|---|---|---|
+| I | Energy Grid | Solar Field / Wind Turbine | Generators yield Energy and grid power |
+| II | Compute Layer | Compute Node | Nodes draw power; output falls with the grid |
+| III | AI Factories | Autonomous Systems Lab / Drone Factory / Mech Forge | Factories consume Compute for advanced units |
+| IV | Model Layer | Model Lab | Trains Designers; required for Applications |
+| V | Applications | — | Command Metropolis or Space Gateway |
+
+Raiding the enemy's generators starves its compute, which slows its factories:
+economic targets have military consequences.
 
 ## Core building family
 
@@ -62,24 +78,58 @@ color communicates damage type, never ownership.
 
 ### Autonomy
 
-- **Manual:** only explicit strategic orders execute.
-- **Assisted:** explicit orders execute; the commander offers logged suggestions.
-- **Autonomous:** the commander may choose objectives when no player order is active.
+- **Manual:** only explicit strategic orders execute. (Default in ordinary rooms.)
+- **Assisted:** explicit orders execute; the commander also carries out
+  *low-risk* objectives itself (defend a sector under attack, protect the core,
+  retreat a failing army, put idle workers to work) and logs everything else —
+  assaults, expansion, production spending — as a recommendation the player can
+  **Authorize** with one click.
+- **Autonomous:** the commander chooses objectives and production within the
+  player's policy.
 
-Player orders always override autonomous choices. The commander decides at a
-fixed server interval, not per render frame. Utility scores are normalized,
-deterministic and use hysteresis/cooldowns to prevent objective thrashing.
+Policy sliders bound commander authority: **risk** (minimum assault advantage,
+1.5× at 0 down to 0.5× at 1 — a hard gate, not a weight), **offense** (shifts
+attack vs. defense utility) and **spending** (share of the stockpile the
+commander may spend per 3-second production cycle). Choosing a personality
+resets the sliders to that personality's defaults.
+
+Player orders always override commander initiative. Units the player orders
+directly are left alone by commander initiative for 30 seconds. The commander
+evaluates once per second and takes new initiative every 5 seconds; it switches
+objectives only when a candidate beats the current one by a fixed margin.
+Every objective has a lifecycle — *in progress → completed / failed / superseded*
+— evaluated authoritatively by the server, with a 150-second timeout.
 
 ### Strategic orders
 
-Defend area, attack target, capture resource zone, prioritize production,
-prepare offensive, and retreat/regroup. Tactical pathfinding and attacks remain
-ordinary server commands; the commander produces intents, not privileged state.
+Defend sector, protect Command Core, attack target, capture resource zone,
+worker priority, prepare assault, and retreat/regroup. Tactical pathfinding and
+attacks remain ordinary server commands; the commander produces intents, not
+privileged state.
+
+Assault decisions use an **assault ratio**: own army power against the enemy
+army *plus* the defenses around its core (defensive structures with their
+potential garrison arrows, and armed workers). The open-field ratio drives
+retreat and expansion only. Without this, an early version walked 52 units into
+a garrisoned core and destroyed nothing — the battle report exposed it.
+
+### Defense and economy behavior
+
+- A worker hit anywhere, or any unit hit inside the base, is an attack. The
+  commander reacts at the next one-second cycle.
+- If its army cannot match the threat (1.2× power), workers near the core or the
+  attack shelter in the Command Core and towers (each occupant adds an arrow)
+  and are released when the objective ends — completed, failed or superseded.
+- Gathering follows the doctrine: the resource blocking the next planned
+  structure or age becomes the worker priority; otherwise the scarcest stockpile
+  weighted by demand (food 1, wood 0.7, gold 0.6, stone 0.25). Surplus workers
+  are rebalanced at most once a minute.
 
 ### Transparency record
 
-Every meaningful decision records commander, objective, observation, action,
-reason, outcome and tick. The right panel shows the latest concise entries; the
+Every meaningful decision records commander, objective, source (player or
+commander), observation, action, reason, expected outcome, lifecycle outcome,
+actual result and tick. The right panel shows the latest concise entries; the
 full event stream feeds the post-match report and future replay tooling.
 
 ### Optional conversation adapter
