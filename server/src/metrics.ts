@@ -134,7 +134,7 @@ export const MONITOR_HTML = `<!doctype html>
 <html lang="pt-br"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Age of AI - Sistema</title>
+<title>Age of AI: Symbiosis - Sistema</title>
 <style>
 :root{--gold:#d9a941;--gold2:#f0c869;--panel:rgba(30,24,16,.92);--border:#6e5637;--text:#ece0c8;--muted:#a8987a}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% 18%,#241c12,#100d0a 75%);color:var(--text);font-family:Georgia,'Times New Roman',serif;min-height:100vh;padding:22px}
@@ -151,7 +151,7 @@ canvas{width:100%;height:44px;display:block;margin-top:6px}
 .bar>i{display:block;height:100%;background:var(--gold);width:0;transition:width .3s}
 .foot{color:var(--muted);text-align:center;margin-top:18px;font-size:12px}
 </style></head><body>
-<h1>Age of AI &middot; Monitor</h1>
+<h1>Age of AI: Symbiosis &middot; Monitor</h1>
 <p class="sub" id="sub">conectando...</p>
 <div class="grid" id="grid"></div>
 <p class="foot" id="foot"></p>

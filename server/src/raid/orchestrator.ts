@@ -125,6 +125,10 @@ export function settleRaid(home: Game, record: RaidSessionRecord, now: number): 
   record.reserved = [];
   const earned = rewardFor(record.offer.reward, outcome);
   const reward = home.grantRaidReward(earned);
+  // Contribution is credited to the attacker; it is never transferred from
+  // the defender. Destruction demonstrates execution, while stars reward the
+  // strategic objective, and the capacity cap prevents unlimited accumulation.
+  const elonAward = home.grantRaidElon(Math.floor(outcome.destruction / 10) + outcome.stars * 5);
   const before = home.raidData.trophies;
   const delta = outcome.stars > 0
     ? Math.max(1, Math.round((record.offer.trophiesWin * outcome.stars) / 3))
@@ -139,6 +143,7 @@ export function settleRaid(home: Game, record: RaidSessionRecord, now: number): 
     reason: outcome.reason,
     reward,
     earned,
+    elonAward,
     trophiesDelta: home.raidData.trophies - before,
     deployed: record.deploys.length,
     returned,
@@ -148,7 +153,7 @@ export function settleRaid(home: Game, record: RaidSessionRecord, now: number): 
   };
   home.recordRaidSettlement(record.id, report);
   home.markMilestone('firstRaid');
-  home.recordHomeEvent('raid', `Raid on ${report.label}: ${report.stars}★ ${report.destruction}%`,
+  home.recordHomeEvent('raid', `Raid on ${report.label}: ${report.stars}★ ${report.destruction}% · +${elonAward} ELON`,
     report.reward.energy + report.reward.alloys + report.reward.compute);
   // A player defender learns about it (and gets a shield) via the outbox, in
   // this same atomic save; delivery is retried until it lands (spec §6.6).

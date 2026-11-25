@@ -29,10 +29,12 @@ export interface Settings {
   musicVol: number;    // 0..1
   sfxVol: number;      // 0..1
   renderScale: number; // 1 | 0.75 | 0.5 (qualidade/desempenho)
+  /** Pan when the cursor touches the screen edge (off by default). */
+  edgeScroll: boolean;
 }
 
 const KEY = 'ageofai:settings';
-const DEFAULTS: Omit<Settings, 'lang'> = { musicVol: 0.35, sfxVol: 0.5, renderScale: 1 };
+const DEFAULTS: Omit<Settings, 'lang'> = { musicVol: 0.35, sfxVol: 0.5, renderScale: 1, edgeScroll: false };
 export const RENDER_SCALES = [1, 0.75, 0.5] as const;
 
 function clamp01(v: unknown, fallback: number): number {
@@ -52,6 +54,7 @@ function load(): Settings {
       renderScale: (RENDER_SCALES as readonly number[]).includes(p.renderScale as number)
         ? (p.renderScale as number)
         : DEFAULTS.renderScale,
+      edgeScroll: p.edgeScroll === true,
     };
   } catch {
     return { ...DEFAULTS, lang };

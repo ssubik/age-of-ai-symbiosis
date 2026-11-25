@@ -217,11 +217,19 @@ export class HomeManager {
         this.openRaidView(active);
         return;
       }
+      case 'scoutBot': {
+        if (record) { error('err.raid_busy'); return; }
+        // Explicit solo-demo path: deterministic generated outposts only.
+        home.raidData.active = newRaidRecord(home, active.profileId, now);
+        this.openRaidView(active);
+        return;
+      }
       case 'next': {
         if (!record) return;
         transition(record, 'SCOUTING');
         if (!home.spendHomeGold(RAID_NEXT_SCOUT_GOLD)) { error('err.no_resources'); return; }
-        home.raidData.active = newRaidRecord(home, active.profileId, now, this.registry.entries());
+        home.raidData.active = newRaidRecord(home, active.profileId, now,
+          record.snapshot.kind === 'bot' ? [] : this.registry.entries());
         this.openRaidView(active);
         return;
       }

@@ -98,6 +98,40 @@ export class LedgerPage {
     if (v.pending) chips.appendChild(el('span', 'ledger-chip', `${v.pending} ${L('pending, sealed every minute', 'pendentes, selados a cada minuto', 'pendientes, sellados cada minuto')}`));
     b.appendChild(chips);
 
+    const primer = el('section', 'ledger-primer');
+    const concept = (icon: string, title: string, text: string, foot: string) => {
+      const card = el('article', 'ledger-primer-card');
+      card.appendChild(el('span', 'ledger-primer-icon', icon));
+      const copy = el('div');
+      copy.appendChild(el('h2', '', title));
+      copy.appendChild(el('p', '', text));
+      copy.appendChild(el('small', '', foot));
+      card.appendChild(copy);
+      primer.appendChild(card);
+    };
+    concept('E', L('ELON is contribution', 'ELON é contribuição', 'ELON es contribución'), L(
+      'Energy, Labor, Obligation and Need. Earn standing by building useful infrastructure, producing responsibly and serving needs.',
+      'Energia, Trabalho, Obrigação e Necessidade. Ganhe reputação construindo infraestrutura útil, produzindo com responsabilidade e atendendo necessidades.',
+      'Energía, Trabajo, Obligación y Necesidad. Gana reputación construyendo infraestructura útil, produciendo responsablemente y atendiendo necesidades.'), L(
+      'Non-transferable · not cryptocurrency · not a wallet balance',
+      'Não transferível · não é criptomoeda · não é saldo de carteira',
+      'No transferible · no es criptomoneda · no es saldo de cartera'));
+    concept('▦', L('The ledger preserves history', 'O ledger preserva o histórico', 'El ledger preserva el historial'), L(
+      'Important actions become linked records. Changing an older record would break the hashes that follow it.',
+      'Ações importantes viram registros encadeados. Alterar um registro antigo quebraria os hashes seguintes.',
+      'Las acciones importantes se vuelven registros enlazados. Cambiar uno antiguo rompería los hashes siguientes.'), L(
+      'The authoritative server still decides every move and result',
+      'O servidor autoritativo ainda decide cada ação e resultado',
+      'El servidor autoritativo sigue decidiendo cada acción y resultado'));
+    concept('◇', L('Blockchain is an optional receipt', 'Blockchain é um recibo opcional', 'Blockchain es un recibo opcional'), L(
+      'When enabled, only a final ledger hash is anchored to a contract. It proves which record existed; it does not run the match or store ordinary gameplay.',
+      'Quando ativada, apenas um hash final do ledger é ancorado em um contrato. Ele prova qual registro existia; não executa a partida nem guarda o gameplay comum.',
+      'Cuando está activa, solo un hash final del ledger se ancla en un contrato. Prueba qué registro existía; no ejecuta la partida ni guarda el juego normal.'), L(
+      'No token · no NFT · no pay-to-win · the game works with chain off',
+      'Sem token · sem NFT · sem pay-to-win · o jogo funciona com a chain desligada',
+      'Sin token · sin NFT · sin pay-to-win · el juego funciona con la cadena apagada'));
+    b.appendChild(primer);
+
     // ELON balance and settlement.
     const grid = el('div', 'ledger-grid');
     const elon = el('article', 'ledger-card ledger-elon');
@@ -118,9 +152,9 @@ export class LedgerPage {
     settle.addEventListener('click', () => { settle.disabled = true; this.deps.onSettle(); });
     elon.appendChild(settle);
     elon.appendChild(el('p', 'ledger-note', L(
-      'Settling moves whole ELON out of your playable balance into a sealed ledger block, then anchors that block\'s head on chain.',
-      'Liquidar move o ELON inteiro do saldo jogável para um bloco selado do ledger e ancora a cabeça desse bloco na chain.',
-      'Liquidar mueve el ELON entero del saldo jugable a un bloque sellado y ancla la cabeza de ese bloque en la chain.')));
+      'Settling records whole ELON in a sealed ledger block. If blockchain anchoring is enabled, only that block hash is submitted as a receipt.',
+      'Liquidar registra o ELON inteiro em um bloco selado do ledger. Se a ancoragem blockchain estiver ativa, apenas o hash desse bloco é enviado como recibo.',
+      'Liquidar registra el ELON entero en un bloque sellado del ledger. Si el anclaje blockchain está activo, solo el hash de ese bloque se envía como recibo.')));
     grid.appendChild(elon);
 
     const sets = el('article', 'ledger-card');

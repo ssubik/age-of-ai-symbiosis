@@ -47,7 +47,7 @@ export class SkirmishLauncher {
     card.setAttribute('role', 'dialog');
     card.setAttribute('aria-label', 'Skirmish');
     card.appendChild(el('h2', '', 'Skirmish'));
-    card.appendChild(el('p', 'skirmish-lede', 'A 1v1 match: destroy the enemy Command Core. Your AI commander executes strategy within the authority you give it — you can always override it.'));
+    card.appendChild(el('p', 'skirmish-lede', 'A fast demo battle against a computer base. You start in an advanced age with abundant resources, so you can build, manufacture an army, and attack within minutes. Destroy the enemy Command Core.'));
 
     card.appendChild(el('span', 'skirmish-label', 'AI COMMANDER'));
     const personas = el('div', 'skirmish-personas');
@@ -84,7 +84,7 @@ export class SkirmishLauncher {
     const actions = el('div', 'skirmish-actions');
     const cancel = el('button', 'skirmish-cancel', 'Back to city');
     cancel.addEventListener('click', () => this.hide());
-    const start = el('button', 'skirmish-start', 'Start match');
+    const start = el('button', 'skirmish-start', 'Start 5-minute demo');
     start.addEventListener('click', () => {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.options)); } catch { /* storage blocked */ }
       this.hide();

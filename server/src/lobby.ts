@@ -369,6 +369,9 @@ export class Lobby {
     if (!room) return;
     room.broadcast = false;
     room.skirmish = true;
+    // Public demo vertical slice: enough resources and unlocked production to
+    // build a recognizable base and reach combat in one short sitting.
+    room.mode = 'batalha';
     for (const m of room.members.values()) if (m.isBot) m.difficulty = difficulty;
     this.startGame(conn);
     room.game?.enqueueCommand(conn.id, { kind: 'setCommander', persona, autonomy });

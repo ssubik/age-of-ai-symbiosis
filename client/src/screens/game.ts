@@ -81,6 +81,7 @@ export class GameScreen {
   private guideCollapsed = false;
   private goalSig = '';
   private productionCycle = 0;
+  private conceptOverlay: HTMLElement | null = null;
 
   private rafId = 0;
   private resizeObserver: ResizeObserver | null = null;
@@ -130,10 +131,13 @@ export class GameScreen {
       const ledger = el('button', 'home-ledger-btn', '⛓ Ledger');
       ledger.title = 'Open the city ledger: activity log and ELON settlement';
       ledger.addEventListener('click', () => this.deps.onOpenLedger?.());
+      const concepts = el('button', 'home-ledger-btn home-concepts-btn', 'ELON & proof');
+      concepts.title = 'What ELON means and what blockchain does (and does not do)';
+      concepts.addEventListener('click', () => this.showConceptGuide());
       const skirmish = el('button', 'home-ledger-btn home-skirmish-btn', '⚔ Skirmish');
       skirmish.title = 'Leave the city for a 1v1 match with your AI commander (your city is saved)';
       skirmish.addEventListener('click', () => this.deps.onSkirmish?.());
-      bar.append(this.homeBadge, ledger, skirmish);
+      bar.append(this.homeBadge, concepts, ledger, skirmish);
       root.appendChild(bar);
       this.guideEl = el('aside', 'city-guide');
       this.guideEl.setAttribute('aria-label', 'City guide');
@@ -189,6 +193,12 @@ export class GameScreen {
       this.elonScore = el('span', 'elon-score', '');
       contribution.appendChild(this.elonScore);
       contribution.title = t('elon.explain');
+      contribution.setAttribute('role', 'button');
+      contribution.tabIndex = 0;
+      contribution.addEventListener('click', () => this.showConceptGuide());
+      contribution.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') this.showConceptGuide();
+      });
       root.appendChild(contribution);
 
       const ledger = el('aside', 'chain-panel collapsed');
@@ -217,6 +227,8 @@ export class GameScreen {
 
     this.connLost = new ConnLostOverlay({ onBackToLobby: () => this.deps.onBackToLobby() });
     root.appendChild(this.connLost.el);
+    this.conceptOverlay = this.createConceptGuide();
+    root.appendChild(this.conceptOverlay);
 
     // Overlay de PAUSA (aparece pra todos quando alguém aperta P).
     this.pauseOverlay = el('div', 'pause-overlay so-aviso hidden');
@@ -402,16 +414,58 @@ export class GameScreen {
     const build = (type: BuildingType) => () => { this.openBuildFlow(); this.input.startPlacement(type); };
     const level = me?.age ?? 1;
     return [
-      { title: 'Power the grid', hint: 'Place a Solar Field on an empty plot. Roads stay clear.', done: has('solar_array') || has('wind_turbine'), show: build('solar_array') },
-      { title: 'Build a Robotics Workshop', hint: 'It trains builders and runs unit research.', done: has('robotics_workshop'), show: build('robotics_workshop') },
-      { title: 'Reach City Level 2', hint: 'Select the Civic Hub and upgrade it once its checklist is complete.', done: level >= 2, show: () => this.selectTownCenter() },
-      { title: 'Build a Drone Factory', hint: 'Your first weapons plant.', done: has('drone_factory'), show: build('drone_factory') },
-      { title: 'Build an Army Camp', hint: 'Finished units dock here; a full camp pauses the factory.', done: has('army_camp'), show: build('army_camp') },
-      { title: 'Manufacture an Attack Drone', hint: 'Select the Drone Factory and queue a drone.', done: [...this.state.units.values()].some((u) => u.owner === this.state.you && u.type === 'attack_drone') || !!home?.lastReport, show: () => { this.selectOwnBuilding('drone_factory'); } },
-      { title: 'Raid a base', hint: 'Open Attack, scout a base, reserve your drones and deploy them in the cyan band.', done: !!home?.lastReport, show: () => { this.raidOpen = true; this.raidSig = ''; } },
-      { title: 'Research Attack Drone', hint: 'Select the Robotics Workshop and start drone research.', done: (home?.research.attack_drone ?? 0) >= 1, show: () => { this.selectOwnBuilding('robotics_workshop'); } },
-      { title: 'Settle ELON', hint: 'Open the ledger and settle your ELON into a sealed block.', done: (home?.elonSettled ?? 0) > 0, show: () => this.deps.onOpenLedger?.() },
+      { title: 'Stage 1 · Establish power', hint: 'Build a Solar Field. Power is the foundation for automated builders and future weapons production. Attack is not available yet.', done: has('solar_array') || has('wind_turbine'), show: build('solar_array') },
+      { title: 'Stage 2 · Establish automation', hint: 'Build a Robotics Workshop. This completes the infrastructure required to upgrade the Civic Hub.', done: has('robotics_workshop'), show: build('robotics_workshop') },
+      { title: 'Stage 3 · Unlock weapons production', hint: 'Upgrade the Civic Hub to City Level 2. This unlocks the Drone Factory needed for your first strike force.', done: level >= 2, show: () => this.selectTownCenter() },
+      { title: 'Stage 4 · Build the weapons plant', hint: 'Build a Drone Factory. It can manufacture Attack Drones, but they also need storage before an attack can launch.', done: has('drone_factory'), show: build('drone_factory') },
+      { title: 'Stage 5 · Prepare army storage', hint: 'Build an Army Camp. The attack path is now one step away: manufacture at least one Attack Drone.', done: has('army_camp'), show: build('army_camp') },
+      { title: 'Stage 6 · Manufacture a strike force', hint: 'Queue at least one Attack Drone at the Drone Factory. When it finishes, deployment against a computer outpost unlocks.', done: [...this.state.units.values()].some((u) => u.owner === this.state.you && u.type === 'attack_drone') || !!home?.lastReport, show: () => { this.selectOwnBuilding('drone_factory'); } },
+      { title: 'Stage 7 · Attack is unlocked', hint: 'Open Attack, scout a computer base, reserve your drones, then deploy them in the cyan perimeter. Use Next Computer Base for a different layout.', done: !!home?.lastReport, show: () => { this.raidOpen = true; this.raidSig = ''; } },
+      { title: 'Stage 8 · Improve the next strike', hint: 'Research Attack Drone damage at the Robotics Workshop before attacking a stronger outpost.', done: (home?.research.attack_drone ?? 0) >= 1, show: () => { this.selectOwnBuilding('robotics_workshop'); } },
+      { title: 'Stage 9 · Seal your ELON record', hint: 'Open the ledger and settle ELON into your own city history. ELON is not transferred from the attacked base.', done: (home?.elonSettled ?? 0) > 0, show: () => this.deps.onOpenLedger?.() },
     ];
+  }
+
+  private createConceptGuide(): HTMLElement {
+    const overlay = el('div', 'concept-overlay hidden');
+    overlay.tabIndex = -1;
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'ELON and blockchain explained');
+    const page = el('article', 'concept-page');
+    const close = el('button', 'concept-close', '×');
+    close.setAttribute('aria-label', 'Close explanation');
+    close.addEventListener('click', () => overlay.classList.add('hidden'));
+    page.appendChild(close);
+    page.appendChild(el('span', 'concept-kicker', 'HOW THE TRUST MODEL WORKS'));
+    page.appendChild(el('h1', '', 'Contribution first. Proof second. Gameplay always.'));
+    page.appendChild(el('p', 'concept-lede', 'ELON describes what you contributed. The ledger preserves what happened. Blockchain can notarize one final fingerprint. None of them replaces the strategy game.'));
+    const flow = el('div', 'concept-flow');
+    const node = (mark: string, title: string, body: string, foot: string) => {
+      const card = el('section', 'concept-node');
+      card.append(el('span', 'concept-mark', mark), el('h2', '', title), el('p', '', body), el('small', '', foot));
+      flow.appendChild(card);
+    };
+    node('1', 'Play and contribute', 'Build power, factories and defenses; fulfill needs; fight computer outposts or players.', 'The authoritative server validates every action.');
+    node('2', 'Earn ELON standing', 'Energy + Labor + Obligation + Need summarizes useful participation and reliability.', 'It is non-transferable standing—not cash, crypto or a token.');
+    node('3', 'Create a verifiable ledger', 'Important events are hashed into linked blocks. Tampering with history breaks verification.', 'The full gameplay history remains off-chain.');
+    node('4', 'Optionally anchor a receipt', 'If blockchain is enabled, the final hash can be submitted to a contract as proof that this exact ledger existed.', 'Chain off: game still works. Chain on: same gameplay, extra receipt.');
+    page.appendChild(flow);
+    const no = el('div', 'concept-not');
+    no.append(el('strong', '', 'What blockchain does not do'), el('span', '', 'No wallet required · no NFT · no token · no combat validation · no resources stored on-chain · no pay-to-win'));
+    page.appendChild(no);
+    const action = el('button', 'concept-action', 'Got it — continue playing');
+    action.addEventListener('click', () => overlay.classList.add('hidden'));
+    page.appendChild(action);
+    overlay.appendChild(page);
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) overlay.classList.add('hidden'); });
+    overlay.addEventListener('keydown', (event) => { if (event.key === 'Escape') overlay.classList.add('hidden'); });
+    return overlay;
+  }
+
+  private showConceptGuide(): void {
+    this.conceptOverlay?.classList.remove('hidden');
+    this.conceptOverlay?.focus();
   }
 
   private updateGuide(): void {
@@ -952,14 +1006,25 @@ export class GameScreen {
     const sig = `home:${this.raidOpen}:${home?.trophies}:${report?.raidId}:${armySize}:${me?.resources?.compute}:${shieldMin}:${defense[0]?.raidId}`;
     this.attackBtn?.classList.toggle('accent', armySize > 0);
     this.attackBtn?.classList.toggle('locked', false);
-    if (this.attackBtn) this.attackBtn.title = 'Scout a base and raid it with your manufactured army';
+    if (this.attackBtn) this.attackBtn.title = armySize > 0
+      ? 'Attack unlocked: scout a computer outpost and deploy your manufactured army'
+      : 'Scouting is available; manufacture an Attack Drone and store it in an Army Camp to deploy an attack';
     if (sig === this.raidSig) return;
     this.raidSig = sig;
     panel.innerHTML = '';
     panel.classList.toggle('hidden', !this.raidOpen);
     if (!this.raidOpen) return;
     panel.appendChild(el('div', 'raid-kicker', `STRIKE COMMAND · 🏆 ${home?.trophies ?? 0}${shieldMin > 0 ? ` · 🛡 ${shieldMin >= 60 ? `${Math.floor(shieldMin / 60)}h ${shieldMin % 60}m` : `${shieldMin}m`}` : ''}`));
-    panel.appendChild(el('h3', '', 'Raid a base'));
+    panel.appendChild(el('h3', '', 'Attack computer outposts'));
+    const factoryReady = [...this.state.buildings.values()].some((b) => b.owner === this.state.you && b.type === 'drone_factory' && b.progress >= 1);
+    const campReady = [...this.state.buildings.values()].some((b) => b.owner === this.state.you && b.type === 'army_camp' && b.progress >= 1);
+    const readiness = el('div', `raid-readiness ${armySize > 0 ? 'ready' : ''}`);
+    readiness.appendChild(el('strong', '', armySize > 0 ? '✓ ATTACK UNLOCKED' : 'ATTACK PREPARATION'));
+    readiness.appendChild(el('span', '', `${factoryReady ? '✓' : '○'} Drone Factory · ${campReady ? '✓' : '○'} Army Camp · ${armySize > 0 ? '✓' : '○'} Attack Drone`));
+    readiness.appendChild(el('small', '', armySize > 0
+      ? 'Scout, reserve your force, then deploy in the cyan perimeter.'
+      : 'You may scout now, but deployment requires at least one manufactured combat unit.'));
+    panel.appendChild(readiness);
     if (shieldMin > 0) panel.appendChild(el('p', 'raid-muted', 'Your city is shielded from raids. Deploying in a raid of your own breaks the shield.'));
     // Defense log: what attackers were paid by the system; nothing was taken from you.
     for (const d of defense.slice(0, 3)) {
@@ -971,8 +1036,8 @@ export class GameScreen {
     panel.appendChild(el('p', 'raid-muted', armySize > 0
       ? `${armySize} manufactured unit${armySize === 1 ? '' : 's'} ready in your camps.`
       : 'Manufacture Attack Drones at a Drone Factory first. You can still scout.'));
-    const scout = el('button', 'raid-primary', 'Scout a base · free');
-    scout.addEventListener('click', () => this.deps.onRaid?.({ kind: 'scout' }));
+    const scout = el('button', 'raid-primary', 'Scout computer base · free');
+    scout.addEventListener('click', () => this.deps.onRaid?.({ kind: 'scoutBot' }));
     panel.appendChild(scout);
     panel.appendChild(el('p', 'raid-muted', 'Rewards are system-funded; defenders never lose stored resources.'));
   }
@@ -1010,6 +1075,7 @@ export class GameScreen {
         const why = { timer: 'Time ran out', destroyed: 'Base destroyed', eliminated: 'Strike force lost', surrender: 'Surrendered' }[rep.reason];
         panel.appendChild(el('p', 'raid-muted', why));
         panel.appendChild(el('p', 'raid-loot', `Reward ${res(rep.reward)}`));
+        panel.appendChild(el('p', 'raid-loot', `+${rep.elonAward ?? 0} ELON contribution · credited to your base, not taken from the defender`));
         const lost = (['energy', 'alloys', 'compute'] as const).filter((k) => (rep.earned?.[k] ?? 0) > rep.reward[k]);
         if (lost.length) panel.appendChild(el('p', 'raid-muted', `Storage full: ${lost.map((k) => `${(rep.earned[k] ?? 0) - rep.reward[k]} ${k}`).join(' · ')} could not be stored. Upgrade depots to hold more.`));
         panel.appendChild(el('p', 'raid-loot', `${rep.trophiesDelta >= 0 ? '+' : ''}${rep.trophiesDelta} 🏆 · ${rep.deployed} deployed · ${rep.returned} returned to camp`));
@@ -1038,7 +1104,7 @@ export class GameScreen {
       if (!any) panel.appendChild(el('p', 'raid-muted', 'No manufactured units at Home. Build a Drone Factory and an Army Camp.'));
       const chosen = Object.values(this.raidDraft).reduce((a, b) => a + b, 0);
       button('raid-primary', `Reserve ${chosen} unit${chosen === 1 ? '' : 's'}`, { kind: 'reserve', army: { ...this.raidDraft } }, chosen < 1);
-      button('raid-target', `Next base · ${v.nextScoutGold} compute`, { kind: 'next' }, (this.state.me()?.resources?.compute ?? 0) < v.nextScoutGold);
+      button('raid-target', `Next computer base · ${v.nextScoutGold} compute`, { kind: 'next' }, (this.state.me()?.resources?.compute ?? 0) < v.nextScoutGold);
       button('raid-target', 'Back home', { kind: 'cancel' });
       return;
     }

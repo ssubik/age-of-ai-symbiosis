@@ -370,6 +370,6 @@ const heartbeat = setInterval(() => {
 wss.on('close', () => clearInterval(heartbeat));
 
 httpServer.listen(PORT, () => {
-  console.log(`Age of AI server ouvindo na porta ${PORT}`);
+  console.log(`Age of AI: Symbiosis server ouvindo na porta ${PORT}`);
   console.log(`Servindo o cliente de: ${DIST}`);
 });

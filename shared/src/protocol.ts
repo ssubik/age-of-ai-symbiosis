@@ -93,6 +93,7 @@ export type BotDifficulty = 'easy' | 'normal' | 'hard' | 'expert';
  *  server validates each against the session state machine. */
 export type RaidAction =
   | { kind: 'scout' }
+  | { kind: 'scoutBot' }
   | { kind: 'next' }
   | { kind: 'reserve'; army: RaidArmy }
   | { kind: 'deploy'; unit: keyof RaidArmy; x: number; y: number }

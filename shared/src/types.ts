@@ -323,6 +323,8 @@ export interface RaidReport {
   reward: Resources;
   /** What the raid earned before the storage cap; reward < earned means storage was full. */
   earned: Resources;
+  /** Non-transferable contribution standing credited to the attacker. */
+  elonAward?: number;
   trophiesDelta: number;
   deployed: number;
   returned: number;

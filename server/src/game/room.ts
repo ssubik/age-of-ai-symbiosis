@@ -4097,7 +4097,9 @@ export class Game {
   private bootstrapHome(playerId: number): void {
     const player = this.players.get(playerId);
     if (!player) return;
-    player.resources = { energy: 1400, alloys: 2300, compute: 900 };
+    // Fill first-session storage so the guided strike-base loop can be
+    // completed in about five minutes without waiting for offline production.
+    player.resources = { ...HOME_BASE_STORAGE };
     const starters = [...this.units.values()].filter((u) => u.owner === playerId).sort((a, b) => a.id - b.id);
     if (starters[0]) starters[0].type = 'designer';
     if (starters[1]) { starters[1].type = 'robot'; starters[1].hp = UNIT_DEFS.robot.hp; }
@@ -5103,6 +5105,17 @@ export class Game {
       p.resources[key] += credit;
       granted[key] = credit;
     }
+    return granted;
+  }
+
+  /** Credits raid contribution to the attacker's own standing. Nothing is
+   *  deducted from the defender; ELON remains non-transferable. */
+  grantRaidElon(amount: number): number {
+    const p = this.homePlayer();
+    if (!p) return 0;
+    const room = Math.max(0, this.elonCapacityOf(p.id) - p.elonBalance);
+    const granted = Math.min(room, Math.max(0, Math.floor(amount)));
+    p.elonBalance += granted;
     return granted;
   }
 

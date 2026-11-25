@@ -2,7 +2,7 @@
 // aberto pela engrenagem em qualquer tela. Modelado no ConnLostOverlay.
 
 import { el } from '../ui';
-import { settings, RENDER_SCALES, LANGS, type Lang } from '../settings';
+import { settings, saveSettings, RENDER_SCALES, LANGS, type Lang } from '../settings';
 import { t } from '../i18n';
 
 /** Rótulo de cada idioma no seletor (sempre no próprio idioma — assim qualquer
@@ -94,6 +94,24 @@ export class SettingsOverlay {
 
     const hint = el('p', 'opt-hint', t('opt.res_hint'));
     card.appendChild(hint);
+
+    // Camera: edge scrolling is opt-in; the rest of the controls are listed.
+    const edge = el('div', 'opt-row');
+    edge.appendChild(el('span', 'opt-label', t('opt.edge_scroll')));
+    const edgeBtns = el('div', 'opt-scales');
+    const mark = (): void => {
+      off.classList.toggle('active', !settings.edgeScroll);
+      on.classList.toggle('active', settings.edgeScroll);
+    };
+    const off = el('button', 'btn scale-btn', t('opt.off'));
+    const on = el('button', 'btn scale-btn', t('opt.on'));
+    off.addEventListener('click', () => { settings.edgeScroll = false; saveSettings(); mark(); });
+    on.addEventListener('click', () => { settings.edgeScroll = true; saveSettings(); mark(); });
+    edgeBtns.append(off, on);
+    edge.appendChild(edgeBtns);
+    card.appendChild(edge);
+    mark();
+    card.appendChild(el('p', 'opt-hint', t('opt.camera_hint')));
 
     const proof = el('section', 'proof-boundary');
     proof.appendChild(el('h3', 'proof-boundary-title', t('opt.proof_title')));

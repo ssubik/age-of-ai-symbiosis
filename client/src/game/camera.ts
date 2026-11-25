@@ -18,8 +18,8 @@ export const ISO_HH = 16;
 // Tactical zoom remains deliberately narrow: enough to read a battle or plan a
 // district, never far enough to turn the battlefield into a minimap.
 export const VIEW_ZOOM = 1.1;
-export const MIN_ZOOM = 0.78;
-export const MAX_ZOOM = 1.48;
+export const MIN_ZOOM = 0.55;
+export const MAX_ZOOM = 1.8;
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -40,6 +40,13 @@ export class Camera {
     this.x = mapSize / 2;
     this.y = mapSize / 2;
   }
+
+  /** Smooth zoom: the zoom eases toward this target around a fixed screen anchor. */
+  private zoomTarget = VIEW_ZOOM;
+  private zoomAnchor = { x: 0, y: 0 };
+  /** Pan momentum after a drag is released (CSS px per second). */
+  private vx = 0;
+  private vy = 0;
 
   /** Aproximação de pixels CSS por tile (largura), para usos legados. */
   get scale(): number {
@@ -89,7 +96,43 @@ export class Camera {
     this.clampToMap();
   }
 
-  /** Arrasta o mundo pela viewport (dxPx/dyPx = -delta do mouse, vindo do input). */
+  /** Requests a zoom change that glides there over a few frames. */
+  zoomBy(factor: number, sx = this.viewW / 2, sy = this.viewH / 2): void {
+    this.zoomTarget = clamp(this.zoomTarget * factor, MIN_ZOOM, MAX_ZOOM);
+    this.zoomAnchor = { x: sx, y: sy };
+  }
+
+  /** Lets a released drag keep gliding: the map keeps moving the way the hand moved (px/s). */
+  fling(vx: number, vy: number): void {
+    const speed = Math.hypot(vx, vy);
+    const max = 2600;
+    const k = speed > max ? max / speed : 1;
+    this.vx = vx * k;
+    this.vy = vy * k;
+  }
+
+  /** Stops any momentum (a new drag or keyboard pan takes over). */
+  hold(): void {
+    this.vx = 0;
+    this.vy = 0;
+  }
+
+  /** Advances smooth zoom and pan momentum; call once per frame. */
+  update(dt: number): void {
+    if (Math.abs(this.zoomTarget - this.zoom) > 0.0005) {
+      const k = 1 - Math.exp(-dt * 16);
+      this.setZoomAt(this.zoom + (this.zoomTarget - this.zoom) * k, this.zoomAnchor.x, this.zoomAnchor.y);
+    }
+    if (this.vx !== 0 || this.vy !== 0) {
+      this.panPx(this.vx * dt, this.vy * dt);
+      const decay = Math.exp(-dt * 5.5);
+      this.vx *= decay;
+      this.vy *= decay;
+      if (Math.hypot(this.vx, this.vy) < 12) this.hold();
+    }
+  }
+
+  /** Shifts the MAP on screen by (dxPx, dyPx); the view moves the opposite way. */
   panPx(dxPx: number, dyPx: number): void {
     // Converte o deslocamento de tela para deslocamento de mundo e move o alvo.
     const center = this.screenToWorld(this.viewW / 2, this.viewH / 2);

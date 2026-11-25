@@ -11,6 +11,7 @@ import type { Sfx } from './audio';
 import type { Camera } from './camera';
 import type { UIState } from './uistate';
 import { ghostTile, wallLineTiles } from './uistate';
+import { settings } from '../settings';
 
 export interface InputDeps {
   onCommand: (cmd: GameCommand) => void;
@@ -22,6 +23,7 @@ export interface InputDeps {
   openChat: () => void;
 }
 
+/** Screen directions: W/↑ moves the view up the screen, not along a map axis. */
 const PAN_KEYS: Record<string, [number, number]> = {
   w: [0, -1], ArrowUp: [0, -1],
   s: [0, 1], ArrowDown: [0, 1],
@@ -29,8 +31,8 @@ const PAN_KEYS: Record<string, [number, number]> = {
   d: [1, 0], ArrowRight: [1, 0],
 };
 
-const PAN_SPEED = 12; // tiles/segundo em zoom 1
-const EDGE_MARGIN = 26; // px da borda que ativam a rolagem
+const KEY_PAN_SPEED = 900; // px/segundo (Shift dobra)
+const EDGE_MARGIN = 18; // px da borda que ativam a rolagem (opcional, nas Opções)
 const EDGE_SPEED = 620; // px/segundo da rolagem pela borda
 
 export class GameInput {
@@ -49,6 +51,8 @@ export class GameInput {
   private dragSelecting = false;
   private dragAdditive = false;
   private lastFrameT = 0;
+  /** Recent drag motion, for momentum when the drag is released. */
+  private dragVel = { x: 0, y: 0, at: 0 };
   private paused = false; // partida pausada: bloqueia comandos/câmera (só P e chat passam)
 
   constructor(
@@ -123,10 +127,23 @@ export class GameInput {
     const rect = this.canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
-    // Trackpads send small deltas and mouse wheels usually send ~100. An
-    // exponential scale treats both consistently and avoids uneven steps.
-    const delta = Math.max(-180, Math.min(180, e.deltaY));
-    this.cam.setZoomAt(this.cam.zoom * Math.exp(-delta * 0.0015), sx, sy);
+    // Pinch (trackpad, reported as ctrl+wheel) zooms finely.
+    if (e.ctrlKey) {
+      this.cam.zoomBy(Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * 0.012), sx, sy);
+      return;
+    }
+    // A mouse wheel moves in notches (line mode, or multiples of 120 in the
+    // legacy delta); everything else is a two-finger trackpad swipe, which pans.
+    const legacy = (e as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY;
+    const notched = e.deltaMode !== 0 || (e.deltaX === 0 && legacy !== undefined && legacy !== 0 && Math.abs(legacy) % 120 === 0);
+    if (!notched) {
+      this.cam.hold();
+      // Same convention as page scrolling: a positive delta reveals what lies further right/down.
+      this.cam.panPx(-e.deltaX, -e.deltaY);
+      return;
+    }
+    const delta = Math.max(-180, Math.min(180, e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY));
+    this.cam.zoomBy(Math.exp(-delta * 0.0018), sx, sy);
   };
 
   /** Chamado a cada frame para aplicar o pan por teclado. */
@@ -138,8 +155,10 @@ export class GameInput {
 
     let dx = 0;
     let dy = 0;
+    let fast = false;
     for (const k of this.keysDown) {
-      const v = PAN_KEYS[k];
+      if (k === 'Shift') fast = true;
+      const v = PAN_KEYS[k.length === 1 ? k.toLowerCase() : k];
       if (v) {
         dx += v[0];
         dy += v[1];
@@ -147,14 +166,16 @@ export class GameInput {
     }
     if (dx !== 0 || dy !== 0) {
       const len = Math.hypot(dx, dy) || 1;
-      this.cam.x += (dx / len) * PAN_SPEED * dt;
-      this.cam.y += (dy / len) * PAN_SPEED * dt;
-      this.cam.clampToMap();
+      const step = KEY_PAN_SPEED * (fast ? 2 : 1) * dt;
+      this.cam.hold();
+      // panPx shifts the MAP by the given pixels; the view moves the other way.
+      this.cam.panPx(-(dx / len) * step, -(dy / len) * step);
     }
+    this.cam.update(dt);
 
-    // Preserva a navegação clássica de RTS pelas quatro bordas. Ela fica
-    // desligada enquanto qualquer arrasto está ativo para não somar dois pans.
-    if (this.ui.hasMouse && !this.leftDown && !this.mmDragging) {
+    // Edge scrolling is opt-in (Options): many players find it disorienting.
+    // It is off while any drag is active so two pans never add up.
+    if (settings.edgeScroll && this.ui.hasMouse && !this.leftDown && !this.mmDragging) {
       let ex = 0;
       let ey = 0;
       if (this.ui.mouseX < EDGE_MARGIN) ex = -1;
@@ -178,6 +199,8 @@ export class GameInput {
     const pos = this.canvasPos(e);
     this.lastMouse = pos;
 
+    this.cam.hold();
+    this.dragVel = { x: 0, y: 0, at: performance.now() };
     if (e.button === 1) {
       e.preventDefault();
       this.mmDragging = true;
@@ -235,12 +258,15 @@ export class GameInput {
     if (this.mmDragging) {
       const dx = pos.x - this.lastMouse.x;
       const dy = pos.y - this.lastMouse.y;
-      this.cam.panPx(-dx, -dy);
+      // Grab-to-pan: the map follows the hand (panPx shifts the map).
+      this.cam.panPx(dx, dy);
+      this.trackDrag(dx, dy);
     } else if (this.leftDown && this.leftPanning && !this.ui.placement) {
       const dx = pos.x - this.lastMouse.x;
       const dy = pos.y - this.lastMouse.y;
       if (Math.hypot(pos.x - this.leftDownAt.x, pos.y - this.leftDownAt.y) > 3) this.dragSelecting = true;
-      this.cam.panPx(-dx, -dy);
+      this.cam.panPx(dx, dy);
+      this.trackDrag(dx, dy);
       this.canvas.style.cursor = 'grabbing';
     } else if (this.leftDown && !this.ui.placement) {
       const dx = pos.x - this.leftDownAt.x;
@@ -255,10 +281,25 @@ export class GameInput {
     this.lastMouse = pos;
   };
 
+  /** Smoothed drag velocity (px/s), sampled from mouse moves. */
+  private trackDrag(dx: number, dy: number): void {
+    const now = performance.now();
+    const dt = Math.max(1, now - this.dragVel.at) / 1000;
+    const k = 0.35;
+    this.dragVel = { x: this.dragVel.x * (1 - k) + (dx / dt) * k, y: this.dragVel.y * (1 - k) + (dy / dt) * k, at: now };
+  }
+
+  /** Releasing a drag keeps the map gliding briefly, unless the pointer had stopped. */
+  private releaseDrag(): void {
+    if (performance.now() - this.dragVel.at < 80) this.cam.fling(this.dragVel.x, this.dragVel.y);
+    this.dragVel = { x: 0, y: 0, at: 0 };
+  }
+
   private onMouseUp = (e: MouseEvent): void => {
     if (e.button === 1) {
       this.mmDragging = false;
       this.canvas.style.cursor = 'grab';
+      this.releaseDrag();
       return;
     }
     if (e.button === 0 && this.ui.wallDrag) {
@@ -272,6 +313,7 @@ export class GameInput {
       const pos = this.canvasPos(e);
       if (this.leftPanning && this.dragSelecting) {
         // Camera drag is not a click and must not alter selection.
+        this.releaseDrag();
       } else if (this.dragSelecting && this.ui.boxRect) {
         this.finishBoxSelect(this.ui.boxRect, this.dragAdditive);
       } else {
@@ -304,6 +346,12 @@ export class GameInput {
       } else if (this.gs.selection.size > 0) {
         this.gs.selection.clear();
       }
+      return;
+    }
+    if (e.key === ' ' && !e.repeat) {
+      // Space: jump the camera to the current selection.
+      e.preventDefault();
+      this.focusSelection();
       return;
     }
     if (e.key === 'h' || e.key === 'H') {
@@ -371,10 +419,35 @@ export class GameInput {
       else this.recallGroup(n);
       return;
     }
-    if (e.key in PAN_KEYS) {
-      this.keysDown.add(e.key);
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (key in PAN_KEYS || key === 'Shift') {
+      this.keysDown.add(key);
     }
   };
+
+  /** Centers the camera on the selected units/buildings (Space). */
+  private focusSelection(): void {
+    const now = performance.now();
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (const id of this.gs.selection) {
+      const u = this.gs.units.get(id);
+      if (u) {
+        const p = this.gs.unitPos(u, now);
+        sx += p.x; sy += p.y; n++;
+        continue;
+      }
+      const b = this.gs.buildings.get(id);
+      if (b) {
+        const size = BUILDING_DEFS[b.type]?.size ?? 1;
+        sx += b.tileX + size / 2; sy += b.tileY + size / 2; n++;
+      }
+    }
+    if (n === 0) return;
+    this.cam.hold();
+    this.cam.centerOn(sx / n, sy / n);
+  }
 
   private saveGroup(n: number): void {
     const ids = this.gs.selectedOwnUnits().map((u) => u.id);
@@ -417,7 +490,7 @@ export class GameInput {
   }
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    this.keysDown.delete(e.key);
+    this.keysDown.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
   };
 
   // ---------------------------------------------------------------- seleção

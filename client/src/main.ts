@@ -106,7 +106,7 @@ document.body.appendChild(gearBtn);
 
 const bootEl = document.createElement('div');
 bootEl.className = 'boot-screen';
-bootEl.innerHTML = '<div class="boot-mark">AGE OF AI</div>';
+bootEl.innerHTML = '<div class="boot-mark">AGE OF AI: SYMBIOSIS</div>';
 const bootStatus = document.createElement('p');
 bootStatus.className = 'boot-status';
 bootStatus.textContent = L('Opening your city…', 'Abrindo sua cidade…', 'Abriendo tu ciudad…');
