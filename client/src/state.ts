@@ -509,6 +509,20 @@ export class GameState {
     return true;
   }
 
+  /** Unfinished owned site whose actual ground footprint contains this point.
+   * Contextual builder orders use this before general visual picking so a
+   * worker standing on the scaffolding cannot swallow the resume command. */
+  unfinishedBuildingAt(wx: number, wy: number): BuildingSnap | undefined {
+    for (const b of this.buildings.values()) {
+      if (b.owner !== this.you || (b.progress ?? 1) >= 1) continue;
+      const size = BUILDING_DEFS[b.type]?.size ?? 1;
+      const ins = B_INSET[b.type] ?? 0;
+      if (wx >= b.tileX + ins && wx < b.tileX + size - ins &&
+          wy >= b.tileY + ins && wy < b.tileY + size - ins) return b;
+    }
+    return undefined;
+  }
+
   /** Entidade sob o ponto do mundo (unidade > prédio > nó) — clique "VISUAL":
    *  os objetos são desenhados PARA CIMA a partir da base e, na projeção
    *  isométrica 2:1, subir na tela equivale a andar na diagonal (+x,+y) do
@@ -579,8 +593,8 @@ export class GameState {
     for (const b of clickableBuildings) {
       const size = BUILDING_DEFS[b.type]?.size ?? 1;
       const ins = B_INSET[b.type] ?? 0;
-      if (wx >= b.tileX + ins && wx <= b.tileX + size - ins &&
-          wy >= b.tileY + ins && wy <= b.tileY + size - ins) {
+      if (wx >= b.tileX + ins && wx < b.tileX + size - ins &&
+          wy >= b.tileY + ins && wy < b.tileY + size - ins) {
         return { kind: 'building', building: b };
       }
     }

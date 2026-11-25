@@ -660,10 +660,24 @@ export class GameInput {
     }
 
     if (ownUnits.length > 0) {
-      const pick = this.gs.pickAt(w.x, w.y, performance.now());
       const unitIds = ownUnits.map((u) => u.id);
       const hasVillager = ownUnits.some((u) => u.type === 'villager');
       const hasBuilder = ownUnits.some((u) => isBuilderUnit(u.type));
+      // A builder commonly stands directly on a construction site's artwork.
+      // General picking gives units priority, which used to turn a right-click
+      // there into a no-op move to the worker's current position. For this
+      // contextual order, the unfinished ground footprint is unambiguous and
+      // must win before units and overlapping sprites.
+      const unfinished = hasBuilder ? this.gs.unfinishedBuildingAt(w.x, w.y) : undefined;
+      if (unfinished) {
+        this.mark('build', w.x, w.y, unfinished.id);
+        this.cmd({
+          kind: 'build', unitIds, building: unfinished.type,
+          tileX: unfinished.tileX, tileY: unfinished.tileY, queue,
+        });
+        return;
+      }
+      const pick = this.gs.pickAt(w.x, w.y, performance.now());
 
       if (pick?.kind === 'node') {
         // peixe é coisa de BARCO PESQUEIRO; o resto é coisa de aldeão

@@ -81,6 +81,8 @@ gs.buildings.set(foreground.id, foreground); // inserido primeiro: reproduz o bu
 gs.buildings.set(unfinished.id, unfinished);
 const resumed = gs.pickAt(2, 2, performance.now());
 check('footprint da obra vence sprite sobreposto de prédio antigo', resumed?.kind === 'building' && resumed.building.id === unfinished.id);
+check('ordem contextual encontra obra incompleta pelo footprint', gs.unfinishedBuildingAt(2, 2)?.id === unfinished.id);
+check('borda compartilhada não pertence aos dois footprints', gs.unfinishedBuildingAt(3, 3) === undefined);
 
 console.log(fail === 0 ? `\nTODOS OS ${pass} TESTES DE MULTI-SELEÇÃO PASSARAM` : `\n${fail} FALHA(S)`);
 process.exit(fail === 0 ? 0 : 1);
