@@ -86,6 +86,8 @@ export interface HudDeps {
   getPlacement: () => BuildingType | null;
   /** Home: physical one-level upgrade of a building. */
   onUpgrade?: (buildingId: number) => void;
+  /** Reassign builders to an unfinished site without requiring right-click. */
+  onResumeConstruction: (building: BuildingSnap) => void;
   /** Home: next research level for a unit family. */
   onUnitResearch?: (unit: UnitType) => void;
 }
@@ -604,7 +606,7 @@ export class Hud {
         const n = gs.selectedOwnBuildings().filter((x) => x.type === b.type && (x.progress ?? 1) >= 1).length;
         return { key: `train:${b.id}x${n}`, building: b };
       }
-      if ((b.progress ?? 1) < 1) return { key: 'hint:construction' };
+      if ((b.progress ?? 1) < 1) return { key: `construction:${b.id}`, building: b };
       if (b.type === 'farm') return { key: 'hint:farm' };
       return { key: 'hint:house' };
     }
@@ -686,6 +688,16 @@ export class Hud {
         }
       }
       this.actPanel.appendChild(grid);
+      return;
+    }
+
+    if (ctx.key.startsWith('construction:') && ctx.building) {
+      const b = ctx.building;
+      this.actPanel.appendChild(el('div', 'act-title', t('hud.resume_construction')));
+      this.actPanel.appendChild(el('div', 'hint', t('hint.construction_button')));
+      const resume = el('button', 'btn cmd-btn age-btn', t('hud.send_builders'));
+      resume.addEventListener('click', () => this.deps.onResumeConstruction(b));
+      this.actPanel.appendChild(resume);
       return;
     }
 

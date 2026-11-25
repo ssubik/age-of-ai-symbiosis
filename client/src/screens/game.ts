@@ -166,6 +166,16 @@ export class GameScreen {
       getPlacement: () => this.input.ui.placement,
       onUpgrade: (buildingId) => this.deps.onCommand({ kind: 'upgradeBuilding', buildingId }),
       onUnitResearch: (unit) => this.deps.onCommand({ kind: 'unitResearch', unit }),
+      onResumeConstruction: (building) => {
+        const unitIds = [...this.state.units.values()]
+          .filter((unit) => unit.owner === this.state.you && isBuilderUnit(unit.type))
+          .map((unit) => unit.id);
+        if (unitIds.length === 0) return;
+        this.deps.onCommand({
+          kind: 'build', unitIds, building: building.type,
+          tileX: building.tileX, tileY: building.tileY,
+        });
+      },
     };
     this.createHud();
     root.appendChild(this.hud.el);
