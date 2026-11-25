@@ -157,6 +157,9 @@ export const HOME_PRODUCTION_PER_HOUR: Partial<Record<BuildingType, Partial<Reso
   farm: { energy: 120 }, mill: { energy: 80 }, lumber_camp: { alloys: 100 },
   mining_camp: { alloys: 55, compute: 55 }, solar_array: {},
 };
+/** Live demo economy: two hours of passive output arrive each minute. The
+ * persistent/offline calculation remains real-time and storage-capped. */
+export const HOME_DEMO_PRODUCTION_MULTIPLIER = 120;
 export const HOME_BASE_STORAGE: Resources = { energy: 2000, alloys: 3500, compute: 1500 };
 export const HOME_STORAGE_PER_DEPOT: Partial<Record<BuildingType, Partial<Resources>>> = {
   mill: { energy: 1000 }, lumber_camp: { alloys: 1000 },
@@ -310,7 +313,8 @@ export interface UnitResearchDef {
 /** Five research levels per unit, one primary attribute each (spec §5). */
 export const HOME_RESEARCH_MAX = 5;
 export const HOME_UNIT_RESEARCH: Partial<Record<UnitType, UnitResearchDef>> = {
-  attack_drone: { effect: 'damage', perLevel: 0.05, cost: { alloys: 60, compute: 120 }, time: 40 },
+  // First-strike research belongs to the five-minute demo path.
+  attack_drone: { effect: 'damage', perLevel: 0.05, cost: { alloys: 30, compute: 40 }, time: 12 },
   siege_mech: { effect: 'hit points', perLevel: 0.06, cost: { alloys: 120, compute: 160 }, time: 50 },
   rocket_launcher: { effect: 'range', perLevel: 0.04, cost: { alloys: 100, compute: 160 }, time: 50 },
   fighter: { effect: 'damage vs defenses', perLevel: 0.04, cost: { alloys: 100, compute: 200 }, time: 60 },

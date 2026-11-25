@@ -89,6 +89,7 @@ import {
   HOME_LEVEL_POINTS,
   HOME_OFFLINE_CAP_SECONDS,
   HOME_PRODUCTION_PER_HOUR,
+  HOME_DEMO_PRODUCTION_MULTIPLIER,
   HOME_STORAGE_PER_DEPOT,
 } from '@age/shared';
 import type {
@@ -4457,7 +4458,10 @@ export class Game {
         for (const key of Object.keys(production) as ResourceType[]) {
           // Production stops at capacity; it never destroys stock already above it.
           if (player.resources[key] >= caps[key]) continue;
-          player.resources[key] = Math.min(caps[key], player.resources[key] + (production[key] ?? 0) * scale * dt / 3600);
+          player.resources[key] = Math.min(
+            caps[key],
+            player.resources[key] + (production[key] ?? 0) * scale * HOME_DEMO_PRODUCTION_MULTIPLIER * dt / 3600,
+          );
         }
       }
     }
