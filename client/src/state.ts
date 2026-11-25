@@ -560,6 +560,7 @@ export class GameState {
       return lo <= hi;
     };
 
+    const clickableBuildings: BuildingSnap[] = [];
     for (const b of this.buildings.values()) {
       const size = BUILDING_DEFS[b.type]?.size ?? 1;
       // Inimigo só é SELECIONÁVEL com o tile à vista (o "lembrado" na névoa
@@ -567,6 +568,27 @@ export class GameState {
       // também é assim). Meus/aliados sempre.
       if (!this.alliedOwners.has(b.owner) &&
           !this.fog.isVisible(Math.floor(b.tileX + size / 2), Math.floor(b.tileY + size / 2))) continue;
+      clickableBuildings.push(b);
+    }
+
+    // Ground footprint takes priority over the tall visual hit area. Without
+    // this pass, an older building down-screen can be returned first when its
+    // sprite overlaps a newer construction site behind it. Builders then obey
+    // a perfectly valid order for the wrong building instead of resuming the
+    // unfinished site the player actually clicked.
+    for (const b of clickableBuildings) {
+      const size = BUILDING_DEFS[b.type]?.size ?? 1;
+      const ins = B_INSET[b.type] ?? 0;
+      if (wx >= b.tileX + ins && wx <= b.tileX + size - ins &&
+          wy >= b.tileY + ins && wy <= b.tileY + size - ins) {
+        return { kind: 'building', building: b };
+      }
+    }
+
+    // No footprint under the cursor: retain visual-body clicking for the
+    // upper parts of sprites.
+    for (const b of clickableBuildings) {
+      const size = BUILDING_DEFS[b.type]?.size ?? 1;
       const ins = B_INSET[b.type] ?? 0;
       if (diagHit(b.tileX + ins, b.tileY + ins, b.tileX + size - ins, b.tileY + size - ins, B_H[b.type] ?? 2.5)) {
         return { kind: 'building', building: b };

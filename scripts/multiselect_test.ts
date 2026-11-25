@@ -71,5 +71,16 @@ const t2 = gs.selectedOwnBuildings().filter((x) => x.type === rep2!.type);
 check('representante do misto é o TC(5)', rep2?.id === 5 && rep2?.type === 'town_center');
 check('fan-out do TC mira só o TC, não o barracks', t2.length === 1 && t2[0].id === 5);
 
+// (6) A área visual alta de um prédio mais antigo não pode roubar o clique no
+// footprint de uma obra atrás dele. Esse clique é também o usado pelo botão
+// direito para mandar construtores retomarem uma obra incompleta.
+gs.buildings.clear();
+const foreground = { ...b(20, 0, 'town_center'), tileX: 4, tileY: 4 };
+const unfinished = { ...b(21, 0, 'barracks', 0.35), tileX: 0, tileY: 0 };
+gs.buildings.set(foreground.id, foreground); // inserido primeiro: reproduz o bug
+gs.buildings.set(unfinished.id, unfinished);
+const resumed = gs.pickAt(2, 2, performance.now());
+check('footprint da obra vence sprite sobreposto de prédio antigo', resumed?.kind === 'building' && resumed.building.id === unfinished.id);
+
 console.log(fail === 0 ? `\nTODOS OS ${pass} TESTES DE MULTI-SELEÇÃO PASSARAM` : `\n${fail} FALHA(S)`);
 process.exit(fail === 0 ? 0 : 1);
